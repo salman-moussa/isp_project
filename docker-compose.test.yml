@@ -1,0 +1,80 @@
+name: ${COMPOSE_PROJECT_NAME:-isp-test}
+
+services:
+  postgres-test:
+    image: ${POSTGRES_IMAGE:-postgres:18.4-alpine}
+    environment:
+      POSTGRES_USER: isp_test
+      POSTGRES_PASSWORD: test-only-not-production
+      POSTGRES_DB: isp_test
+      PGDATA: /var/lib/postgresql/18/docker
+    tmpfs:
+      - /var/lib/postgresql
+    ports:
+      - '127.0.0.1::5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U isp_test -d isp_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [test-data]
+    security_opt: ['no-new-privileges:true']
+
+  redis-test:
+    image: ${REDIS_IMAGE:-redis:8.8.0-alpine}
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--requirepass',
+        'test-only-not-production',
+      ]
+    tmpfs:
+      - /data
+    ports:
+      - '127.0.0.1::6379'
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'redis-cli --no-auth-warning -a test-only-not-production ping | grep PONG']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [test-data]
+    security_opt: ['no-new-privileges:true']
+
+  minio-test:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    command: ['server', '/data']
+    environment:
+      MINIO_ROOT_USER: isp_test_admin
+      MINIO_ROOT_PASSWORD: test-only-not-production-minio
+    tmpfs:
+      - /data
+    ports:
+      - '127.0.0.1::9000'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [test-data]
+    security_opt: ['no-new-privileges:true']
+
+  mailpit-test:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.30.0}
+    environment:
+      MP_MAX_MESSAGES: '100'
+      MP_MAX_AGE: 1h
+    ports:
+      - '127.0.0.1::1025'
+      - '127.0.0.1::8025'
+    networks: [test-application]
+    security_opt: ['no-new-privileges:true']
+
+networks:
+  test-application:
+  test-data:
+    internal: true

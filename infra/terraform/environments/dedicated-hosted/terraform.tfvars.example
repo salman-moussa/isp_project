@@ -1,0 +1,8 @@
+environment      = "staging"
+region           = "replace-with-approved-region"
+management_cidrs = ["192.0.2.0/24"]
+backup_repository_reference      = "UNDECIDED"
+kms_key_reference                = "UNDECIDED"
+observability_endpoint_reference = "UNDECIDED"
+approved_rpo_minutes             = 0
+approved_rto_minutes             = 0

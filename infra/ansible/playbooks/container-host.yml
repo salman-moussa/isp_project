@@ -1,0 +1,7 @@
+---
+- name: Prepare hardened ISP container hosts
+  hosts: container_hosts
+  become: true
+  serial: 1
+  roles:
+    - role: common

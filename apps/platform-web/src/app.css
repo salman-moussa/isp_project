@@ -1,0 +1,89 @@
+.header-icon-button,
+.user-chip {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  cursor: pointer;
+}
+
+.header-icon-button {
+  color: var(--color-ink-muted);
+  font-family: var(--font-latin);
+  font-size: 1.35rem;
+}
+
+.user-chip {
+  border-color: #1b3b64;
+  color: #fff;
+  background: var(--color-navy-800);
+  font-family: var(--font-latin);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.dashboard-block {
+  margin-block-start: var(--space-4);
+}
+
+.lifecycle-bars {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-5);
+}
+
+.lifecycle-row {
+  display: grid;
+  grid-template-columns: 7rem minmax(5rem, 1fr) 2.5rem;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.lifecycle-row > span {
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.lifecycle-row > strong {
+  font-family: var(--font-latin);
+  font-size: 0.8rem;
+  text-align: end;
+}
+
+.lifecycle-track {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #edf1f5;
+}
+
+.lifecycle-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #76859b;
+}
+
+.lifecycle-track--positive > span {
+  background: var(--color-teal);
+}
+.lifecycle-track--primary > span {
+  background: var(--color-primary);
+}
+.lifecycle-track--warning > span {
+  background: var(--color-amber);
+}
+.lifecycle-track--critical > span {
+  background: var(--color-red);
+}
+
+@media (max-width: 36rem) {
+  .lifecycle-row {
+    grid-template-columns: 5rem 1fr 2rem;
+    gap: var(--space-2);
+  }
+}

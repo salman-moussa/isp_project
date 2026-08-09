@@ -1,0 +1,5 @@
+---
+isp_admin_ssh_users: []
+isp_allowed_tcp_ports: [22, 80, 443]
+isp_timezone: UTC
+isp_unattended_security_updates: true

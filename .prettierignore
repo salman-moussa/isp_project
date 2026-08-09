@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+.expo
+package-lock.json
+*.min.js

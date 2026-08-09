@@ -1,0 +1,10 @@
+all:
+  children:
+    container_hosts:
+      hosts:
+        replace-with-staging-host:
+          ansible_host: 192.0.2.10
+          ansible_user: deploy
+  vars:
+    # Example-only reserved address. Secrets belong in a vault/secret manager.
+    ansible_ssh_private_key_file: "{{ lookup('env', 'ISP_ANSIBLE_SSH_KEY_FILE') }}"

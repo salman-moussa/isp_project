@@ -1,0 +1,89 @@
+name: Container security
+
+on:
+  pull_request:
+    paths:
+      - '**/Dockerfile'
+      - 'infra/container-targets.json'
+      - '.github/workflows/container-security.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**/Dockerfile'
+      - 'infra/container-targets.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      count: ${{ steps.targets.outputs.count }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: targets
+        name: Validate declared container targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const targets = JSON.parse(fs.readFileSync('infra/container-targets.json', 'utf8'));
+          if (!Array.isArray(targets)) throw new Error('container-targets.json must be an array');
+          const names = new Set();
+          for (const target of targets) {
+            if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(target.name ?? '')) throw new Error('invalid target name');
+            if (names.has(target.name)) throw new Error(`duplicate target ${target.name}`);
+            names.add(target.name);
+            for (const field of ['dockerfile', 'context']) {
+              const value = target[field];
+              if (typeof value !== 'string' || !/^[A-Za-z0-9_./-]+$/.test(value) || value.startsWith('/') || value.split('/').includes('..')) throw new Error(`unsafe ${field}`);
+              if (!fs.existsSync(value)) throw new Error(`missing ${field}: ${value}`);
+            }
+          }
+          const include = targets.length ? targets.map(t => ({...t, enabled: true})) : [{name:'none', dockerfile:'', context:'', enabled:false}];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({include})}\ncount=${targets.length}\n`);
+          NODE
+      - if: steps.targets.outputs.count == '0'
+        run: echo "No container build targets are declared yet; guarded bootstrap completed."
+
+  build-scan:
+    needs: targets
+    if: needs.targets.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.targets.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build without registry credentials
+        env:
+          IMAGE_NAME: isp-ci-${{ matrix.name }}:${{ github.sha }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          BUILD_CONTEXT: ${{ matrix.context }}
+        run: docker build --pull --tag "$IMAGE_NAME" --file "$DOCKERFILE" "$BUILD_CONTEXT"
+      - name: Block critical/high image vulnerabilities
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: isp-ci-${{ matrix.name }}:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: '1'
+          format: table
+      - name: Generate image SBOM
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: isp-ci-${{ matrix.name }}:${{ github.sha }}
+          format: cyclonedx
+          output: image-${{ matrix.name }}.cdx.json
+          exit-code: '0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-sbom-${{ matrix.name }}-${{ github.sha }}
+          path: image-${{ matrix.name }}.cdx.json
+          if-no-files-found: error
+          retention-days: 30

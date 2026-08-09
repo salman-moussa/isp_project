@@ -1,0 +1,125 @@
+name: ${COMPOSE_PROJECT_NAME:-isp-local}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18.4-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-isp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-isp_control}
+      PGDATA: /var/lib/postgresql/18/docker
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-isp} -d ${POSTGRES_DB:-isp_control}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [data]
+    security_opt: ['no-new-privileges:true']
+    shm_size: 256mb
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:8.8.0-alpine}
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--requirepass',
+        '${REDIS_PASSWORD:?Copy .env.example to .env and set REDIS_PASSWORD}',
+      ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Copy .env.example to .env and set REDIS_PASSWORD}
+    ports:
+      - '127.0.0.1:${REDIS_HOST_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [data]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-isp-local-admin}
+      MINIO_ROOT_PASSWORD:
+        ${MINIO_ROOT_PASSWORD:?Copy .env.example to .env and set MINIO_ROOT_PASSWORD}
+    ports:
+      - '127.0.0.1:${MINIO_API_HOST_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001'
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [data]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
+    restart: 'no'
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-isp-local-admin}
+      MINIO_ROOT_PASSWORD:
+        ${MINIO_ROOT_PASSWORD:?Copy .env.example to .env and set MINIO_ROOT_PASSWORD}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-isp-local}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$OBJECT_STORAGE_BUCKET"
+        mc anonymous set none "local/$$OBJECT_STORAGE_BUCKET"
+    networks: [data]
+    security_opt: ['no-new-privileges:true']
+
+  mailpit:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.30.0}
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: '500'
+      MP_MAX_AGE: 7d
+      MP_SMTP_AUTH_ACCEPT_ANY: 'false'
+      MP_SMTP_AUTH_ALLOW_INSECURE: 'false'
+    ports:
+      - '127.0.0.1:${MAILPIT_SMTP_HOST_PORT:-1025}:1025'
+      - '127.0.0.1:${MAILPIT_UI_HOST_PORT:-8025}:8025'
+    networks: [application]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+
+networks:
+  application:
+    internal: false
+  data:
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

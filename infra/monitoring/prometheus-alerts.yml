@@ -1,0 +1,79 @@
+groups:
+  - name: isp-integrity
+    interval: 30s
+    rules:
+      - alert: FinancialIntegrityViolation
+        expr: increase(isp_financial_integrity_violations_total[5m]) > 0
+        for: 0m
+        labels: { severity: sev1, team: finance-platform }
+        annotations:
+          summary: Financial integrity invariant failed
+          runbook: docs/operations/runbooks/payment-integrity.md
+      - alert: TenantIsolationSuspected
+        expr: increase(isp_tenant_isolation_violation_signals_total[5m]) > 0
+        for: 0m
+        labels: { severity: sev1, team: security }
+        annotations:
+          summary: A trusted tenant-isolation signal fired
+          runbook: docs/operations/runbooks/data-isolation.md
+      - alert: SupportAccessAbuse
+        expr: increase(isp_support_access_scope_denials_total[10m]) >= 5
+        for: 0m
+        labels: { severity: sev2, team: security }
+        annotations:
+          summary: Repeated support-access scope denial
+          runbook: docs/operations/runbooks/data-isolation.md
+
+  - name: isp-service
+    interval: 30s
+    rules:
+      - alert: APIErrorBudgetFastBurn
+        expr: |
+          (
+            sum(rate(http_server_request_duration_seconds_count{outcome="SERVER_ERROR"}[5m]))
+            /
+            clamp_min(sum(rate(http_server_request_duration_seconds_count[5m])), 1)
+          ) > (14.4 * 0.001)
+          and
+          (
+            sum(rate(http_server_request_duration_seconds_count{outcome="SERVER_ERROR"}[1h]))
+            /
+            clamp_min(sum(rate(http_server_request_duration_seconds_count[1h])), 1)
+          ) > (14.4 * 0.001)
+        for: 2m
+        labels: { severity: sev2, team: application }
+        annotations:
+          summary: API availability error budget is burning rapidly
+          runbook: docs/operations/runbooks/service-outage.md
+      - alert: QueueOldestAgeHigh
+        expr: max(isp_queue_oldest_job_age_seconds{priority="critical"}) > 120
+        for: 10m
+        labels: { severity: sev2, team: workers }
+        annotations:
+          summary: Critical queue work has waited over two minutes
+          runbook: docs/operations/runbooks/service-outage.md
+      - alert: MikroTikUncertainSpike
+        expr: sum(increase(isp_network_job_outcomes_total{outcome="uncertain"}[10m])) > 5
+        for: 0m
+        labels: { severity: sev2, team: network }
+        annotations:
+          summary: MikroTik uncertain outcomes require reconciliation
+          runbook: docs/operations/runbooks/mikrotik-failure.md
+
+  - name: isp-recovery
+    interval: 60s
+    rules:
+      - alert: BackupFailed
+        expr: time() - max(isp_backup_last_success_timestamp_seconds) > 90000
+        for: 15m
+        labels: { severity: sev2, team: sre }
+        annotations:
+          summary: No verified successful backup in the expected window
+          runbook: docs/operations/runbooks/backup-restore.md
+      - alert: RestoreTestOverdue
+        expr: time() - max(isp_restore_test_last_success_timestamp_seconds) > 7948800
+        for: 1h
+        labels: { severity: sev2, team: sre }
+        annotations:
+          summary: Restore exercise is overdue against the provisional quarterly cadence
+          runbook: docs/operations/runbooks/backup-restore.md

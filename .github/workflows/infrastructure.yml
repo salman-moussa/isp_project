@@ -1,0 +1,71 @@
+name: Infrastructure validation
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/infrastructure.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - 'docker-compose*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Render local and test Compose models
+        env:
+          POSTGRES_PASSWORD: validation-only
+          REDIS_PASSWORD: validation-only
+          MINIO_ROOT_PASSWORD: validation-only-minio
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.test.yml config --quiet
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.14.6
+          terraform_wrapper: false
+      - name: Check Terraform formatting
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: Validate deployment contracts without a backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          for environment in shared-hosted dedicated-hosted self-hosted; do
+            root="infra/terraform/environments/$environment"
+            terraform -chdir="$root" init -backend=false -input=false
+            terraform -chdir="$root" validate
+          done
+
+  ansible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install pinned Ansible validator
+        run: python -m pip install ansible-lint==26.6.0
+      - name: Install pinned collection requirements
+        working-directory: infra/ansible
+        run: ansible-galaxy collection install -r requirements.yml
+      - name: Lint and syntax-check playbooks
+        working-directory: infra/ansible
+        env:
+          ANSIBLE_CONFIG: ansible.cfg
+        run: |
+          ansible-lint playbooks/container-host.yml
+          ansible-playbook --syntax-check -i inventory/example.yml playbooks/container-host.yml

@@ -1,0 +1,44 @@
+{
+  "name": "lebanon-isp-operations-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bilingual multi-tenant operations platform for Lebanese ISPs",
+  "engines": {
+    "node": "22.15.0",
+    "npm": "11.17.0"
+  },
+  "packageManager": "npm@11.17.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace=@isp/api",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "db:check": "npm run db:check --workspace=@isp/database",
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run db:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.35.0",
+    "@types/node": "22.15.30",
+    "eslint": "9.35.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "16.3.0",
+    "prettier": "3.6.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8.41.0",
+    "vitest": "3.2.4"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.18.20": true
+  }
+}

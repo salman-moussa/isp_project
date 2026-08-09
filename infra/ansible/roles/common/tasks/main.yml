@@ -1,0 +1,73 @@
+---
+- name: Refuse to run without explicitly approved SSH administrators
+  ansible.builtin.assert:
+    that:
+      - isp_admin_ssh_users | length > 0
+    fail_msg: Set isp_admin_ssh_users in protected environment inventory before applying hardening.
+
+- name: Install baseline host packages
+  ansible.builtin.apt:
+    name: [ca-certificates, chrony, unattended-upgrades, ufw, auditd]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Set host timezone to UTC
+  community.general.timezone:
+    name: '{{ isp_timezone }}'
+
+- name: Require SSH public-key authentication
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/60-isp-hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      X11Forwarding no
+      AllowAgentForwarding no
+      MaxAuthTries 4
+      LoginGraceTime 30
+      AllowUsers {{ isp_admin_ssh_users | join(' ') }}
+  notify: Restart ssh
+
+- name: Deny inbound traffic by default
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Allow outbound traffic pending provider-specific egress policy
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow explicitly approved TCP ports
+  community.general.ufw:
+    rule: allow
+    port: '{{ item }}'
+    proto: tcp
+  loop: '{{ isp_allowed_tcp_ports }}'
+  notify: Reload firewall
+
+- name: Enable firewall
+  community.general.ufw:
+    state: enabled
+
+- name: Enable time synchronization and audit logging
+  ansible.builtin.service:
+    name: '{{ item }}'
+    state: started
+    enabled: true
+  loop: [chrony, auditd]
+
+- name: Configure automatic security updates
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "{{ '1' if isp_unattended_security_updates else '0' }}";
