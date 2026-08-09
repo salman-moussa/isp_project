@@ -1,12 +1,17 @@
 import {
   appendAuditEvent,
   isSessionActive,
-  isSupportGrantActive,
+  readApprovedSupportGrant,
   readTenantSummary,
   type Database,
 } from '@isp/database';
 import type { AuditEvent, AuditWriter } from './audit.js';
-import type { SessionStatusReader, SupportGrantStatusReader } from './authentication.js';
+import { supportGrantSchema, type VerifiedTenantId } from '@isp/contracts';
+import type {
+  ApprovedSupportGrant,
+  SessionStatusReader,
+  SupportGrantStatusReader,
+} from './authentication.js';
 import type { TenantSummaryReader } from './summary.js';
 
 export class PostgresSessionStatusReader implements SessionStatusReader {
@@ -20,13 +25,32 @@ export class PostgresSessionStatusReader implements SessionStatusReader {
 export class PostgresSupportGrantStatusReader implements SupportGrantStatusReader {
   public constructor(private readonly database: Database) {}
 
-  public async isActive(
+  public async readApproved(
     grantId: string,
     tenantId: string,
     requesterId: string,
     now: Date,
-  ): Promise<boolean> {
-    return isSupportGrantActive(this.database, grantId, tenantId, requesterId, now);
+  ): Promise<ApprovedSupportGrant | null> {
+    const grant = await readApprovedSupportGrant(
+      this.database,
+      grantId,
+      tenantId,
+      requesterId,
+      now,
+    );
+    if (!grant) return null;
+
+    const validated = supportGrantSchema.parse({
+      grantId: grant.id,
+      tenantId: grant.tenantId,
+      ticketId: grant.ticketId,
+      approverId: grant.approverId,
+      reason: grant.reason,
+      permissions: grant.permissions,
+      expiresAt: grant.expiresAt,
+      authorizationVersion: grant.authorizationVersion,
+    });
+    return { ...grant, permissions: validated.permissions };
   }
 }
 
@@ -41,7 +65,7 @@ export class PostgresAuditWriter implements AuditWriter {
 export class PostgresTenantSummaryReader implements TenantSummaryReader {
   public constructor(private readonly database: Database) {}
 
-  public async read(tenantId: string, at: Date) {
+  public async read(tenantId: VerifiedTenantId, at: Date) {
     return readTenantSummary(this.database, tenantId, at);
   }
 }

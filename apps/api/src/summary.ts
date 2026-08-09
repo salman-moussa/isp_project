@@ -1,11 +1,11 @@
-import type { TenantSummary } from '@isp/contracts';
+import type { TenantSummary, VerifiedTenantId } from '@isp/contracts';
 
 export interface TenantSummaryReader {
-  read(tenantId: string, at: Date): Promise<TenantSummary>;
+  read(tenantId: VerifiedTenantId, at: Date): Promise<TenantSummary>;
 }
 
 export class DemoTenantSummaryReader implements TenantSummaryReader {
-  public async read(tenantId: string, at: Date): Promise<TenantSummary> {
+  public async read(tenantId: VerifiedTenantId, at: Date): Promise<TenantSummary> {
     return {
       tenantId,
       asOf: at.toISOString(),

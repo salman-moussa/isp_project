@@ -37,11 +37,8 @@ jobs:
             exit 1
           fi
           echo "node=true" >> "$GITHUB_OUTPUT"
-          if node -e 'const p=require("./package.json"); process.exit(p.scripts?.["test:integration"] ? 0 : 1)'; then
-            echo "integration=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "integration=false" >> "$GITHUB_OUTPUT"
-          fi
+          node -e 'const p=require("./package.json"); if (!p.scripts?.["test:integration"]) throw new Error("test:integration is required")'
+          echo "integration=true" >> "$GITHUB_OUTPUT"
 
   quality:
     needs: detect
@@ -62,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for script in format:check lint typecheck test build db:check; do
+          for script in format:check lint typecheck test build brand:check smoke:api db:check; do
             if node -e 'const p=require("./package.json"); process.exit(p.scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
               npm run "$script"
             else
@@ -76,7 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      COMPOSE_PROJECT_NAME: isp-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      COMPOSE_PROJECT_NAME: orvex-isp-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      ORVEX_REQUIRE_LIVE_POSTGRES: '1'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -96,7 +94,8 @@ jobs:
           redis_port="$(docker compose -f docker-compose.test.yml port redis-test 6379 | sed 's/.*://')"
           minio_port="$(docker compose -f docker-compose.test.yml port minio-test 9000 | sed 's/.*://')"
           {
-            echo "DATABASE_URL=postgresql://isp_test:test-only-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "DATABASE_MIGRATION_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "DATABASE_RUNTIME_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_test"
             echo "REDIS_URL=redis://:test-only-not-production@127.0.0.1:${redis_port}/0"
             echo "OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:${minio_port}"
           } >> "$GITHUB_ENV"

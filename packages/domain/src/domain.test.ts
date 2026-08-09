@@ -28,6 +28,15 @@ describe('domain invariants', () => {
     ).toThrow('explicit authorized exchange basis');
   });
 
+  it('rejects arithmetic that exceeds the safe integer range', () => {
+    expect(() =>
+      addMoney(
+        { amountMinor: Number.MAX_SAFE_INTEGER, currency: 'USD' },
+        { amountMinor: 1, currency: 'USD' },
+      ),
+    ).toThrow('safe integer range');
+  });
+
   it('guards commercial transitions without returning a network action', () => {
     expect(() => assertPlatformSubscriptionTransition('active', 'archived')).toThrow();
     expect(softwareAccessFor('restricted')).toBe('recovery');

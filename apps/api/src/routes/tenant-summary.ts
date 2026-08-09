@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AuditWriter } from '../audit.js';
 import type { TenantSummaryReader } from '../summary.js';
 
-const paramsSchema = z.object({ tenantId: z.string().min(1).max(128) });
+const paramsSchema = z.object({ tenantId: z.uuid() });
 
 export interface TenantSummaryRouteOptions {
   readonly audit: AuditWriter;
@@ -26,39 +26,52 @@ export function registerTenantSummaryRoute(
     async (request, reply) => {
       const { tenantId } = paramsSchema.parse(request.params);
       const permission: Permission = 'tenant.dashboard.view';
-      let context: { supportGrantId?: string };
+      let context: ReturnType<typeof assertTenantContext>;
       try {
         context = assertTenantContext(request.auth, tenantId, options.now());
         assertPermission(request.auth, permission);
       } catch (error) {
         const requestedSupportGrantId = request.auth.supportGrant?.grantId;
-        await options.audit.append({
-          tenantId,
-          actorId: request.auth.sub,
-          sessionId: request.auth.sessionId,
-          ...(requestedSupportGrantId ? { supportGrantId: requestedSupportGrantId } : {}),
-          action:
-            request.auth.audience === 'platform'
-              ? 'support.tenant.summary.read'
-              : 'tenant.summary.read',
-          resourceType: 'tenant_summary',
-          resourceId: tenantId,
-          requestId: request.id,
-          ipAddress: request.ip,
-          result: 'denied',
-          metadata: { permission },
-          occurredAt: options.now().toISOString(),
-        });
+        const authenticatedTenantId = request.auth.tenantId ?? request.auth.supportGrant?.tenantId;
+        if (authenticatedTenantId) {
+          const verifiedAuditContext = assertTenantContext(
+            request.auth,
+            authenticatedTenantId,
+            options.now(),
+          );
+          await options.audit.append({
+            tenantId: verifiedAuditContext.tenantId,
+            actorId: request.auth.sub,
+            sessionId: request.auth.sessionId,
+            ...(requestedSupportGrantId ? { supportGrantId: requestedSupportGrantId } : {}),
+            action:
+              request.auth.audience === 'platform'
+                ? 'support.tenant.summary.read'
+                : 'tenant.summary.read',
+            resourceType: 'tenant_summary',
+            resourceId: tenantId,
+            requestId: request.id,
+            ipAddress: request.ip,
+            result: 'denied',
+            metadata: { permission, requestedTenantId: tenantId },
+            occurredAt: options.now().toISOString(),
+          });
+        } else {
+          request.log.warn(
+            { action: 'tenant.summary.read', requestedTenantId: tenantId },
+            'unscoped platform access denied; control-plane audit sink required',
+          );
+        }
         throw error;
       }
 
       const userAgentHeader = request.headers['user-agent'];
       let summary;
       try {
-        summary = await options.summaries.read(tenantId, options.now());
+        summary = await options.summaries.read(context.tenantId, options.now());
       } catch (error) {
         await options.audit.append({
-          tenantId,
+          tenantId: context.tenantId,
           actorId: request.auth.sub,
           sessionId: request.auth.sessionId,
           ...(context.supportGrantId ? { supportGrantId: context.supportGrantId } : {}),
@@ -74,7 +87,7 @@ export function registerTenantSummaryRoute(
         throw error;
       }
       const baseAudit = {
-        tenantId,
+        tenantId: context.tenantId,
         actorId: request.auth.sub,
         sessionId: request.auth.sessionId,
         action: context.supportGrantId ? 'support.tenant.summary.read' : 'tenant.summary.read',

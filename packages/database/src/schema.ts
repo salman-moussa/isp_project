@@ -2,13 +2,14 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   jsonb,
   pgEnum,
   pgTable,
   text,
   timestamp,
-  uniqueIndex,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -33,7 +34,7 @@ export const tenants = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
   },
-  (table) => [uniqueIndex('tenants_code_uq').on(table.code)],
+  (table) => [unique('tenants_code_key').on(table.code)],
 );
 
 export const users = pgTable(
@@ -48,7 +49,7 @@ export const users = pgTable(
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('users_email_uq').on(table.email)],
+  (table) => [unique('users_email_key').on(table.email)],
 );
 
 export const tenantMemberships = pgTable(
@@ -71,7 +72,7 @@ export const tenantMemberships = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('tenant_memberships_tenant_user_uq').on(table.tenantId, table.userId),
+    unique('tenant_memberships_tenant_id_user_id_key').on(table.tenantId, table.userId),
     index('tenant_memberships_tenant_idx').on(table.tenantId),
   ],
 );
@@ -93,7 +94,7 @@ export const sessions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('sessions_token_digest_uq').on(table.tokenDigest),
+    unique('sessions_token_digest_key').on(table.tokenDigest),
     index('sessions_user_idx').on(table.userId),
   ],
 );
@@ -115,9 +116,21 @@ export const supportGrants = pgTable(
     status: supportGrantStatus('status').notNull().default('requested'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    authorizationVersion: bigint('authorization_version', { mode: 'bigint' }).notNull().default(1n),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('support_grants_tenant_status_idx').on(table.tenantId, table.status)],
+  (table) => [
+    index('support_grants_tenant_status_idx').on(table.tenantId, table.status),
+    check(
+      'support_grants_check',
+      sql`${table.approverId} IS NULL OR ${table.approverId} <> ${table.requesterId}`,
+    ),
+    check('support_grants_authorization_version_check', sql`${table.authorizationVersion} > 0`),
+    check(
+      'support_grants_approval_state_check',
+      sql`${table.status} <> 'approved' OR ${table.approverId} IS NOT NULL`,
+    ),
+  ],
 );
 
 export const auditEvents = pgTable(
@@ -144,7 +157,7 @@ export const auditEvents = pgTable(
   (table) => [
     index('audit_events_tenant_time_idx').on(table.tenantId, table.occurredAt),
     index('audit_events_actor_time_idx').on(table.actorId, table.occurredAt),
-    uniqueIndex('audit_events_request_action_uq').on(table.requestId, table.action),
+    unique('audit_events_request_id_action_key').on(table.requestId, table.action),
   ],
 );
 
@@ -162,6 +175,14 @@ export const tenantDashboardSnapshots = pgTable(
     computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('tenant_dashboard_snapshots_tenant_time_idx').on(table.tenantId, table.computedAt),
+    index('tenant_dashboard_snapshots_tenant_time_idx').on(table.tenantId, table.computedAt.desc()),
+    check(
+      'tenant_dashboard_snapshots_active_subscribers_check',
+      sql`${table.activeSubscribers} >= 0`,
+    ),
+    check(
+      'tenant_dashboard_snapshots_online_subscribers_check',
+      sql`${table.onlineSubscribers} >= 0`,
+    ),
   ],
 );

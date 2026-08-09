@@ -1,5 +1,5 @@
-import type { TenantSummary } from '@isp/contracts';
-import { and, desc, eq, gt, isNull } from 'drizzle-orm';
+import type { TenantSummary, VerifiedTenantId } from '@isp/contracts';
+import { and, desc, eq, gt, isNotNull, isNull } from 'drizzle-orm';
 import type { Database } from './client.js';
 import { auditEvents, sessions, supportGrants, tenantDashboardSnapshots } from './schema.js';
 import { inTenantTransaction } from './tenant-transaction.js';
@@ -32,21 +32,67 @@ export async function isSupportGrantActive(
   requesterId: string,
   now: Date,
 ): Promise<boolean> {
-  const rows = await database
-    .select({ id: supportGrants.id })
-    .from(supportGrants)
-    .where(
-      and(
-        eq(supportGrants.id, grantId),
-        eq(supportGrants.tenantId, tenantId),
-        eq(supportGrants.requesterId, requesterId),
-        eq(supportGrants.status, 'approved'),
-        isNull(supportGrants.revokedAt),
-        gt(supportGrants.expiresAt, now),
-      ),
-    )
-    .limit(1);
-  return rows.length === 1;
+  return (await readApprovedSupportGrant(database, grantId, tenantId, requesterId, now)) !== null;
+}
+
+export interface ApprovedSupportGrant {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly requesterId: string;
+  readonly approverId: string;
+  readonly ticketId: string;
+  readonly reason: string;
+  readonly permissions: readonly string[];
+  readonly expiresAt: string;
+  readonly authorizationVersion: number;
+}
+
+/** Canonical source for comparing a support token's authorization claims with current DB state. */
+export async function readApprovedSupportGrant(
+  database: Database,
+  grantId: string,
+  tenantId: string,
+  requesterId: string,
+  now: Date,
+): Promise<ApprovedSupportGrant | null> {
+  // This lookup bootstraps support authorization: the signed grant/user tuple and canonical row
+  // must match before the API can issue a general VerifiedTenantId capability.
+  return inTenantTransaction(database, tenantId as VerifiedTenantId, async (transaction) => {
+    const [grant] = await transaction
+      .select({
+        id: supportGrants.id,
+        tenantId: supportGrants.tenantId,
+        requesterId: supportGrants.requesterId,
+        approverId: supportGrants.approverId,
+        ticketId: supportGrants.ticketId,
+        reason: supportGrants.reason,
+        permissions: supportGrants.permissions,
+        expiresAt: supportGrants.expiresAt,
+        authorizationVersion: supportGrants.authorizationVersion,
+      })
+      .from(supportGrants)
+      .where(
+        and(
+          eq(supportGrants.id, grantId),
+          eq(supportGrants.tenantId, tenantId),
+          eq(supportGrants.requesterId, requesterId),
+          eq(supportGrants.status, 'approved'),
+          isNotNull(supportGrants.approverId),
+          isNull(supportGrants.revokedAt),
+          gt(supportGrants.expiresAt, now),
+        ),
+      )
+      .limit(1);
+
+    if (!grant || !grant.approverId) return null;
+    return {
+      ...grant,
+      approverId: grant.approverId,
+      permissions: [...grant.permissions],
+      expiresAt: grant.expiresAt.toISOString(),
+      authorizationVersion: safeInteger(grant.authorizationVersion, 'authorizationVersion'),
+    };
+  });
 }
 
 function safeInteger(value: bigint, field: string): number {
@@ -59,7 +105,7 @@ function safeInteger(value: bigint, field: string): number {
 
 export async function readTenantSummary(
   database: Database,
-  tenantId: string,
+  tenantId: VerifiedTenantId,
   now: Date,
 ): Promise<TenantSummary> {
   return inTenantTransaction(database, tenantId, async (transaction) => {
@@ -94,7 +140,7 @@ export async function readTenantSummary(
 }
 
 export interface AuditRecord {
-  readonly tenantId: string;
+  readonly tenantId: VerifiedTenantId;
   readonly actorId: string;
   readonly sessionId: string;
   readonly supportGrantId?: string;

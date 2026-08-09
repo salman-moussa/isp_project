@@ -5,7 +5,10 @@ const configSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   JWT_SECRET: z.string().min(32),
-  DATABASE_URL: z.string().url(),
+  SUPPORT_TOKEN_ISSUER: z.string().min(1),
+  SUPPORT_TOKEN_AUDIENCE: z.string().min(1),
+  CONTROL_DATABASE_URL: z.string().url(),
+  TENANT_DATABASE_URL: z.string().url(),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174'),
 });
 

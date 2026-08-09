@@ -9,18 +9,28 @@ import {
 } from './postgres-adapters.js';
 
 const config = readConfig(process.env);
-const { client, db } = createDatabase(config.DATABASE_URL);
+const controlDatabase = createDatabase(config.CONTROL_DATABASE_URL);
+const tenantDatabase = createDatabase(config.TENANT_DATABASE_URL);
 const app = await buildApp(config, {
-  audit: new PostgresAuditWriter(db),
-  sessions: new PostgresSessionStatusReader(db),
-  supportGrants: new PostgresSupportGrantStatusReader(db),
-  summaries: new PostgresTenantSummaryReader(db),
+  audit: new PostgresAuditWriter(tenantDatabase.db),
+  sessions: new PostgresSessionStatusReader(controlDatabase.db),
+  supportGrants: new PostgresSupportGrantStatusReader(controlDatabase.db),
+  summaries: new PostgresTenantSummaryReader(tenantDatabase.db),
+  readiness: async () => {
+    await Promise.all([
+      controlDatabase.client.unsafe('select 1'),
+      tenantDatabase.client.unsafe('select 1'),
+    ]);
+  },
 });
 
 const close = async (signal: string) => {
   app.log.info({ signal }, 'shutting down');
   await app.close();
-  await client.end({ timeout: 5 });
+  await Promise.all([
+    controlDatabase.client.end({ timeout: 5 }),
+    tenantDatabase.client.end({ timeout: 5 }),
+  ]);
   process.exit(0);
 };
 

@@ -1,5 +1,7 @@
+import type { VerifiedTenantId } from '@isp/contracts';
+
 export interface AuditEvent {
-  readonly tenantId: string;
+  readonly tenantId: VerifiedTenantId;
   readonly actorId: string;
   readonly sessionId: string;
   readonly supportGrantId?: string;

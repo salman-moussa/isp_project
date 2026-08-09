@@ -21,4 +21,22 @@ describe('tenant database safety migration', () => {
     const migration = await readFile(fileURLToPath(migrationUrl), 'utf8');
     expect(migration).toContain('CHECK (approver_id IS NULL OR approver_id <> requester_id)');
   });
+
+  it('gives the runtime role explicit access and rejects every audit mutation', async () => {
+    const migrationUrl = new URL(
+      '../migrations/202608092100_harden_runtime_roles.sql',
+      import.meta.url,
+    );
+    const migration = await readFile(fileURLToPath(migrationUrl), 'utf8');
+
+    expect(migration).toContain('GRANT SELECT, INSERT ON TABLE audit_events TO orvex_runtime');
+    expect(migration).toContain(
+      'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE audit_events FROM orvex_runtime',
+    );
+    expect(migration).toContain('CREATE TRIGGER audit_events_no_truncate');
+    expect(migration).toContain('CREATE TRIGGER support_grants_bump_authorization_version');
+    expect(migration).toContain('support_grants_permissions_nonempty_check');
+    expect(migration).toContain('support_grants_approval_state_check');
+    expect(migration).toContain('ALTER DEFAULT PRIVILEGES FOR ROLE orvex_owner');
+  });
 });

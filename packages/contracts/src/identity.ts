@@ -11,6 +11,7 @@ export const supportGrantSchema = z.object({
   reason: z.string().min(8).max(500),
   permissions: z.array(z.enum(permissions)).min(1),
   expiresAt: z.string().datetime({ offset: true }),
+  authorizationVersion: z.number().int().positive(),
 });
 
 export const sessionClaimsSchema = z

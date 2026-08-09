@@ -1,4 +1,4 @@
-import type { Permission, SessionClaims } from '@isp/contracts';
+import type { Permission, SessionClaims, VerifiedTenantId } from '@isp/contracts';
 
 export class AuthorizationDeniedError extends Error {
   public readonly code = 'AUTHORIZATION_DENIED';
@@ -26,12 +26,12 @@ export function assertTenantContext(
   claims: SessionClaims,
   requestedTenantId: string,
   now: Date,
-): { supportGrantId?: string } {
+): { tenantId: VerifiedTenantId; supportGrantId?: string } {
   if (claims.audience === 'tenant') {
     if (claims.tenantId !== requestedTenantId) {
       throw new AuthorizationDeniedError('Cross-tenant access is denied.');
     }
-    return {};
+    return { tenantId: requestedTenantId as VerifiedTenantId };
   }
 
   const grant = claims.supportGrant;
@@ -42,5 +42,5 @@ export function assertTenantContext(
   ) {
     throw new AuthorizationDeniedError('An active scoped support grant is required.');
   }
-  return { supportGrantId: grant.grantId };
+  return { tenantId: requestedTenantId as VerifiedTenantId, supportGrantId: grant.grantId };
 }

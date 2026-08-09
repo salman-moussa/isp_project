@@ -26,6 +26,7 @@ export interface AppDependencies {
   readonly now?: () => Date;
   readonly sessions?: SessionStatusReader;
   readonly supportGrants?: SupportGrantStatusReader;
+  readonly readiness?: () => Promise<void>;
 }
 
 export async function buildApp(
@@ -48,12 +49,19 @@ export async function buildApp(
   await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
   await app.register(jwt, {
     secret: config.JWT_SECRET,
-    sign: { expiresIn: '15m', iss: 'lebanon-isp-platform' },
-    verify: { allowedIss: 'lebanon-isp-platform' },
+    sign: {
+      expiresIn: '15m',
+      iss: config.SUPPORT_TOKEN_ISSUER,
+      aud: config.SUPPORT_TOKEN_AUDIENCE,
+    },
+    verify: {
+      allowedIss: config.SUPPORT_TOKEN_ISSUER,
+      allowedAud: config.SUPPORT_TOKEN_AUDIENCE,
+    },
   });
   await app.register(swagger, {
     openapi: {
-      info: { title: 'Lebanon ISP Operations API', version: '0.1.0' },
+      info: { title: 'Orvex ISP Core API', version: '0.1.0' },
       servers: [{ url: '/' }],
       components: {
         securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } },
@@ -71,7 +79,15 @@ export async function buildApp(
   );
 
   app.get('/health', async () => ({ status: 'ok', service: 'api' }));
-  app.get('/ready', async () => ({ status: 'ready' }));
+  app.get('/ready', async (_request, reply) => {
+    try {
+      if (!dependencies.readiness) throw new Error('No readiness probe is configured.');
+      await dependencies.readiness();
+      return { status: 'ready' };
+    } catch {
+      return reply.code(503).send({ status: 'not_ready' });
+    }
+  });
 
   registerTenantSummaryRoute(app, {
     audit: dependencies.audit ?? new MemoryAuditWriter(),

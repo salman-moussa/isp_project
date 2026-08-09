@@ -1,8 +1,8 @@
 {
-  "name": "lebanon-isp-operations-platform",
+  "name": "orvex-isp",
   "version": "0.1.0",
   "private": true,
-  "description": "Bilingual multi-tenant operations platform for Lebanese ISPs",
+  "description": "Orvex ISP bilingual multi-tenant operations platform for Lebanese ISPs",
   "engines": {
     "node": "22.15.0",
     "npm": "11.17.0"
@@ -14,7 +14,9 @@
     "workers/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:packages && npm run build:apps",
+    "build:packages": "npm run build --workspace=@isp/contracts && npm run build --workspace=@isp/domain && npm run build --workspace=@isp/database",
+    "build:apps": "npm run build --workspace=@isp/api && npm run build --workspace=@isp/platform-web && npm run build --workspace=@isp/tenant-web",
     "dev": "npm run dev --workspace=@isp/api",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -22,8 +24,11 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspace=@isp/database",
     "db:check": "npm run db:check --workspace=@isp/database",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run db:check"
+    "brand:check": "node scripts/brand-check.mjs",
+    "smoke:api": "node scripts/smoke-api-artifact.mjs",
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run smoke:api && npm run db:check && npm run test:integration"
   },
   "devDependencies": {
     "@eslint/js": "9.35.0",
