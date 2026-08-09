@@ -64,8 +64,8 @@ export interface PlatformCopy {
 }
 
 const english: PlatformCopy = {
-  productName: 'Platform Control Center',
-  brandLabel: 'Cedar Ops network cedar mark',
+  productName: 'Orvex ISP Control Center',
+  brandLabel: 'Orvex ISP connection and routing mark',
   navLabel: 'Platform navigation',
   menuLabel: 'Open platform navigation',
   closeMenuLabel: 'Close platform navigation',
@@ -73,10 +73,10 @@ const english: PlatformCopy = {
   languageLabel: 'Interface language',
   englishLabel: 'EN',
   arabicLabel: 'ع',
-  environment: 'Production',
+  environment: 'Demonstration data',
   contextEyebrow: 'Vendor control plane',
-  contextTitle: "Salman Moussa's Team",
-  contextMeta: 'Lebanon portfolio · Asia/Beirut',
+  contextTitle: 'Orvex Solutions',
+  contextMeta: 'Lebanon portfolio · Demonstration workspace · Asia/Beirut',
   operatorStatus: 'Portfolio view',
   searchLabel: 'Search ISP clients and deployments',
   userLabel: 'Open account menu for Maya Haddad',
@@ -126,7 +126,7 @@ const english: PlatformCopy = {
       id: 'active',
       label: 'Active ISP clients',
       value: '84',
-      detail: 'of 91 live workspaces',
+      detail: 'of 91 demonstration workspaces',
       trend: '+6.3%',
       trendLabel: 'year over year',
       tone: 'positive',
@@ -164,7 +164,7 @@ const english: PlatformCopy = {
       title: 'Active ISP clients · status = Active',
       items: [
         {
-          label: 'Cedars Net',
+          label: 'Northline ISP (demo)',
           value: 'Active',
           detail: 'Dedicated hosted · v1.8.4',
           tone: 'positive',
@@ -260,7 +260,7 @@ const english: PlatformCopy = {
     },
     {
       title: 'Package change scheduled',
-      detail: 'Cedars Net · Growth to Scale · next renewal',
+      detail: 'Northline ISP (demo) · Growth to Scale · next renewal',
       time: 'Yesterday',
       tone: 'primary',
     },
@@ -313,16 +313,17 @@ const english: PlatformCopy = {
 
 const arabic: PlatformCopy = {
   ...english,
-  productName: 'مركز تحكم المنصة',
-  brandLabel: 'شعار أرزة شبكية لمنصة سيدر أوبس',
+  productName: 'مركز تحكم Orvex ISP',
+  brandLabel: 'علامة Orvex ISP الهندسية للاتصال والتوجيه',
   navLabel: 'تنقّل منصة الإدارة',
   menuLabel: 'فتح قائمة منصة الإدارة',
   closeMenuLabel: 'إغلاق قائمة منصة الإدارة',
   skipLabel: 'الانتقال إلى محتوى المنصة',
   languageLabel: 'لغة الواجهة',
   contextEyebrow: 'طبقة تحكم المزوّد',
-  contextTitle: 'فريق سلمان موسى',
-  contextMeta: 'محفظة لبنان · توقيت بيروت',
+  environment: 'بيانات تجريبية',
+  contextTitle: 'Orvex Solutions',
+  contextMeta: 'محفظة لبنان · مساحة تجريبية · توقيت بيروت',
   operatorStatus: 'عرض المحفظة',
   searchLabel: 'البحث عن شركات الإنترنت وعمليات النشر',
   userLabel: 'فتح قائمة حساب مايا حدّاد',
@@ -408,7 +409,12 @@ const arabic: PlatformCopy = {
     active: {
       title: 'شركات الإنترنت · الحالة = نشطة',
       items: [
-        { label: 'سيدرز نت', value: 'نشطة', detail: 'استضافة مخصصة · v1.8.4', tone: 'positive' },
+        {
+          label: 'شركة نورث لاين التجريبية',
+          value: 'نشطة',
+          detail: 'استضافة مخصصة · v1.8.4',
+          tone: 'positive',
+        },
         { label: 'بقاع لينك', value: 'نشطة', detail: 'استضافة مشتركة · v1.8.4', tone: 'positive' },
         {
           label: 'كوست أونلاين',
@@ -480,7 +486,7 @@ const arabic: PlatformCopy = {
     },
     {
       title: 'جدولة تغيير الباقة',
-      detail: 'سيدرز نت · Growth إلى Scale · عند التجديد',
+      detail: 'شركة نورث لاين التجريبية · Growth إلى Scale · عند التجديد',
       time: 'أمس',
       tone: 'primary',
     },

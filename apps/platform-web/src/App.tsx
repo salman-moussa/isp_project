@@ -150,7 +150,7 @@ export function App() {
                 <h2>{copy.operationsTitle}</h2>
                 <p>{copy.operationsDescription}</p>
               </div>
-              <StatusBadge tone="positive">Live</StatusBadge>
+              <StatusBadge tone="neutral">{copy.environment}</StatusBadge>
             </div>
             <ActivityList items={copy.activities} />
           </Surface>

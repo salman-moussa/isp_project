@@ -1,9 +1,9 @@
-# Cedar Ops design system
+# Orvex ISP design system
 
 ## Purpose
 
-Cedar Ops is the shared product language for the private Platform Control Center and each isolated
-ISP Operations Workspace. It is designed for dense, consequential operational work in Lebanon: cash
+Orvex ISP is the shared product language for Orvex ISP Control Center and each isolated Orvex ISP
+Operations workspace. It is designed for dense, consequential operational work in Lebanon: cash
 collection, bilingual office workflows, subscription administration, deployment health, and network
 operations. The interface is calm, direct, and evidence-oriented. It does not use ornamental
 dashboards, decorative KPIs, glass effects, or blended-currency totals.
@@ -15,10 +15,10 @@ accessible primitives while keeping separate navigation, content, permissions, a
 
 - Deep navy navigation separates global wayfinding from white and pale-gray work surfaces.
 - Electric blue identifies the single emphasized action and interactive focus.
-- Teal means healthy, complete, or live; amber means attention or a reversible risk; red is reserved
-  for critical or destructive states.
-- A configurable geometric cedar/network mark combines a cedar silhouette with connected nodes. It
-  is original and does not imitate a Lebanese ISP brand.
+- Cedar teal means healthy, complete, or connected; amber means attention or a reversible risk; red
+  is reserved for critical or destructive states.
+- The original Orvex mark is a geometric “O” with a routed connection between two endpoints. It
+  avoids telecom logos, decorative sparkles, and competitor imagery.
 - Surfaces use deliberate 6–20 px radii and restrained elevation. Important data structure comes
   from alignment, borders, and typography rather than decoration.
 - Arabic uses a `Noto Sans Arabic`-first stack and Latin uses an `Inter`-first stack. Production
@@ -28,17 +28,17 @@ accessible primitives while keeping separate navigation, content, permissions, a
 
 Tokens are CSS custom properties in `packages/ui/src/theme.css`.
 
-| Group     | Contract                                                                                 |
-| --------- | ---------------------------------------------------------------------------------------- |
-| Ink       | `--color-ink`, `--color-ink-muted`, `--color-ink-subtle`                                 |
-| Surfaces  | `--color-canvas`, `--color-surface`, `--color-surface-raised`                            |
-| Brand     | `--color-navy-950`, `--color-navy-900`, `--color-primary`, `--color-teal`                |
-| Semantics | `--color-primary`, `--color-teal`, `--color-amber`, `--color-red` plus soft counterparts |
-| Spacing   | 4 px base: `--space-1` through `--space-12`                                              |
-| Radius    | `--radius-sm` 6 px, `--radius-md` 10 px, `--radius-lg` 14 px, `--radius-xl` 20 px        |
-| Elevation | `--shadow-sm` for structure and `--shadow-md` for hovered/raised work                    |
-| Motion    | 140 ms fast feedback, 220 ms layout motion; suppressed for reduced motion                |
-| Layout    | 264 px desktop navigation, 84 px context header, logical inline dimensions               |
+| Group     | Contract                                                                                      |
+| --------- | --------------------------------------------------------------------------------------------- |
+| Ink       | `--color-ink`, `--color-ink-muted`, `--color-ink-subtle`                                      |
+| Surfaces  | `--color-canvas`, `--color-surface`, `--color-surface-raised`                                 |
+| Brand     | Midnight navy `#0B1F33`, Orvex cobalt `#2458E6`, and cedar teal `#0F8B7B` via semantic tokens |
+| Semantics | `--color-primary`, `--color-teal`, `--color-amber`, `--color-red` plus soft counterparts      |
+| Spacing   | 4 px base: `--space-1` through `--space-12`                                                   |
+| Radius    | `--radius-sm` 6 px, `--radius-md` 10 px, `--radius-lg` 14 px, `--radius-xl` 20 px             |
+| Elevation | `--shadow-sm` for structure and `--shadow-md` for hovered/raised work                         |
+| Motion    | 140 ms fast feedback, 220 ms layout motion; suppressed for reduced motion                     |
+| Layout    | 264 px desktop navigation, 84 px context header, logical inline dimensions                    |
 
 Token values meet the intended WCAG 2.2 AA contrast target on their documented surfaces. Automated
 DOM accessibility tests deliberately do not claim color-contrast verification because jsdom cannot
@@ -62,7 +62,7 @@ The initial shared package provides:
 
 - `AppShell`: skip link, responsive navigation drawer, context header, main landmark, direction
   handling, and main-content focus on navigation.
-- `BrandMark`: accessible, cedar/network-inspired mark.
+- `BrandMark`: accessible Orvex connection-and-routing mark.
 - `Button`: primary, secondary, tertiary, danger, loading, disabled, and permission-blocked
   behavior.
 - `LocaleSwitcher`: in-place English/Arabic change with pressed-state semantics.

@@ -93,7 +93,7 @@ executable tests beside the owning module.
 | ------------------------------------------ | ---------------------------------------------------------------- |
 | 1–4 mission/boundaries/surfaces            | PRD-BND-\*                                                       |
 | 5 roles/authorization                      | PRD-IAM-\*                                                       |
-| 6 Platform Control Center                  | PRD-CTL-_, PRD-FIN-_                                             |
+| 6 Orvex ISP Control Center                 | PRD-CTL-_, PRD-FIN-_                                             |
 | 7 tenant/mobile/MikroTik                   | PRD-TEN-_, PRD-FIN-_, PRD-MOB-_, PRD-NET-_                       |
 | 8 flows and 9 screens                      | PRD-CTL-_, PRD-TEN-_, PRD-MOB-_, PRD-NET-_, PRD-UX-002           |
 | 10 localization                            | PRD-LOC-\*                                                       |

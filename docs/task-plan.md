@@ -47,7 +47,7 @@ Risks/decisions: [live register](requirements/assumptions-and-risks.md)
 flowchart LR
   P0["P0 baseline and bootstrap"] --> P1["P1 architecture, UX, security contracts"]
   P1 --> P2["P2 identity + tenant + permission + audit slice"]
-  P2 --> P3["P3 Platform Control Center"]
+  P2 --> P3["P3 Orvex ISP Control Center"]
   P2 --> P4["P4 Tenant Operations Core"]
   P4 --> P5["P5 Collector Mobile complete day"]
   P4 --> P6["P6 Network and provider integrations"]
@@ -108,7 +108,7 @@ are healthy. Finance signs money policy assumptions or production finance remain
 privileged change audit is complete; shell/access/error flows pass EN/AR/RTL/a11y. Independent
 reviewer: Security/QA not authoring T2.2/T2.6.
 
-## Phase 3 — Platform Control Center
+## Phase 3 — Orvex ISP Control Center
 
 | ID   | Task                                                                                | Depends                          | Owner                | Output                                 | Tests / review gate                                                                | Status  |
 | ---- | ----------------------------------------------------------------------------------- | -------------------------------- | -------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- | ------- |

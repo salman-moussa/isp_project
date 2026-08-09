@@ -45,7 +45,7 @@ migration and rollback impact, and risk-proportionate automated tests.
 | PRD-IAM-009 | Must | Sensitive events create immutable/tamper-evident audit evidence.                                                    | Evidence records actor, tenant, IP/device, session, reason, before/after, request ID, time, approval and result; reads/exports of audit data are audited.                             |
 | PRD-IAM-010 | Must | Session and device administration supports listing, idle/absolute timeout, revocation, and forced reauthentication. | Revoked or expired web/mobile/support credentials fail immediately or within the documented revocation propagation SLO.                                                               |
 
-## Platform Control Center
+## Orvex ISP Control Center
 
 | ID          | Pri  | Requirement                                                                                                                                                       | Acceptance criteria                                                                                                                                                 |
 | ----------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

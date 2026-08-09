@@ -8,22 +8,22 @@
     --color-ink: #14213a;
     --color-ink-muted: #5d6b82;
     --color-ink-subtle: #7f8aa0;
-    --color-canvas: #f2f5f8;
+    --color-canvas: #f4f6f8;
     --color-surface: #ffffff;
     --color-surface-raised: #f8fafc;
     --color-border: #dfe5ed;
     --color-border-strong: #c9d3df;
-    --color-navy-950: #071328;
-    --color-navy-900: #0c1b35;
-    --color-navy-800: #122746;
-    --color-primary: #1268fb;
-    --color-primary-hover: #0758dc;
-    --color-primary-soft: #e9f1ff;
-    --color-teal: #087f72;
+    --color-navy-950: #071625;
+    --color-navy-900: #0b1f33;
+    --color-navy-800: #153552;
+    --color-primary: #2458e6;
+    --color-primary-hover: #1947c4;
+    --color-primary-soft: #eaf0ff;
+    --color-teal: #0f8b7b;
     --color-teal-soft: #e5f6f2;
-    --color-amber: #a55e00;
+    --color-amber: #c97916;
     --color-amber-soft: #fff3d6;
-    --color-red: #bd3146;
+    --color-red: #c43d4b;
     --color-red-soft: #fdecef;
     --space-1: 0.25rem;
     --space-2: 0.5rem;
@@ -40,7 +40,7 @@
     --radius-xl: 1.25rem;
     --shadow-sm: 0 1px 2px rgb(7 19 40 / 7%);
     --shadow-md: 0 12px 32px rgb(7 19 40 / 9%);
-    --focus-ring: 0 0 0 3px rgb(18 104 251 / 24%);
+    --focus-ring: 0 0 0 3px rgb(36 88 230 / 24%);
     --nav-width: 16.5rem;
     --header-height: 5.25rem;
     --z-navigation: 40;
@@ -287,7 +287,7 @@
     font-size: 0.72rem;
   }
 
-  .live-indicator {
+  .connectivity-indicator {
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 50%;
@@ -1282,7 +1282,7 @@
   }
 
   .status-badge__dot,
-  .live-indicator {
+  .connectivity-indicator {
     forced-color-adjust: none;
   }
 }

@@ -2,27 +2,32 @@
 
 ## Mission and boundaries
 
-Build a secure bilingual operations platform for Lebanese ISPs. Keep the Platform Control Center,
-each tenant ISP Workspace, the Collector app, and the public single-document verifier as separate
-security surfaces. There is no subscriber account, portal, or login.
+Build Orvex ISP, a secure bilingual operations platform for Lebanese ISPs. Keep Orvex ISP Control
+Center, each tenant's Orvex ISP Operations workspace, Orvex ISP Collect, and the public
+single-document verifier as separate security surfaces. Orvex Solutions is the vendor name. There is
+no subscriber account, portal, or login.
 
 ## Repository ownership
 
 - `apps/api`: versioned HTTP API and composition root.
-- `apps/platform-web`: vendor-only Control Center.
-- `apps/tenant-web`: tenant ISP Operations Workspace.
-- `apps/collector-mobile`: internal collector application.
+- `apps/platform-web`: Orvex staff-only Orvex ISP Control Center.
+- `apps/tenant-web`: tenant Orvex ISP Operations workspace.
+- `apps/collector-mobile`: internal Orvex ISP Collect application.
 - `apps/document-verifier`: public single-document verification only.
 - `packages/contracts`: API schemas, permissions, statuses, and shared identifiers.
 - `packages/domain`: framework-free domain rules and state machines.
 - `packages/database`: PostgreSQL schema, migrations, repositories, and isolation policies.
 - `packages/ui`: shared accessible bilingual UI primitives; never share authorization logic here.
-- `workers`: durable billing, integration, and MikroTik workers.
+- `workers`: durable billing, integration, and Orvex ISP Network Worker processes.
 - `infra`: development and deployment infrastructure.
 - `docs`: requirements, ADRs, security, testing, operations, and user guidance.
 
 Coordinate before editing another owner's files. Migration names use UTC timestamps and a short
 purpose. Do not rewrite or renumber an applied migration.
+
+Stable internal package scopes such as `@isp/*`, database identifiers, and existing deployment keys
+may remain during the controlled identity migration. They are implementation identifiers, never
+user-facing product names; ADR-0011 records the compatibility rationale.
 
 ## Required invariants
 

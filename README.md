@@ -1,9 +1,9 @@
-# Lebanon ISP Operations Platform
+# Orvex ISP
 
-Production-oriented monorepo for Salman Moussa's Team and its ISP clients. It contains a private
-Platform Control Center, isolated ISP Operations Workspaces, an internal Collector app, API and
-workers, a MikroTik integration boundary, and a minimal single-document verifier. Subscribers do not
-have accounts or a portal.
+Production-oriented monorepo for Orvex Solutions and its ISP clients. It contains Orvex ISP Control
+Center for Orvex staff, isolated Orvex ISP Operations workspaces for tenant teams, the internal
+Orvex ISP Collect application, the Core API, Orvex ISP Network Worker, a MikroTik integration
+boundary, and a minimal single-document verifier. Subscribers do not have accounts or a portal.
 
 ## Current delivery state
 
@@ -11,6 +11,11 @@ The repository is being built in dependency-aware phases. The first executable s
 verified identity, server-resolved tenant context, permission checks, immutable audit records, and
 separate bilingual platform and tenant shells. The requirements traceability matrix distinguishes
 implemented evidence from planned work; this README does not imply final acceptance.
+
+The current web shells use clearly identified demonstration records. Their activity labels do not
+claim a live API connection or production deployment. See
+`docs/ux/product-identity-migration-checklist.md` for the temporary rename checklist and ADR-0011
+for intentionally retained internal identifiers.
 
 ## Prerequisites
 

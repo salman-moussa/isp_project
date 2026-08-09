@@ -21,8 +21,8 @@ Requirements: [catalogue](../requirements/requirements.md) and
 
 ```mermaid
 flowchart LR
-  PT["Salman Moussa's Team"] --> PW["Platform Control Center"]
-  IS["ISP staff"] --> IW["ISP Operations Workspace"]
+  PT["Orvex Solutions staff"] --> PW["Orvex ISP Control Center"]
+  IS["ISP staff"] --> IW["Orvex ISP Operations"]
   CO["Assigned collector"] --> MA["Collector Mobile App"]
   SU["Subscriber (no login)"] --> OFF["Office / collector / phone / print"]
   QR["Opaque document token holder"] --> PV["Single-document verification"]

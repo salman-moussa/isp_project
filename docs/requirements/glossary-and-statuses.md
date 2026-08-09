@@ -6,22 +6,22 @@ infer permission or accounting behavior from a translated label.
 
 ## Product and actor terms
 
-| Canonical term                               | Definition                                                                                              | Avoid                                                |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Platform Client / ISP Client                 | An ISP company buying the software from Salman Moussa's Team.                                           | `Customer` where Subscriber could be meant.          |
-| Tenant / ISP Workspace                       | The isolated operational environment and data boundary of one Platform Client.                          | Workspace ID supplied by a caller as proof of scope. |
-| Subscriber / Customer                        | An end-user buying internet service from a tenant; has no product login.                                | Client, tenant customer, portal user.                |
-| Control Plane / Platform Control Center      | Vendor-private commercial, provisioning, deployment, support and aggregate-health system.               | Super-admin access to raw tenant data.               |
-| Tenant Data Plane / ISP Operations Workspace | Tenant operational services and records for subscribers, finance, collection, installation and network. | Control-plane database.                              |
-| Collector Mobile App                         | Internal field app for assigned tenant collectors.                                                      | Subscriber app.                                      |
-| Platform Subscription                        | Commercial right of an ISP Client to use this software.                                                 | Internet subscription.                               |
-| Internet Service                             | The tenant-managed connectivity service sold to a Subscriber.                                           | Platform subscription.                               |
-| Support Session                              | Explicit approved, scoped, time-limited cross-boundary access by platform support.                      | Impersonation, silent workspace opening.             |
-| Posted                                       | Financial record has a permanent accounting identity and is immutable except by linked correction.      | Saved, completed.                                    |
-| Reversal                                     | New linked record neutralizing all or part of a posted record; never mutation/deletion of the original. | Delete, cancel after posting.                        |
-| Desired state                                | Intended RouterOS/subscriber network state requested by an authorized tenant workflow.                  | Assumed actual state.                                |
-| Observed state                               | Last state retrieved from an authoritative router, including observation time and source.               | Live state without freshness.                        |
-| Uncertain outcome                            | A command may have reached the provider/router but confirmation was lost.                               | Failed (unless proven).                              |
+| Canonical term                           | Definition                                                                                              | Avoid                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Platform Client / ISP Client             | An ISP company buying Orvex ISP from Orvex Solutions.                                                   | `Customer` where Subscriber could be meant.          |
+| Tenant / ISP Workspace                   | The isolated operational environment and data boundary of one Platform Client.                          | Workspace ID supplied by a caller as proof of scope. |
+| Subscriber / Customer                    | An end-user buying internet service from a tenant; has no product login.                                | Client, tenant customer, portal user.                |
+| Control Plane / Orvex ISP Control Center | Vendor-private commercial, provisioning, deployment, support and aggregate-health system.               | Super-admin access to raw tenant data.               |
+| Tenant Data Plane / Orvex ISP Operations | Tenant operational services and records for subscribers, finance, collection, installation and network. | Control-plane database.                              |
+| Collector Mobile App                     | Internal field app for assigned tenant collectors.                                                      | Subscriber app.                                      |
+| Platform Subscription                    | Commercial right of an ISP Client to use this software.                                                 | Internet subscription.                               |
+| Internet Service                         | The tenant-managed connectivity service sold to a Subscriber.                                           | Platform subscription.                               |
+| Support Session                          | Explicit approved, scoped, time-limited cross-boundary access by platform support.                      | Impersonation, silent workspace opening.             |
+| Posted                                   | Financial record has a permanent accounting identity and is immutable except by linked correction.      | Saved, completed.                                    |
+| Reversal                                 | New linked record neutralizing all or part of a posted record; never mutation/deletion of the original. | Delete, cancel after posting.                        |
+| Desired state                            | Intended RouterOS/subscriber network state requested by an authorized tenant workflow.                  | Assumed actual state.                                |
+| Observed state                           | Last state retrieved from an authoritative router, including observation time and source.               | Live state without freshness.                        |
+| Uncertain outcome                        | A command may have reached the provider/router but confirmation was lost.                               | Failed (unless proven).                              |
 
 ## Canonical lifecycle vocabularies
 

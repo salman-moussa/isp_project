@@ -4,16 +4,17 @@
 
 There are two distinct authenticated web applications:
 
-1. **Platform Control Center** — private to Salman Moussa's Team. It operates ISP-client commercial
-   relationships, platform subscriptions, packages, deployments, support, and aggregate health.
-2. **ISP Operations Workspace** — private to an ISP’s staff. It operates subscribers, invoices,
+1. **Orvex ISP Control Center** — private to Orvex Solutions staff. It operates ISP-client
+   commercial relationships, platform subscriptions, packages, deployments, support, and aggregate
+   health.
+2. **Orvex ISP Operations** — private to an ISP’s staff. It operates subscribers, invoices,
    payments, collectors, network work, installations, reporting, and tenant configuration.
 
 There is no customer portal, subscriber login, or end-subscriber account area. A future public
 document verification page may reveal one invoice or receipt through an opaque token, but it must
 remain a separate minimum-disclosure surface and must not reuse either authenticated shell.
 
-## Platform Control Center navigation
+## Orvex ISP Control Center navigation
 
 | Order | Area               | Primary records/actions                                                         |
 | ----- | ------------------ | ------------------------------------------------------------------------------- |
@@ -32,7 +33,7 @@ Platform dashboards contain commercial metadata and permitted aggregate telemetr
 expose raw tenant subscriber PII. “Open workspace” begins the controlled support-access workflow; it
 is not a silent cross-tenant navigation shortcut.
 
-## ISP Operations Workspace navigation
+## Orvex ISP Operations navigation
 
 | Order | Area                 | Primary records/actions                                                    |
 | ----- | -------------------- | -------------------------------------------------------------------------- |
@@ -56,7 +57,7 @@ permission-checked, and preserve or intentionally clear incompatible filters wit
 Skip link
 └── Application shell
     ├── Product navigation
-    │   ├── Cedar Ops identity
+    │   ├── Orvex ISP identity
     │   ├── Ordered product areas
     │   └── Beirut timezone / connectivity cue
     └── Work canvas

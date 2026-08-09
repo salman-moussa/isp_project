@@ -17,16 +17,16 @@ export function BrandMark({ label, compact = false }: { label: string; compact?:
   return (
     <span className={cn('brand', compact && 'brand--compact')}>
       <svg className="brand__mark" viewBox="0 0 48 48" role="img" aria-label={label}>
-        <path d="M24 5v37" />
-        <path d="M24 10 12 21h8L9 31h11L14 39h20l-6-8h11L28 21h8L24 10Z" />
-        <circle cx="24" cy="6" r="2.5" />
-        <circle cx="10" cy="31" r="2" />
-        <circle cx="38" cy="31" r="2" />
+        <circle cx="24" cy="24" r="15" />
+        <path d="M15 28c4.5-9 13.5-9 18-1" />
+        <path d="m30 18 5 1-1 5" />
+        <circle cx="15" cy="28" r="2.2" />
+        <circle cx="33" cy="27" r="2.2" />
       </svg>
       {!compact && (
         <span className="brand__wordmark" aria-hidden="true">
-          <span>CEDAR</span>
-          <small>OPS</small>
+          <span>ORVEX</span>
+          <small>ISP</small>
         </span>
       )}
     </span>
@@ -178,7 +178,7 @@ export function AppShell({
             </ul>
           </nav>
           <div className="side-navigation__footer">
-            <span className="live-indicator" aria-hidden="true" />
+            <span className="connectivity-indicator" aria-hidden="true" />
             <span>Asia/Beirut</span>
           </div>
         </aside>

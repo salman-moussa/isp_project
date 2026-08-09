@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 
-describe('ISP Operations Workspace shell', () => {
+describe('Orvex ISP Operations shell', () => {
   it('switches to Arabic RTL without losing the selected module', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -39,13 +39,15 @@ describe('ISP Operations Workspace shell', () => {
     const { container } = render(<App />);
 
     expect(
-      screen.getByRole('navigation', { name: 'ISP workspace navigation' }),
+      screen.getByRole('navigation', { name: 'Orvex ISP Operations navigation' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
-    expect(screen.getByRole('link', { name: 'Skip to ISP workspace content' })).toHaveAttribute(
-      'href',
-      '#main-content',
-    );
+    expect(
+      screen.getByRole('link', { name: 'Skip to Orvex ISP Operations content' }),
+    ).toHaveAttribute('href', '#main-content');
+    expect(screen.getByText('ORVEX')).toBeInTheDocument();
+    expect(screen.getByText('Orvex ISP Operations')).toBeInTheDocument();
+    expect(screen.getAllByText('Demonstration data').length).toBeGreaterThan(0);
 
     const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);

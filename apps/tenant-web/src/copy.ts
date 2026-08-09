@@ -35,6 +35,7 @@ export interface TenantCopy {
   statesTitle: string;
   statesDescription: string;
   statesLabel: string;
+  dataStatus: string;
   moduleEyebrow: string;
   moduleDescription: string;
   moduleEmptyTitle: string;
@@ -73,25 +74,25 @@ export interface TenantCopy {
 }
 
 const english: TenantCopy = {
-  productName: 'ISP Operations Workspace',
-  brandLabel: 'Cedar Ops network cedar mark',
-  navLabel: 'ISP workspace navigation',
-  menuLabel: 'Open ISP workspace navigation',
-  closeMenuLabel: 'Close ISP workspace navigation',
-  skipLabel: 'Skip to ISP workspace content',
+  productName: 'Orvex ISP Operations',
+  brandLabel: 'Orvex ISP connection and routing mark',
+  navLabel: 'Orvex ISP Operations navigation',
+  menuLabel: 'Open Orvex ISP Operations navigation',
+  closeMenuLabel: 'Close Orvex ISP Operations navigation',
+  skipLabel: 'Skip to Orvex ISP Operations content',
   languageLabel: 'Interface language',
   englishLabel: 'EN',
   arabicLabel: 'ع',
-  contextEyebrow: 'ISP workspace',
-  contextTitle: 'Cedars Net Lebanon',
-  contextMeta: 'Hamra branch · Finance & operations',
+  contextEyebrow: 'ISP workspace · Demonstration data',
+  contextTitle: 'Northline ISP (demo)',
+  contextMeta: 'Hamra branch · Demonstration data · Finance & operations',
   branchStatus: 'Hamra branch',
   searchLabel: 'Search subscribers, invoices, or receipts',
   userLabel: 'Open account menu for Rami Khalil',
   pageEyebrow: 'Sunday · 9 August 2026',
   pageTitle: 'Collections, subscriber service, and network work—ready for the morning shift.',
   pageDescription:
-    'USD and LBP stay separate. Live network status and cash collection use the same permission-scoped workspace.',
+    'USD and LBP stay separate. Network status and cash collection use the same permission-scoped demonstration workspace.',
   addSubscriber: 'Add subscriber',
   recordPayment: 'Record payment',
   sectionToday: "Today's operating picture",
@@ -110,6 +111,7 @@ const english: TenantCopy = {
   statesDescription:
     'Teams always get a next step when data is delayed, missing, failed, or restricted.',
   statesLabel: 'Preview response state',
+  dataStatus: 'Demonstration data',
   moduleEyebrow: 'ISP operations module',
   moduleDescription:
     'The bilingual module shell is ready for branch-scoped permissions, API data, saved filters, and audit history.',
@@ -215,7 +217,7 @@ const english: TenantCopy = {
       ],
     },
     online: {
-      title: 'Internet services · live status',
+      title: 'Internet services · operational status',
       items: [
         { label: 'Online', value: '3,842', detail: 'Updated 34 seconds ago', tone: 'positive' },
         { label: 'Offline', value: '264', detail: '18 changed in the last hour', tone: 'warning' },
@@ -320,7 +322,7 @@ const english: TenantCopy = {
     },
     error: {
       label: 'Error',
-      title: 'Live operations could not be refreshed',
+      title: 'Operational data could not be refreshed',
       description:
         'Posted payments remain safe. Retry the read without repeating any financial action.',
       action: 'Try again',
@@ -349,16 +351,16 @@ const english: TenantCopy = {
 
 const arabic: TenantCopy = {
   ...english,
-  productName: 'مساحة عمليات شركة الإنترنت',
-  brandLabel: 'شعار أرزة شبكية لمنصة سيدر أوبس',
-  navLabel: 'تنقّل مساحة شركة الإنترنت',
-  menuLabel: 'فتح قائمة مساحة شركة الإنترنت',
-  closeMenuLabel: 'إغلاق قائمة مساحة شركة الإنترنت',
-  skipLabel: 'الانتقال إلى محتوى مساحة العمل',
+  productName: 'عمليات Orvex ISP',
+  brandLabel: 'علامة Orvex ISP الهندسية للاتصال والتوجيه',
+  navLabel: 'التنقّل في عمليات Orvex ISP',
+  menuLabel: 'فتح قائمة عمليات Orvex ISP',
+  closeMenuLabel: 'إغلاق قائمة عمليات Orvex ISP',
+  skipLabel: 'الانتقال إلى محتوى عمليات Orvex ISP',
   languageLabel: 'لغة الواجهة',
-  contextEyebrow: 'مساحة شركة الإنترنت',
-  contextTitle: 'سيدرز نت لبنان',
-  contextMeta: 'فرع الحمرا · المالية والعمليات',
+  contextEyebrow: 'مساحة شركة الإنترنت · بيانات تجريبية',
+  contextTitle: 'شركة نورث لاين التجريبية',
+  contextMeta: 'فرع الحمرا · بيانات تجريبية · المالية والعمليات',
   branchStatus: 'فرع الحمرا',
   searchLabel: 'البحث عن مشترك أو فاتورة أو إيصال',
   userLabel: 'فتح قائمة حساب رامي خليل',
@@ -384,6 +386,7 @@ const arabic: TenantCopy = {
   statesDescription:
     'يحصل الفريق دائماً على خطوة تالية عند التأخير أو الفراغ أو الفشل أو منع الوصول.',
   statesLabel: 'معاينة حالة الاستجابة',
+  dataStatus: 'بيانات تجريبية',
   moduleEyebrow: 'وحدة عمليات شركة الإنترنت',
   moduleDescription:
     'هيكل الوحدة الثنائي اللغة جاهز لصلاحيات الفروع وبيانات API والفلاتر المحفوظة وسجل التدقيق.',
@@ -488,7 +491,7 @@ const arabic: TenantCopy = {
       ],
     },
     online: {
-      title: 'خدمات الإنترنت · الحالة المباشرة',
+      title: 'خدمات الإنترنت · الحالة التشغيلية',
       items: [
         { label: 'متصل', value: '٣٬٨٤٢', detail: 'آخر تحديث منذ ٣٤ ثانية', tone: 'positive' },
         {
@@ -590,7 +593,7 @@ const arabic: TenantCopy = {
     },
     error: {
       label: 'خطأ',
-      title: 'تعذّر تحديث العمليات المباشرة',
+      title: 'تعذّر تحديث البيانات التشغيلية',
       description: 'الدفعات المُرحّلة آمنة. أعد قراءة البيانات من دون تكرار أي إجراء مالي.',
       action: 'إعادة المحاولة',
     },

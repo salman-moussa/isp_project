@@ -16,6 +16,7 @@ rewriting an accepted decision's outcome. `Proposed` decisions require the named
 | [0008](0008-network-worker-and-routeros-safety.md)        | Network worker and RouterOS safety                               | Proposed; lab validation required       |
 | [0009](0009-deployment-topologies-and-release.md)         | Deployment topologies and release strategy                       | Proposed                                |
 | [0010](0010-observability-slos-and-data-safety.md)        | Observability, SLOs and telemetry safety                         | Proposed                                |
+| [0011](0011-product-identity-and-legacy-identifiers.md)   | Orvex ISP identity and intentionally retained internal IDs       | Accepted                                |
 
 Each ADR must be traceable to [requirements](../requirements/requirements.md), risks,
 implementation, tests, and operational evidence before the relevant phase gate closes.
