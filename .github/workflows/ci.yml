@@ -100,6 +100,7 @@ jobs:
             echo "DATABASE_UPGRADE_MIGRATION_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_upgrade_test"
             echo "DATABASE_UPGRADE_RUNTIME_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_upgrade_test"
             echo "DATABASE_UPGRADE_LEGACY_OWNER=orvex_bootstrap_test"
+            echo "DATABASE_UPGRADE_NAME=isp_upgrade_test"
             echo "REDIS_URL=redis://:test-only-not-production@127.0.0.1:${redis_port}/0"
             echo "OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:${minio_port}"
           } >> "$GITHUB_ENV"

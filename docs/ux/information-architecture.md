@@ -59,7 +59,7 @@ Skip link
     ├── Product navigation
     │   ├── Orvex ISP identity
     │   ├── Ordered product areas
-    │   └── Beirut timezone / connectivity cue
+    │   └── Beirut timezone
     └── Work canvas
         ├── Context header
         │   ├── Control-plane or ISP-workspace identity

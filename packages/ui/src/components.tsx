@@ -250,7 +250,11 @@ export function AppShell({
           />
         )}
 
-        <div className="app-shell__canvas">
+        <div
+          className="app-shell__canvas"
+          inert={mobileViewport && mobileOpen}
+          aria-hidden={mobileViewport && mobileOpen ? true : undefined}
+        >
           <header className="context-header">
             <button
               ref={menuButtonRef}

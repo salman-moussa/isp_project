@@ -36,11 +36,31 @@ export function registerTenantSummaryRoute(
         const requestedSupportGrantId = request.auth.supportGrant?.grantId;
         const authenticatedTenantId = request.auth.tenantId ?? request.auth.supportGrant?.tenantId;
         if (authenticatedTenantId) {
-          const verifiedAuditContext = assertTenantContext(
-            request.auth,
-            authenticatedTenantId,
-            options.now(),
-          );
+          let verifiedAuditContext: ReturnType<typeof assertTenantContext>;
+          try {
+            verifiedAuditContext = assertTenantContext(
+              request.auth,
+              authenticatedTenantId,
+              options.now(),
+            );
+          } catch {
+            await options.securityAudit.append({
+              actorId: request.auth.sub,
+              sessionId: request.auth.sessionId,
+              claimedTenantId: tenantId,
+              action: 'support.tenant.summary.read',
+              reason: 'scoped_grant_became_invalid',
+              requestId: request.id,
+              ipAddress: request.ip,
+              ...(requestedSupportGrantId ? { supportGrantId: requestedSupportGrantId } : {}),
+              ...(request.headers['user-agent']
+                ? { userAgent: request.headers['user-agent'] }
+                : {}),
+              metadata: { permission, authenticatedTenantId },
+              occurredAt: options.now().toISOString(),
+            });
+            throw error;
+          }
           await options.audit.append({
             tenantId: verifiedAuditContext.tenantId,
             actorId: request.auth.sub,

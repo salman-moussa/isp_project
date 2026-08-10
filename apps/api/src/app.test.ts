@@ -229,6 +229,69 @@ describe('identity -> tenant -> permission -> audit slice', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it('falls back to the control audit if a support grant expires during authorization', async () => {
+    await app.close();
+    audit = new MemoryAuditWriter();
+    securityAudit = new MemorySecurityAuditWriter();
+    const instants = [
+      '2026-08-09T18:14:58.000Z',
+      '2026-08-09T18:14:59.000Z',
+      '2026-08-09T18:15:00.000Z',
+    ];
+    let clockRead = 0;
+    app = await buildApp(config, {
+      audit,
+      now: () => new Date(instants[Math.min(clockRead++, instants.length - 1)]!),
+      sessions: { isActive: async () => true },
+      securityAudit,
+      supportGrants: {
+        readApproved: async (grantId, tenantId, requesterId) => ({
+          id: grantId,
+          tenantId,
+          requesterId,
+          ticketId: 'ticket-a',
+          approverId: 'support-manager-a',
+          reason: 'Investigate an approved billing display incident',
+          permissions: ['tenant.dashboard.view'],
+          expiresAt: '2026-08-09T18:15:00.000Z',
+          authorizationVersion: 1,
+        }),
+      },
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantA}/summary`,
+      headers: {
+        authorization: `Bearer ${tokenFor({
+          sub: 'support-agent-a',
+          sessionId: 'platform-session-a',
+          audience: 'platform',
+          permissions: ['platform.support.request'],
+          supportGrant: {
+            grantId: 'grant-a',
+            tenantId: tenantA,
+            ticketId: 'ticket-a',
+            approverId: 'support-manager-a',
+            reason: 'Investigate an approved billing display incident',
+            permissions: ['tenant.dashboard.view'],
+            expiresAt: '2026-08-09T18:15:00.000Z',
+            authorizationVersion: 1,
+          },
+        })}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(audit.events).toHaveLength(0);
+    expect(securityAudit.events[0]).toMatchObject({
+      supportGrantId: 'grant-a',
+      action: 'support.tenant.summary.read',
+      reason: 'scoped_grant_became_invalid',
+    });
+  });
+
   it('rejects a support token whose authorization version no longer matches the grant', async () => {
     const response = await app.inject({
       method: 'GET',

@@ -18,7 +18,8 @@
     "test:integration": "node scripts/test-live-postgres.mjs",
     "db:check": "node scripts/check-schema.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node scripts/migrate.mjs"
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:adopt-legacy": "node scripts/adopt-legacy-baseline.mjs"
   },
   "dependencies": {
     "@isp/contracts": "0.1.0",

@@ -68,12 +68,15 @@ new objects need. The hardening migration also removes public default table and 
 Container initialization runs only for a new data directory. For a pre-hardening database, a DBA
 must run `infra/docker/postgres/admin/provision-existing-database.sh` once per physical database
 before `db:migrate`. The script requires an explicit bootstrap DSN, database name, and legacy owner;
-it refuses legacy support rows with empty permission scopes or approval without an approver, creates
-or reconciles the restricted roles, transfers existing objects to `orvex_owner`, and removes public
-access. This operation is intentionally never invoked by the application or normal migration runner.
+it creates or reconciles the restricted roles and then invokes the shared adoption bridge. The
+bridge matches the exact immutable-baseline tables, enums, forced-RLS policies, and audit trigger;
+refuses unsafe legacy support rows; records the baseline's computed checksum in the migration
+ledger; transfers existing objects to `orvex_owner`; and removes public access. A partial or
+unfamiliar schema fails closed instead of being marked as migrated. This DBA operation is
+intentionally never invoked by the application or normal migration runner.
 
 The required CI fixture also creates `isp_upgrade_test`, applies only the immutable baseline as the
-legacy bootstrap owner, records its checksum, verifies legacy ownership, transfers objects to
-`orvex_owner`, and then runs every forward migration through `orvex_migrator`. CI fails unless both
-the empty-database and prior-schema paths complete and the restricted runtime can observe the final
-migration state.
+legacy bootstrap owner, verifies legacy ownership, calls the same exported adoption bridge used by
+the DBA script without pre-seeding the ledger or manually reassigning objects, and then runs every
+forward migration through `orvex_migrator`. CI fails unless both the empty-database and prior-schema
+paths complete and the restricted runtime can observe the final migration state.

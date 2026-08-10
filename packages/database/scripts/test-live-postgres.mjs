@@ -1,7 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import { adoptLegacyBaseline } from './adopt-legacy-baseline.mjs';
 import { migrate } from './migrate.mjs';
 
 const migrationUrl = process.env.DATABASE_MIGRATION_URL;
@@ -11,6 +12,7 @@ const upgradeBootstrapUrl = process.env.DATABASE_UPGRADE_BOOTSTRAP_URL;
 const upgradeMigrationUrl = process.env.DATABASE_UPGRADE_MIGRATION_URL;
 const upgradeRuntimeUrl = process.env.DATABASE_UPGRADE_RUNTIME_URL;
 const upgradeLegacyOwner = process.env.DATABASE_UPGRADE_LEGACY_OWNER;
+const upgradeDatabaseName = process.env.DATABASE_UPGRADE_NAME;
 
 if (!migrationUrl || !runtimeUrl) {
   const missing = [
@@ -382,11 +384,18 @@ async function verifyPriorSchemaUpgrade() {
     upgradeMigrationUrl,
     upgradeRuntimeUrl,
     upgradeLegacyOwner,
+    upgradeDatabaseName,
   ];
   if (upgradeInputs.some(Boolean) && upgradeInputs.some((value) => !value)) {
     throw new Error('Every DATABASE_UPGRADE_* input is required when prior-schema testing is set');
   }
-  if (!upgradeBootstrapUrl || !upgradeMigrationUrl || !upgradeRuntimeUrl || !upgradeLegacyOwner) {
+  if (
+    !upgradeBootstrapUrl ||
+    !upgradeMigrationUrl ||
+    !upgradeRuntimeUrl ||
+    !upgradeLegacyOwner ||
+    !upgradeDatabaseName
+  ) {
     if (liveRequired) {
       throw new Error('Required live tests must provide the DATABASE_UPGRADE_* inputs');
     }
@@ -404,22 +413,7 @@ async function verifyPriorSchemaUpgrade() {
       new URL('../migrations/0000_identity_tenancy_audit.sql', import.meta.url),
     );
     const baseline = await readFile(baselinePath, 'utf8');
-    const checksum = createHash('sha256').update(baseline).digest('hex');
-
-    await bootstrap.begin(async (transaction) => {
-      await transaction.unsafe(baseline);
-      await transaction.unsafe(`
-        CREATE TABLE public._orvex_migrations (
-          name text PRIMARY KEY,
-          checksum text NOT NULL,
-          applied_at timestamptz NOT NULL DEFAULT now()
-        )
-      `);
-      await transaction`
-        INSERT INTO public._orvex_migrations (name, checksum)
-        VALUES ('0000_identity_tenancy_audit.sql', ${checksum})
-      `;
-    });
+    await bootstrap.unsafe(baseline);
 
     const [legacyOwnership] = await bootstrap`
       SELECT owner.rolname AS owner
@@ -433,8 +427,11 @@ async function verifyPriorSchemaUpgrade() {
       'Prior-schema fixture was not owned by the legacy bootstrap role',
     );
 
-    await bootstrap.unsafe(`REASSIGN OWNED BY "${upgradeLegacyOwner}" TO orvex_owner`);
-    await bootstrap.unsafe('ALTER SCHEMA public OWNER TO orvex_owner');
+    await adoptLegacyBaseline({
+      databaseUrl: upgradeBootstrapUrl,
+      databaseName: upgradeDatabaseName,
+      legacyOwner: upgradeLegacyOwner,
+    });
     await migrate(upgradeMigrationUrl);
 
     const upgraded = await upgradeRuntime`

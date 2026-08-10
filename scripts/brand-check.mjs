@@ -28,6 +28,11 @@ const textExtensions = new Set([
   '.ts',
   '.tsx',
   '.txt',
+  '.tf',
+  '.tfvars',
+  '.sh',
+  '.yaml',
+  '.yml',
 ]);
 const ignoredDirectories = new Set(['node_modules', '.git', 'coverage']);
 const ignoredFiles = new Set([
