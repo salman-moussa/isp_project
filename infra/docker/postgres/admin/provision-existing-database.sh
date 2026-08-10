@@ -14,6 +14,8 @@ psql \
   --set=runtime_password="$ORVEX_RUNTIME_DB_PASSWORD" \
   --set=migrator_password="$ORVEX_MIGRATOR_DB_PASSWORD" \
   "$DATABASE_BOOTSTRAP_URL" <<-'SQL'
+  SET search_path = pg_catalog;
+
   SELECT 'CREATE ROLE orvex_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'orvex_owner')\gexec
   SELECT format(
@@ -30,6 +32,8 @@ psql \
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
   ALTER ROLE orvex_runtime LOGIN PASSWORD :'runtime_password'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+  ALTER ROLE orvex_migrator SET search_path = pg_catalog, public;
+  ALTER ROLE orvex_runtime SET search_path = pg_catalog, public;
   GRANT orvex_owner TO orvex_migrator;
 SQL
 

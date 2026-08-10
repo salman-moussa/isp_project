@@ -24,12 +24,13 @@ export async function adoptLegacyBaseline({ databaseUrl, databaseName, legacyOwn
   const client = postgres(databaseUrl, { max: 1, prepare: false });
   try {
     await client.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL search_path TO pg_catalog');
       await verifyTargetIdentity(transaction, databaseName, legacyOwner);
       await verifyExactBaselineManifest(transaction, baseline);
 
       const [invalidGrants] = await transaction`
-        SELECT count(*)::int AS count FROM support_grants
-        WHERE cardinality(permissions) = 0
+        SELECT count(*)::int AS count FROM public.support_grants
+        WHERE pg_catalog.cardinality(permissions) = 0
            OR (status = 'approved' AND approver_id IS NULL)
       `;
       if (invalidGrants?.count !== 0) {
@@ -137,13 +138,20 @@ async function verifyExactBaselineManifest(transaction, baseline) {
   await transaction.unsafe(`CREATE SCHEMA "${referenceSchema}"`);
   await transaction.unsafe(`SET LOCAL search_path TO "${referenceSchema}", pg_catalog`);
   await transaction.unsafe(baseline);
-  await transaction.unsafe('SET LOCAL search_path TO public, pg_catalog');
+  await transaction.unsafe('SET LOCAL search_path TO pg_catalog');
 
   const [actual, reference] = await Promise.all([
     readCatalogManifest(transaction, 'public'),
     readCatalogManifest(transaction, referenceSchema),
   ]);
   assertExactCatalogManifest(actual, reference);
+
+  const [ledgerState] = await transaction`
+    SELECT pg_catalog.to_regclass('public._orvex_migrations') IS NOT NULL AS exists
+  `;
+  if (ledgerState?.exists) {
+    throw new Error('Legacy adoption refuses a pre-existing _orvex_migrations ledger');
+  }
 
   await Promise.all([
     createMigrationLedger(transaction, 'public'),
@@ -169,9 +177,25 @@ async function createMigrationLedger(transaction, schemaName) {
 }
 
 async function readCatalogManifest(transaction, schemaName) {
-  const [relations, columns, constraints, indexes, types, enums, policies, functions, triggers] =
-    await Promise.all([
-      transaction`
+  const [
+    relations,
+    columns,
+    constraints,
+    indexes,
+    types,
+    enums,
+    policies,
+    functions,
+    triggers,
+    rules,
+    inheritance,
+    operators,
+    casts,
+    collations,
+    operatorClasses,
+    operatorFamilies,
+  ] = await Promise.all([
+    transaction`
         SELECT relation.relname AS relation_name, relation.relkind AS kind,
                relation.relpersistence AS persistence, relation.relrowsecurity AS row_security,
                relation.relforcerowsecurity AS force_row_security,
@@ -183,7 +207,7 @@ async function readCatalogManifest(transaction, schemaName) {
           AND relation.relname <> '_orvex_migrations'
         ORDER BY relation.relname
       `,
-      transaction`
+    transaction`
         SELECT relation.relname AS relation_name, attribute.attnum::int AS ordinal_position,
                attribute.attname AS column_name,
                format_type(attribute.atttypid, attribute.atttypmod) AS data_type,
@@ -191,6 +215,7 @@ async function readCatalogManifest(transaction, schemaName) {
                attribute.attgenerated AS generated_kind, attribute.attstorage AS storage,
                attribute.attcompression AS compression,
                COALESCE(collation.collname, '') AS collation,
+               attribute.attacl::text AS privileges,
                COALESCE(pg_get_expr(default_value.adbin, default_value.adrelid), '') AS default_expression
         FROM pg_attribute attribute
         JOIN pg_class relation ON relation.oid = attribute.attrelid
@@ -204,7 +229,7 @@ async function readCatalogManifest(transaction, schemaName) {
           AND attribute.attnum > 0 AND NOT attribute.attisdropped
         ORDER BY relation.relname, attribute.attnum
       `,
-      transaction`
+    transaction`
         SELECT relation.relname AS relation_name, constraint_row.conname AS constraint_name,
                constraint_row.contype AS kind, constraint_row.condeferrable AS deferrable,
                constraint_row.condeferred AS initially_deferred,
@@ -223,7 +248,7 @@ async function readCatalogManifest(transaction, schemaName) {
           AND relation.relname <> '_orvex_migrations'
         ORDER BY relation.relname, constraint_row.conname
       `,
-      transaction`
+    transaction`
         SELECT table_relation.relname AS relation_name,
                index_relation.relname AS index_name,
                index_row.indisunique AS unique_index,
@@ -247,7 +272,7 @@ async function readCatalogManifest(transaction, schemaName) {
           AND table_relation.relname <> '_orvex_migrations'
         ORDER BY table_relation.relname, index_relation.relname
       `,
-      transaction`
+    transaction`
         SELECT type_row.typname AS type_name, type_row.typtype AS kind,
                type_row.typcategory AS category, type_row.typispreferred AS preferred,
                type_row.typnotnull AS not_null, type_row.typdelim AS delimiter,
@@ -261,7 +286,7 @@ async function readCatalogManifest(transaction, schemaName) {
           AND type_row.typname NOT IN ('_orvex_migrations', '__orvex_migrations')
         ORDER BY type_row.typname
       `,
-      transaction`
+    transaction`
         SELECT type_row.typname AS type_name,
                array_agg(enum_value.enumlabel ORDER BY enum_value.enumsortorder) AS labels
         FROM pg_type type_row
@@ -270,14 +295,14 @@ async function readCatalogManifest(transaction, schemaName) {
         WHERE namespace.nspname = ${schemaName}
         GROUP BY type_row.typname ORDER BY type_row.typname
       `,
-      transaction`
+    transaction`
         SELECT tablename AS relation_name, policyname AS policy_name, permissive,
                roles::text AS roles, cmd AS command, qual AS using_expression,
                with_check AS check_expression
         FROM pg_policies WHERE schemaname = ${schemaName}
         ORDER BY tablename, policyname
       `,
-      transaction`
+    transaction`
         SELECT procedure_row.proname AS function_name, procedure_row.prokind AS kind,
                language.lanname AS language,
                pg_get_function_result(procedure_row.oid) AS result_type,
@@ -295,7 +320,7 @@ async function readCatalogManifest(transaction, schemaName) {
         WHERE namespace.nspname = ${schemaName}
         ORDER BY procedure_row.proname, pg_get_function_identity_arguments(procedure_row.oid)
       `,
-      transaction`
+    transaction`
         SELECT relation.relname AS relation_name, trigger_row.tgname AS trigger_name,
                procedure_row.proname AS function_name, trigger_row.tgenabled AS enabled,
                trigger_row.tgtype::int AS trigger_type, trigger_row.tgnargs::int AS argument_count,
@@ -310,7 +335,86 @@ async function readCatalogManifest(transaction, schemaName) {
         WHERE namespace.nspname = ${schemaName} AND NOT trigger_row.tgisinternal
         ORDER BY relation.relname, trigger_row.tgname
       `,
-    ]);
+    transaction`
+        SELECT relation.relname AS relation_name, rule_row.rulename AS rule_name,
+               rule_row.ev_type AS event_type, rule_row.ev_enabled AS enabled,
+               rule_row.is_instead AS instead,
+               pg_get_ruledef(rule_row.oid, true) AS definition
+        FROM pg_rewrite rule_row
+        JOIN pg_class relation ON relation.oid = rule_row.ev_class
+        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = ${schemaName}
+          AND relation.relname <> '_orvex_migrations'
+        ORDER BY relation.relname, rule_row.rulename
+      `,
+    transaction`
+        SELECT child.relname AS child_relation, parent_namespace.nspname AS parent_schema,
+               parent.relname AS parent_relation, inheritance.inhseqno::int AS sequence
+        FROM pg_inherits inheritance
+        JOIN pg_class child ON child.oid = inheritance.inhrelid
+        JOIN pg_namespace child_namespace ON child_namespace.oid = child.relnamespace
+        JOIN pg_class parent ON parent.oid = inheritance.inhparent
+        JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
+        WHERE child_namespace.nspname = ${schemaName}
+        ORDER BY child.relname, inheritance.inhseqno
+      `,
+    transaction`
+        SELECT operator_row.oprname AS operator_name, operator_row.oprkind AS kind,
+               operator_row.oprcanmerge AS can_merge, operator_row.oprcanhash AS can_hash,
+               format_type(operator_row.oprleft, NULL) AS left_type,
+               format_type(operator_row.oprright, NULL) AS right_type,
+               format_type(operator_row.oprresult, NULL) AS result_type,
+               operator_row.oprcode::regprocedure::text AS implementation,
+               operator_row.oprrest::regprocedure::text AS restriction,
+               operator_row.oprjoin::regprocedure::text AS join_estimator
+        FROM pg_operator operator_row
+        JOIN pg_namespace namespace ON namespace.oid = operator_row.oprnamespace
+        WHERE namespace.nspname = ${schemaName}
+        ORDER BY operator_row.oprname, operator_row.oprleft, operator_row.oprright
+      `,
+    transaction`
+        SELECT format_type(cast_row.castsource, NULL) AS source_type,
+               format_type(cast_row.casttarget, NULL) AS target_type,
+               cast_row.castcontext AS context, cast_row.castmethod AS method,
+               cast_row.castfunc::regprocedure::text AS implementation
+        FROM pg_cast cast_row
+        JOIN pg_type source_type ON source_type.oid = cast_row.castsource
+        JOIN pg_namespace source_namespace ON source_namespace.oid = source_type.typnamespace
+        JOIN pg_type target_type ON target_type.oid = cast_row.casttarget
+        JOIN pg_namespace target_namespace ON target_namespace.oid = target_type.typnamespace
+        WHERE source_namespace.nspname = ${schemaName}
+           OR target_namespace.nspname = ${schemaName}
+        ORDER BY source_type.typname, target_type.typname
+      `,
+    transaction`
+        SELECT collation.collname AS collation_name, collation.collprovider AS provider,
+               collation.collisdeterministic AS deterministic,
+               collation.collencoding::int AS encoding, collation.collcollate AS collate,
+               collation.collctype AS character_type
+        FROM pg_collation collation
+        JOIN pg_namespace namespace ON namespace.oid = collation.collnamespace
+        WHERE namespace.nspname = ${schemaName}
+        ORDER BY collation.collname
+      `,
+    transaction`
+        SELECT operator_class.opcname AS class_name, access_method.amname AS access_method,
+               format_type(operator_class.opcintype, NULL) AS input_type,
+               operator_class.opcdefault AS is_default
+        FROM pg_opclass operator_class
+        JOIN pg_namespace namespace ON namespace.oid = operator_class.opcnamespace
+        JOIN pg_am access_method ON access_method.oid = operator_class.opcmethod
+        WHERE namespace.nspname = ${schemaName}
+        ORDER BY operator_class.opcname, access_method.amname
+      `,
+    transaction`
+        SELECT operator_family.opfname AS family_name, access_method.amname AS access_method
+        FROM pg_opfamily operator_family
+        JOIN pg_namespace namespace ON namespace.oid = operator_family.opfnamespace
+        JOIN pg_am access_method ON access_method.oid = operator_family.opfmethod
+        WHERE namespace.nspname = ${schemaName}
+        ORDER BY operator_family.opfname, access_method.amname
+      `,
+  ]);
 
   return {
     relations,
@@ -322,6 +426,24 @@ async function readCatalogManifest(transaction, schemaName) {
     policies: normalizeCatalogRows(policies, schemaName, ['using_expression', 'check_expression']),
     functions: normalizeCatalogRows(functions, schemaName, ['result_type', 'body']),
     triggers: normalizeCatalogRows(triggers, schemaName, ['condition', 'definition']),
+    rules: normalizeCatalogRows(rules, schemaName, ['definition']),
+    inheritance: normalizeCatalogRows(inheritance, schemaName, ['parent_schema']),
+    operators: normalizeCatalogRows(operators, schemaName, [
+      'left_type',
+      'right_type',
+      'result_type',
+      'implementation',
+      'restriction',
+      'join_estimator',
+    ]),
+    casts: normalizeCatalogRows(casts, schemaName, [
+      'source_type',
+      'target_type',
+      'implementation',
+    ]),
+    collations,
+    operatorClasses: normalizeCatalogRows(operatorClasses, schemaName, ['input_type']),
+    operatorFamilies,
   };
 }
 
@@ -338,6 +460,7 @@ async function readLedgerManifest(transaction, schemaName) {
              format_type(attribute.atttypid, attribute.atttypmod) AS data_type,
              attribute.attnotnull AS not_null, attribute.attidentity AS identity_kind,
              attribute.attgenerated AS generated_kind,
+             attribute.attacl::text AS privileges,
              COALESCE(pg_get_expr(default_value.adbin, default_value.adrelid), '') AS default_expression
       FROM pg_attribute attribute
       JOIN pg_class relation ON relation.oid = attribute.attrelid

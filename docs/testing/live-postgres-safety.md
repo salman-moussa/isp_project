@@ -16,6 +16,10 @@ Local and test initialization creates four deliberately separate identities:
   runner. It is not an application credential.
 - `orvex_runtime` is a non-superuser, `NOBYPASSRLS`, non-owner login with explicit table grants.
 
+Runtime and migrator login defaults put trusted `pg_catalog` before `public`. The controlled
+migration transaction temporarily selects `public, pg_catalog` only after the database is fresh or
+the exact legacy catalog has been verified and public creation rights have been removed.
+
 Use distinct DSNs. `DATABASE_MIGRATION_URL` must authenticate as `orvex_migrator` and
 `DATABASE_RUNTIME_URL` must authenticate as `orvex_runtime`. `DATABASE_URL` should be the runtime
 DSN when an application still consumes that legacy variable. Never point any application process at
@@ -73,8 +77,10 @@ bridge applies the immutable baseline inside a randomly named, transaction-scope
 and compares normalized PostgreSQL catalogs field by field. The comparison covers every relevant
 relation kind, column/type/default/nullability, enum, constraint (including PostgreSQL 18 catalog
 forms), index, RLS flag/policy expression, function attribute/body, and trigger condition/column
-mask/argument/function/event. It separately compares any pre-existing migration ledger to a freshly
-created reference ledger, verifies the target database and one expected object owner, refuses unsafe
+mask/argument/function/event, rewrite rules, inheritance, column ACLs, operators, casts, collations,
+and operator classes/families. Privileged catalog reads run with a `pg_catalog`-only search path.
+The bridge rejects any pre-existing new-style migration ledger, creates and compares fresh
+real/reference ledgers, verifies the target database and one expected object owner, refuses unsafe
 legacy support rows, records the baseline's computed checksum, transfers only the enumerated
 baseline objects to `orvex_owner`, and removes public access. A partial or unfamiliar schema fails
 closed instead of being marked as migrated. This DBA operation is intentionally never invoked by the

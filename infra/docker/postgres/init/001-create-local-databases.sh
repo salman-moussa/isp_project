@@ -13,6 +13,8 @@ psql \
   --set=migrator_password="$ORVEX_MIGRATOR_DB_PASSWORD" \
   --username "$POSTGRES_USER" \
   --dbname "$POSTGRES_DB" <<-'SQL'
+  SET search_path = pg_catalog;
+
   SELECT 'CREATE ROLE orvex_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'orvex_owner')\gexec
 
@@ -40,8 +42,8 @@ psql \
   REVOKE ALL ON SCHEMA public FROM PUBLIC;
   GRANT USAGE ON SCHEMA public TO orvex_runtime;
 
-  ALTER ROLE orvex_migrator SET search_path = public, pg_catalog;
-  ALTER ROLE orvex_runtime SET search_path = public, pg_catalog;
+  ALTER ROLE orvex_migrator SET search_path = pg_catalog, public;
+  ALTER ROLE orvex_runtime SET search_path = pg_catalog, public;
 
   SELECT 'CREATE DATABASE isp_tenant_template OWNER orvex_owner'
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'isp_tenant_template')\gexec
@@ -50,6 +52,7 @@ psql \
 SQL
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname isp_tenant_template <<-'SQL'
+  SET search_path = pg_catalog;
   ALTER SCHEMA public OWNER TO orvex_owner;
   REVOKE ALL ON SCHEMA public FROM PUBLIC;
   GRANT USAGE ON SCHEMA public TO orvex_runtime;
@@ -57,6 +60,7 @@ SQL
 
 if [ "${ORVEX_CREATE_UPGRADE_TEST_DATABASE:-0}" = "1" ]; then
   psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-'SQL'
+    SET search_path = pg_catalog;
     SELECT 'CREATE DATABASE isp_upgrade_test'
     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'isp_upgrade_test')\gexec
 SQL

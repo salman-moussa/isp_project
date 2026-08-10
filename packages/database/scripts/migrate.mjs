@@ -30,6 +30,7 @@ export async function migrate(databaseUrl = process.env.DATABASE_MIGRATION_URL) 
 
       await client.begin(async (transaction) => {
         await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+        await transaction.unsafe('SET LOCAL search_path TO public, pg_catalog');
         await transaction.unsafe(`
           CREATE TABLE IF NOT EXISTS public._orvex_migrations (
             name text PRIMARY KEY,

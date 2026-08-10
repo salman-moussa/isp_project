@@ -76,6 +76,11 @@ describe('tenant database safety migration', () => {
     expect(adoption).toContain('trigger_row.tgqual');
     expect(adoption).toContain('trigger_row.tgattr::text');
     expect(adoption).toContain('trigger_row.tgargs');
+    expect(adoption).toContain('SET LOCAL search_path TO pg_catalog');
+    expect(adoption).toContain('FROM public.support_grants');
+    expect(adoption).toContain('refuses a pre-existing _orvex_migrations ledger');
+    expect(adoption).toContain('FROM pg_rewrite');
+    expect(adoption).toContain('attribute.attacl::text AS privileges');
     expect(manifest).toContain('assertExactCatalogManifest');
     expect(manifest).toContain('normalizeCatalogRows');
     expect(harness).toContain('await adoptLegacyBaseline({');
