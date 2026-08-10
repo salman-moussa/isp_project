@@ -17,6 +17,7 @@ const scanRoots = [
   'workers',
   'docs',
 ];
+const optionalScanRoots = new Set(['workers'].map((path) => resolve(repositoryRoot, path)));
 const textExtensions = new Set([
   '.css',
   '.cfg',
@@ -58,10 +59,25 @@ const obsoleteNames = [
 ];
 
 async function collectFiles(path) {
-  const entries = await readdir(path, { withFileTypes: true }).catch(() => null);
-  if (!entries) {
-    const file = await stat(path).catch(() => null);
-    return file?.isFile() ? [path] : [];
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch (readDirectoryError) {
+    try {
+      const file = await stat(path);
+      if (file.isFile()) return [path];
+      throw readDirectoryError;
+    } catch (fileError) {
+      if (
+        optionalScanRoots.has(path) &&
+        fileError instanceof Error &&
+        'code' in fileError &&
+        fileError.code === 'ENOENT'
+      ) {
+        return [];
+      }
+      throw fileError;
+    }
   }
 
   const files = [];
