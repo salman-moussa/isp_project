@@ -1,4 +1,4 @@
-import type { Permission } from '@isp/contracts';
+import { errorResponseJsonSchema, tenantSummaryJsonSchema, type Permission } from '@isp/contracts';
 import { assertPermission, assertTenantContext } from '@isp/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -24,6 +24,27 @@ export function registerTenantSummaryRoute(
     {
       onRequest: [(request, reply) => app.authenticate(request, reply)],
       config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+      schema: {
+        operationId: 'readTenantSummary',
+        summary: 'Read the authorized tenant operational summary',
+        description:
+          'Returns currency-separated operational totals for the authenticated tenant or an approved support scope.',
+        tags: ['Tenant operations'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['tenantId'],
+          properties: { tenantId: { type: 'string', format: 'uuid' } },
+        },
+        response: {
+          200: tenantSummaryJsonSchema,
+          400: errorResponseJsonSchema,
+          401: errorResponseJsonSchema,
+          403: errorResponseJsonSchema,
+          500: errorResponseJsonSchema,
+        },
+      },
     },
     async (request, reply) => {
       const { tenantId } = paramsSchema.parse(request.params);

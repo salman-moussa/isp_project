@@ -82,6 +82,7 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       tenantId: tenantA,
       collections: { USD: 0, LBP: 0 },
     });
+    expect(response.headers['cache-control']).toBe('private, no-store');
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]).toMatchObject({
       tenantId: tenantA,
@@ -89,6 +90,43 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       action: 'tenant.summary.read',
       result: 'allowed',
     });
+  });
+
+  it('publishes the enforced tenant summary OpenAPI contract', () => {
+    expect(app.swagger()).toMatchObject({
+      paths: {
+        '/v1/tenants/{tenantId}/summary': {
+          get: {
+            operationId: 'readTenantSummary',
+            security: [{ bearerAuth: [] }],
+            responses: {
+              '200': { description: 'Default Response' },
+              '400': { description: 'Default Response' },
+              '401': { description: 'Default Response' },
+              '403': { description: 'Default Response' },
+              '500': { description: 'Default Response' },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('returns the standard validation envelope for framework-level request rejection', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/tenants/not-a-uuid/summary',
+      headers: { authorization: `Bearer ${tokenFor(tenantClaims)}` },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'VALIDATION_FAILED',
+        message: 'The request did not match the expected contract.',
+      },
+    });
+    expect(response.json<{ error: { requestId: string } }>().error.requestId).toBeTruthy();
   });
 
   it('denies a verified user from another tenant', async () => {

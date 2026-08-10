@@ -82,16 +82,59 @@ export async function buildApp(
     now,
   );
 
-  app.get('/health', async () => ({ status: 'ok', service: 'api' }));
-  app.get('/ready', async (_request, reply) => {
-    try {
-      if (!dependencies.readiness) throw new Error('No readiness probe is configured.');
-      await dependencies.readiness();
-      return { status: 'ready' };
-    } catch {
-      return reply.code(503).send({ status: 'not_ready' });
-    }
-  });
+  app.get(
+    '/health',
+    {
+      schema: {
+        operationId: 'healthCheck',
+        tags: ['Service'],
+        response: {
+          200: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['status', 'service'],
+            properties: {
+              status: { type: 'string', const: 'ok' },
+              service: { type: 'string', const: 'api' },
+            },
+          },
+        },
+      },
+    },
+    async () => ({ status: 'ok', service: 'api' }),
+  );
+  app.get(
+    '/ready',
+    {
+      schema: {
+        operationId: 'readinessCheck',
+        tags: ['Service'],
+        response: {
+          200: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['status'],
+            properties: { status: { type: 'string', const: 'ready' } },
+          },
+          503: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['status'],
+            properties: { status: { type: 'string', const: 'not_ready' } },
+          },
+        },
+      },
+    },
+    async (_request, reply) => {
+      try {
+        if (!dependencies.readiness) throw new Error('No readiness probe is configured.');
+        await dependencies.readiness();
+        return { status: 'ready' };
+      } catch {
+        return reply.code(503).send({ status: 'not_ready' });
+      }
+    },
+  );
 
   registerTenantSummaryRoute(app, {
     audit: dependencies.audit ?? new MemoryAuditWriter(),
@@ -114,6 +157,16 @@ export async function buildApp(
           message: 'The request did not match the expected contract.',
           requestId,
           details: { issues: error.issues },
+        },
+      });
+    }
+    if (error.validation) {
+      return reply.code(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'The request did not match the expected contract.',
+          requestId,
+          details: { issues: error.validation },
         },
       });
     }
