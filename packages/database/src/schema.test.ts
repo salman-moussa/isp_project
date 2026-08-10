@@ -66,16 +66,18 @@ describe('tenant database safety migration', () => {
     const harness = await readFile(fileURLToPath(harnessUrl), 'utf8');
 
     expect(adoption).toContain("createHash('sha256').update(baseline).digest('hex')");
-    expect(adoption).toContain('await verifyExactBaselineManifest(transaction)');
+    expect(adoption).toContain('await verifyExactBaselineManifest(transaction, baseline)');
     expect(adoption).toContain('DATABASE_BOOTSTRAP_URL does not target ORVEX_DATABASE_NAME');
     expect(adoption).toContain('INSERT INTO public._orvex_migrations');
     expect(adoption).toContain('ALTER TABLE public.');
     expect(adoption).not.toContain('REASSIGN OWNED BY');
-    expect(manifest).toContain('expectedColumns');
-    expect(manifest).toContain('expectedConstraints');
-    expect(manifest).toContain('expectedIndexes');
-    expect(manifest).toContain('expectedPolicies');
-    expect(manifest).toContain('expectedTrigger');
+    expect(adoption).toContain('CREATE SCHEMA');
+    expect(adoption).toContain('pg_get_constraintdef(constraint_row.oid, true)');
+    expect(adoption).toContain('trigger_row.tgqual');
+    expect(adoption).toContain('trigger_row.tgattr::text');
+    expect(adoption).toContain('trigger_row.tgargs');
+    expect(manifest).toContain('assertExactCatalogManifest');
+    expect(manifest).toContain('normalizeCatalogRows');
     expect(harness).toContain('await adoptLegacyBaseline({');
     expect(harness).not.toContain('CREATE TABLE public._orvex_migrations');
     expect(harness).not.toContain('REASSIGN OWNED BY');

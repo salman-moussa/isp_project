@@ -69,11 +69,14 @@ Container initialization runs only for a new data directory. For a pre-hardening
 must run `infra/docker/postgres/admin/provision-existing-database.sh` once per physical database
 before `db:migrate`. The script requires an explicit bootstrap DSN, database name, and legacy owner;
 it creates or reconciles the restricted roles and then invokes the shared adoption bridge. The
-bridge matches a canonical catalog manifest covering tables, every column/type/default/nullability,
-enums, constraints, indexes, RLS flags and policy expressions, and the audit trigger/function body;
-verifies the target database and one expected object owner; refuses unsafe legacy support rows;
-records the baseline's computed checksum in the migration ledger; transfers only the enumerated
-baseline objects to `orvex_owner`; and removes public access. A partial or unfamiliar schema fails
+bridge applies the immutable baseline inside a randomly named, transaction-scoped reference schema
+and compares normalized PostgreSQL catalogs field by field. The comparison covers every relevant
+relation kind, column/type/default/nullability, enum, constraint (including PostgreSQL 18 catalog
+forms), index, RLS flag/policy expression, function attribute/body, and trigger condition/column
+mask/argument/function/event. It separately compares any pre-existing migration ledger to a freshly
+created reference ledger, verifies the target database and one expected object owner, refuses unsafe
+legacy support rows, records the baseline's computed checksum, transfers only the enumerated
+baseline objects to `orvex_owner`, and removes public access. A partial or unfamiliar schema fails
 closed instead of being marked as migrated. This DBA operation is intentionally never invoked by the
 application or normal migration runner.
 
