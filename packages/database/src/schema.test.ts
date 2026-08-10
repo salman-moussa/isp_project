@@ -81,6 +81,8 @@ describe('tenant database safety migration', () => {
     expect(adoption).toContain('refuses a pre-existing _orvex_migrations ledger');
     expect(adoption).toContain('FROM pg_rewrite');
     expect(adoption).toContain('attribute.attacl::text AS privileges');
+    expect(adoption).toContain('collation_namespace.nspname');
+    expect(adoption).toContain('OR parent_namespace.nspname');
     expect(manifest).toContain('assertExactCatalogManifest');
     expect(manifest).toContain('normalizeCatalogRows');
     expect(harness).toContain('await adoptLegacyBaseline({');

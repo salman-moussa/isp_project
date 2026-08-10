@@ -215,6 +215,7 @@ async function readCatalogManifest(transaction, schemaName) {
                attribute.attgenerated AS generated_kind, attribute.attstorage AS storage,
                attribute.attcompression AS compression,
                COALESCE(collation.collname, '') AS collation,
+               COALESCE(collation_namespace.nspname, '') AS collation_schema,
                attribute.attacl::text AS privileges,
                COALESCE(pg_get_expr(default_value.adbin, default_value.adrelid), '') AS default_expression
         FROM pg_attribute attribute
@@ -223,6 +224,8 @@ async function readCatalogManifest(transaction, schemaName) {
         LEFT JOIN pg_attrdef default_value
           ON default_value.adrelid = relation.oid AND default_value.adnum = attribute.attnum
         LEFT JOIN pg_collation collation ON collation.oid = attribute.attcollation
+        LEFT JOIN pg_namespace collation_namespace
+          ON collation_namespace.oid = collation.collnamespace
         WHERE namespace.nspname = ${schemaName}
           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
           AND relation.relname <> '_orvex_migrations'
@@ -348,15 +351,17 @@ async function readCatalogManifest(transaction, schemaName) {
         ORDER BY relation.relname, rule_row.rulename
       `,
     transaction`
-        SELECT child.relname AS child_relation, parent_namespace.nspname AS parent_schema,
-               parent.relname AS parent_relation, inheritance.inhseqno::int AS sequence
+        SELECT child_namespace.nspname AS child_schema, child.relname AS child_relation,
+               parent_namespace.nspname AS parent_schema, parent.relname AS parent_relation,
+               inheritance.inhseqno::int AS sequence
         FROM pg_inherits inheritance
         JOIN pg_class child ON child.oid = inheritance.inhrelid
         JOIN pg_namespace child_namespace ON child_namespace.oid = child.relnamespace
         JOIN pg_class parent ON parent.oid = inheritance.inhparent
         JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
         WHERE child_namespace.nspname = ${schemaName}
-        ORDER BY child.relname, inheritance.inhseqno
+           OR parent_namespace.nspname = ${schemaName}
+        ORDER BY child_namespace.nspname, child.relname, inheritance.inhseqno
       `,
     transaction`
         SELECT operator_row.oprname AS operator_name, operator_row.oprkind AS kind,
