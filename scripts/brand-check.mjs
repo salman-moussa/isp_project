@@ -10,7 +10,9 @@ const scanRoots = [
   '.env.example',
   'docker-compose.yml',
   'docker-compose.test.yml',
+  '.github',
   'apps',
+  'infra',
   'packages/ui',
   'docs',
 ];

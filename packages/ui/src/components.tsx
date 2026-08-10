@@ -135,8 +135,58 @@ export function AppShell({
 }) {
   useDocumentLocale(locale);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileViewport, setMobileViewport] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const firstRender = useRef(true);
+  const wasMobileOpen = useRef(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(max-width: 1024px)');
+    const updateViewport = () => {
+      setMobileViewport(media.matches);
+      if (!media.matches) setMobileOpen(false);
+    };
+    updateViewport();
+    media.addEventListener('change', updateViewport);
+    return () => media.removeEventListener('change', updateViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileViewport) return;
+    if (!mobileOpen) {
+      if (wasMobileOpen.current) menuButtonRef.current?.focus({ preventScroll: true });
+      wasMobileOpen.current = false;
+      return;
+    }
+
+    wasMobileOpen.current = true;
+    const navigationElement = navigationRef.current;
+    const focusable =
+      navigationElement?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+    focusable?.[0]?.focus({ preventScroll: true });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab' || !focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen, mobileViewport]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -153,7 +203,13 @@ export function AppShell({
         {skipLabel}
       </a>
       <div className="app-shell">
-        <aside className={cn('side-navigation', mobileOpen && 'is-open')} id="primary-navigation">
+        <aside
+          className={cn('side-navigation', mobileOpen && 'is-open')}
+          id="primary-navigation"
+          ref={navigationRef}
+          inert={mobileViewport && !mobileOpen}
+          aria-hidden={mobileViewport && !mobileOpen ? true : undefined}
+        >
           <div className="side-navigation__brand">
             <BrandMark label={brandLabel} />
             <span className="side-navigation__product">{productName}</span>
@@ -164,7 +220,10 @@ export function AppShell({
                 <li key={item.id}>
                   <button
                     type="button"
-                    onClick={() => onNavigate(item.id)}
+                    onClick={() => {
+                      onNavigate(item.id);
+                      setMobileOpen(false);
+                    }}
                     aria-current={activeNavigationId === item.id ? 'page' : undefined}
                   >
                     <span className="side-navigation__index" aria-hidden="true">
@@ -178,7 +237,6 @@ export function AppShell({
             </ul>
           </nav>
           <div className="side-navigation__footer">
-            <span className="connectivity-indicator" aria-hidden="true" />
             <span>Asia/Beirut</span>
           </div>
         </aside>
@@ -195,6 +253,7 @@ export function AppShell({
         <div className="app-shell__canvas">
           <header className="context-header">
             <button
+              ref={menuButtonRef}
               className="menu-button"
               type="button"
               aria-label={menuLabel}

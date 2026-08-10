@@ -25,7 +25,7 @@ export function App() {
   const [activeNavigationId, setActiveNavigationId] = useState('dashboard');
   const [drilldownId, setDrilldownId] = useState<string | null>(null);
   const [stateVariant, setStateVariant] = useState<StateVariant>('loading');
-  const [supportSessionActive, setSupportSessionActive] = useState(true);
+  const [supportSessionActive, setSupportSessionActive] = useState(false);
   const copy = tenantCopy[locale];
   const activeNavigation =
     copy.navigation.find((item) => item.id === activeNavigationId) ?? copy.navigation[0];

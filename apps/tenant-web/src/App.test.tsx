@@ -1,7 +1,7 @@
 import axe from 'axe-core';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
 describe('Orvex ISP Operations shell', () => {
@@ -20,19 +20,36 @@ describe('Orvex ISP Operations shell', () => {
     );
   });
 
-  it('keeps approved support access visible, scoped, and revocable', async () => {
-    const user = userEvent.setup();
+  it('does not present a simulated support grant as active', () => {
     render(<App />);
 
-    expect(
-      screen.getByRole('region', { name: 'Approved support session is active' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Billing configuration · read only')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Demonstration support banner' })).toBeNull();
+  });
 
-    await user.click(screen.getByRole('button', { name: 'End session now' }));
-    expect(
-      screen.queryByRole('region', { name: 'Approved support session is active' }),
-    ).not.toBeInTheDocument();
+  it('contains mobile navigation focus and restores it after Escape', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    );
+    try {
+      render(<App />);
+      const menu = screen.getByRole('button', {
+        name: 'Open Orvex ISP Operations navigation',
+      });
+      await user.click(menu);
+
+      expect(screen.getByRole('button', { name: 'Operations dashboard' })).toHaveFocus();
+      await user.keyboard('{Escape}');
+      expect(menu).toHaveFocus();
+      expect(menu).toHaveAttribute('aria-expanded', 'false');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('exposes semantic navigation, a skip link, and an accessible default shell', async () => {
@@ -49,7 +66,7 @@ describe('Orvex ISP Operations shell', () => {
     expect(screen.getByText('Orvex ISP Operations')).toBeInTheDocument();
     expect(screen.getAllByText('Demonstration data').length).toBeGreaterThan(0);
 
-    const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
+    const results = await axe.run(container);
     expect(results.violations).toEqual([]);
   });
 });

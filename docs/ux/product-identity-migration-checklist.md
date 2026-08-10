@@ -22,7 +22,7 @@ identity review are recorded. ADR-0011 is the enduring decision record.
 - [ ] PWA manifest, install icons, and offline shell when implemented
 - [ ] Orvex ISP Collect configuration, splash, store metadata, and receipt views when implemented
 - [ ] Network Worker logs/dashboards where a human-facing process label is rendered
-- [ ] API/OpenAPI title and descriptions (owned by the API migration task)
+- [x] Current API/OpenAPI title and descriptions
 - [ ] PDFs, invoices, receipts, exports, verification pages, email templates, and print output
 - [ ] Container, deployment, monitoring, environment-example, and runbook labels
 - [ ] Screenshots, visual-regression baselines, release notes, and final reports
@@ -30,8 +30,8 @@ identity review are recorded. ADR-0011 is the enduring decision record.
 ## Verification
 
 - [x] Known obsolete strings are covered by `scripts/brand-check.mjs`
-- [ ] Root `package.json` exposes `brand:check` as `node scripts/brand-check.mjs`
-- [ ] Brand check is included in the integrated validation pipeline
+- [x] Root `package.json` exposes `brand:check` as `node scripts/brand-check.mjs`
+- [x] Brand check is included in the integrated validation pipeline
 - [x] Stable internal `@isp/*` package identifiers are documented in ADR-0011
 - [ ] Final scan runs after all build and document generation steps
 - [ ] Independent English/Arabic identity review confirms no old visible label remains

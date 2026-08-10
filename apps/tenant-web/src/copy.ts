@@ -335,17 +335,17 @@ const english: TenantCopy = {
     },
   },
   support: {
-    title: 'Approved support session is active',
+    title: 'Demonstration support banner',
     description:
-      'A platform support agent has temporary read-only access to billing configuration. Every access is audited.',
+      'Example only. No live support grant or audit record is connected to this demonstration workspace.',
     ticketLabel: 'Ticket',
     ticket: 'SUP-724',
     scopeLabel: 'Scope',
     scope: 'Billing configuration · read only',
     expiresLabel: 'Expires',
     expires: '11:30 Beirut',
-    auditLabel: 'Audited session',
-    endLabel: 'End session now',
+    auditLabel: 'Not active',
+    endLabel: 'Hide example',
   },
 };
 
@@ -605,17 +605,17 @@ const arabic: TenantCopy = {
     },
   },
   support: {
-    title: 'جلسة دعم معتمدة نشطة',
+    title: 'مثال توضيحي لشريط جلسة الدعم',
     description:
-      'لدى موظف دعم المنصة وصول مؤقت للقراءة فقط إلى إعدادات الفوترة. كل وصول مسجّل للتدقيق.',
+      'هذا مثال فقط. لا توجد منحة دعم نشطة أو سجلات تدقيق مرتبطة بمساحة العمل التجريبية.',
     ticketLabel: 'التذكرة',
     ticket: 'SUP-724',
     scopeLabel: 'النطاق',
     scope: 'إعدادات الفوترة · قراءة فقط',
     expiresLabel: 'تنتهي',
     expires: '١١:٣٠ بتوقيت بيروت',
-    auditLabel: 'جلسة مدققة',
-    endLabel: 'إنهاء الجلسة الآن',
+    auditLabel: 'غير نشطة',
+    endLabel: 'إخفاء المثال',
   },
 };
 

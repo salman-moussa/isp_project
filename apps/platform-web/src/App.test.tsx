@@ -23,17 +23,18 @@ describe('Orvex ISP Control Center shell', () => {
   it('exposes semantic navigation, skip link, and an accessible default shell', async () => {
     const { container } = render(<App />);
 
-    expect(screen.getByRole('navigation', { name: 'Platform navigation' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('navigation', { name: 'Orvex ISP Control Center navigation' }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
-    expect(screen.getByRole('link', { name: 'Skip to platform content' })).toHaveAttribute(
-      'href',
-      '#main-content',
-    );
+    expect(
+      screen.getByRole('link', { name: 'Skip to Orvex ISP Control Center content' }),
+    ).toHaveAttribute('href', '#main-content');
     expect(screen.getByText('ORVEX')).toBeInTheDocument();
     expect(screen.getByText('Orvex ISP Control Center')).toBeInTheDocument();
     expect(screen.getByText('Demonstration data')).toBeInTheDocument();
 
-    const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
+    const results = await axe.run(container);
     expect(results.violations).toEqual([]);
   });
 });

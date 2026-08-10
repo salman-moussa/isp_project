@@ -7,7 +7,7 @@
     --font-arabic: 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
     --color-ink: #14213a;
     --color-ink-muted: #5d6b82;
-    --color-ink-subtle: #7f8aa0;
+    --color-ink-subtle: #667085;
     --color-canvas: #f4f6f8;
     --color-surface: #ffffff;
     --color-surface-raised: #f8fafc;
@@ -19,7 +19,7 @@
     --color-primary: #2458e6;
     --color-primary-hover: #1947c4;
     --color-primary-soft: #eaf0ff;
-    --color-teal: #0f8b7b;
+    --color-teal: #0b7367;
     --color-teal-soft: #e5f6f2;
     --color-amber: #c97916;
     --color-amber-soft: #fff3d6;
@@ -285,14 +285,6 @@
     color: #8599b7;
     font-family: var(--font-latin);
     font-size: 0.72rem;
-  }
-
-  .connectivity-indicator {
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    background: #4dd4c3;
-    box-shadow: 0 0 0 4px rgb(77 212 195 / 12%);
   }
 
   .context-header {
@@ -1281,8 +1273,7 @@
     border: 1px solid CanvasText;
   }
 
-  .status-badge__dot,
-  .connectivity-indicator {
+  .status-badge__dot {
     forced-color-adjust: none;
   }
 }
