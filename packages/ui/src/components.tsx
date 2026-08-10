@@ -199,7 +199,12 @@ export function AppShell({
 
   return (
     <>
-      <a className="skip-link" href="#main-content">
+      <a
+        className="skip-link"
+        href="#main-content"
+        inert={mobileViewport && mobileOpen}
+        aria-hidden={mobileViewport && mobileOpen ? true : undefined}
+      >
         {skipLabel}
       </a>
       <div className="app-shell">

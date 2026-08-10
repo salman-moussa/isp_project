@@ -43,12 +43,16 @@ describe('Orvex ISP Operations shell', () => {
       });
       await user.click(menu);
 
+      expect(document.querySelector('.skip-link')).toHaveAttribute('inert');
       expect(document.querySelector('.app-shell__canvas')).toHaveAttribute('inert');
       expect(document.querySelector('.app-shell__canvas')).toHaveAttribute('aria-hidden', 'true');
       expect(screen.getByRole('button', { name: 'Operations dashboard' })).toHaveFocus();
       await user.keyboard('{Escape}');
       expect(menu).toHaveFocus();
       expect(menu).toHaveAttribute('aria-expanded', 'false');
+      expect(
+        screen.getByRole('link', { name: 'Skip to Orvex ISP Operations content' }),
+      ).not.toHaveAttribute('inert');
       expect(document.querySelector('.app-shell__canvas')).not.toHaveAttribute('inert');
       expect(document.querySelector('.side-navigation')).toHaveAttribute('inert');
     } finally {

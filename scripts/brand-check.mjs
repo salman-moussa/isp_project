@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,10 +14,13 @@ const scanRoots = [
   'apps',
   'infra',
   'packages/ui',
+  'workers',
   'docs',
 ];
 const textExtensions = new Set([
   '.css',
+  '.cfg',
+  '.example',
   '.html',
   '.js',
   '.json',
@@ -56,7 +59,10 @@ const obsoleteNames = [
 
 async function collectFiles(path) {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => null);
-  if (!entries) return [path];
+  if (!entries) {
+    const file = await stat(path).catch(() => null);
+    return file?.isFile() ? [path] : [];
+  }
 
   const files = [];
   for (const entry of entries) {
