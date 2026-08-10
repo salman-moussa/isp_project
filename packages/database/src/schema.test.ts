@@ -60,15 +60,22 @@ describe('tenant database safety migration', () => {
   it('adopts the immutable legacy baseline through one verified bridge', async () => {
     const adoptionUrl = new URL('../scripts/adopt-legacy-baseline.mjs', import.meta.url);
     const adoption = await readFile(fileURLToPath(adoptionUrl), 'utf8');
+    const manifestUrl = new URL('../scripts/legacy-baseline-manifest.mjs', import.meta.url);
+    const manifest = await readFile(fileURLToPath(manifestUrl), 'utf8');
     const harnessUrl = new URL('../scripts/test-live-postgres.mjs', import.meta.url);
     const harness = await readFile(fileURLToPath(harnessUrl), 'utf8');
 
     expect(adoption).toContain("createHash('sha256').update(baseline).digest('hex')");
-    expect(adoption).toContain(
-      'Legacy schema does not match the immutable Orvex baseline signature',
-    );
+    expect(adoption).toContain('await verifyExactBaselineManifest(transaction)');
+    expect(adoption).toContain('DATABASE_BOOTSTRAP_URL does not target ORVEX_DATABASE_NAME');
     expect(adoption).toContain('INSERT INTO public._orvex_migrations');
-    expect(adoption).toContain('REASSIGN OWNED BY');
+    expect(adoption).toContain('ALTER TABLE public.');
+    expect(adoption).not.toContain('REASSIGN OWNED BY');
+    expect(manifest).toContain('expectedColumns');
+    expect(manifest).toContain('expectedConstraints');
+    expect(manifest).toContain('expectedIndexes');
+    expect(manifest).toContain('expectedPolicies');
+    expect(manifest).toContain('expectedTrigger');
     expect(harness).toContain('await adoptLegacyBaseline({');
     expect(harness).not.toContain('CREATE TABLE public._orvex_migrations');
     expect(harness).not.toContain('REASSIGN OWNED BY');
