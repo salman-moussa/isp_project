@@ -29,7 +29,26 @@ Status values: `Pending`, `In progress`, `Blocked`, `Verified`.
 
 ## Current external limitations
 
-- Docker Desktop daemon is unavailable, so live PostgreSQL evidence cannot run until it starts.
+- Docker Desktop is stopped and the current process cannot start `com.docker.service` without
+  administrative access. Live PostgreSQL evidence cannot run until the owner starts Docker Desktop.
 - VAT/numbering/retention/rounding policy, commercial catalogue, production hosting/RPO/RTO/KMS,
   live provider contracts, RouterOS lab scope, and printer policy remain owner decisions for later
   gates. These do not block the current remediation work.
+
+## Latest Gate A evidence
+
+- `npm run validate` passed on 2026-08-10 in 500.7 seconds: formatting, all seven workspace lints
+  and typechecks, 36 unit/component/contract tests, package/application production builds, the
+  157-file brand scan, compiled API smoke, and static database checks.
+- The integration command explicitly skipped because runtime/migration DSNs were absent; this is not
+  credited as live PostgreSQL evidence.
+- The API reference slice now publishes and enforces request/response/error OpenAPI contracts and
+  tests framework-level validation envelopes, authorization, canonical support grants, denial audit,
+  readiness failure, currency separation, and no-store responses.
+- The live harness and CI fixture are prepared for restricted roles, FORCE RLS DML/missing context,
+  support narrowing/revocation, append-only audit/security events, pool leakage, fresh migration,
+  and prior-schema adoption through the operator bridge.
+- The operator bridge checks the target/owner, uses a trusted search path, applies the immutable
+  baseline in a transaction-scoped reference schema, compares security-relevant catalogs, rejects a
+  pre-existing new-style ledger, records the exact baseline checksum, and transfers only enumerated
+  objects. Its SQL behavior still requires the blocked live PostgreSQL run.
