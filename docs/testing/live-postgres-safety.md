@@ -38,16 +38,20 @@ missing DSN into a failure. This mode is intended for a fresh CI Compose volume.
 the command emits a clear skip only when one or both DSNs are absent. It never treats an attempted
 database connection or assertion failure as a skip.
 
+Application deployments set both `CONTROL_DATABASE_MIGRATION_URL` and
+`TENANT_DATABASE_MIGRATION_URL`; `npm run db:migrate --workspace=@isp/database` migrates both planes
+and rejects a partial pair. `DATABASE_MIGRATION_URL` remains the single-database integration-test
+input. Tenant read/audit evidence is written to the control plane, where the canonical support-grant
+reference exists, while operational summaries are read from the migrated tenant plane.
+
 ## Required repository integration
 
-The root integration script and CI workflow are outside the database slice. Their owner must:
+The root integration script and CI workflow provide the following mandatory wiring:
 
-1. Add a root `test:integration` script that invokes workspace integration scripts.
-2. Export both DSNs above instead of exporting the bootstrap `isp_test` credential.
-3. Set `ORVEX_REQUIRE_LIVE_POSTGRES=1` in CI after starting a fresh test Compose project.
-4. Add local `.env.example` values for `ORVEX_RUNTIME_DB_PASSWORD`, `ORVEX_MIGRATOR_DB_PASSWORD`,
-   `DATABASE_RUNTIME_URL`, and `DATABASE_MIGRATION_URL`; update the legacy `DATABASE_URL` to use
-   `orvex_runtime`.
+1. The root `test:integration` script invokes the database workspace integration suite.
+2. CI exports migrator/runtime DSNs instead of the bootstrap credential.
+3. CI sets `ORVEX_REQUIRE_LIVE_POSTGRES=1` on a fresh isolated Compose project.
+4. `.env.example` separates bootstrap, migrator, runtime, control, and tenant-plane DSNs.
 
 ## Operational boundaries
 
@@ -58,3 +62,18 @@ work because transactional schema migrations must not require cluster-level `CRE
 The runtime role currently has explicit DML on the Phase 0 identity and tenant tables, except that
 `audit_events` is `SELECT, INSERT` only. Each future migration must grant only the operations its
 new objects need. The hardening migration also removes public default table and function access.
+
+## Existing database upgrade
+
+Container initialization runs only for a new data directory. For a pre-hardening database, a DBA
+must run `infra/docker/postgres/admin/provision-existing-database.sh` once per physical database
+before `db:migrate`. The script requires an explicit bootstrap DSN, database name, and legacy owner;
+it refuses legacy support rows with empty permission scopes or approval without an approver, creates
+or reconciles the restricted roles, transfers existing objects to `orvex_owner`, and removes public
+access. This operation is intentionally never invoked by the application or normal migration runner.
+
+The required CI fixture also creates `isp_upgrade_test`, applies only the immutable baseline as the
+legacy bootstrap owner, records its checksum, verifies legacy ownership, transfers objects to
+`orvex_owner`, and then runs every forward migration through `orvex_migrator`. CI fails unless both
+the empty-database and prior-schema paths complete and the restricted runtime can observe the final
+migration state.

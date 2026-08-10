@@ -1,10 +1,16 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { migrate } from './migrate.mjs';
 
 const migrationUrl = process.env.DATABASE_MIGRATION_URL;
 const runtimeUrl = process.env.DATABASE_RUNTIME_URL;
 const liveRequired = process.env.ORVEX_REQUIRE_LIVE_POSTGRES === '1';
+const upgradeBootstrapUrl = process.env.DATABASE_UPGRADE_BOOTSTRAP_URL;
+const upgradeMigrationUrl = process.env.DATABASE_UPGRADE_MIGRATION_URL;
+const upgradeRuntimeUrl = process.env.DATABASE_UPGRADE_RUNTIME_URL;
+const upgradeLegacyOwner = process.env.DATABASE_UPGRADE_LEGACY_OWNER;
 
 if (!migrationUrl || !runtimeUrl) {
   const missing = [
@@ -60,7 +66,7 @@ try {
     await transaction.unsafe('SET LOCAL ROLE orvex_owner');
     return transaction`SELECT name FROM public._orvex_migrations ORDER BY name`;
   });
-  assert(migrationState.length === 2, 'An empty database did not receive both migrations');
+  assert(migrationState.length === 3, 'An empty database did not receive every migration');
 
   const roles = await runtime`
     SELECT rolname, rolcanlogin, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolreplication,
@@ -315,6 +321,20 @@ try {
     );
   }
 
+  await runtime`
+    INSERT INTO security_events (action, reason, request_id, ip_address)
+    VALUES ('live-security-test', 'denied', ${randomUUID()}, '127.0.0.1')
+  `;
+
+  for (const [description, statement] of [
+    ['runtime security-event SELECT', 'SELECT * FROM security_events'],
+    ['runtime security-event UPDATE', "UPDATE security_events SET reason = 'changed'"],
+    ['runtime security-event DELETE', 'DELETE FROM security_events'],
+    ['runtime security-event TRUNCATE', 'TRUNCATE security_events'],
+  ]) {
+    await expectRejected(() => runtime.unsafe(statement), /permission denied/i, description);
+  }
+
   for (const [description, statement] of [
     ['owner audit UPDATE', "UPDATE audit_events SET result = 'changed'"],
     ['owner audit DELETE', 'DELETE FROM audit_events'],
@@ -347,9 +367,93 @@ try {
     'Transaction-local tenant context leaked through the one-connection pool',
   );
 
+  await verifyPriorSchemaUpgrade();
+
   console.log(
     `Live PostgreSQL safety tests passed (${before[0].tenants_table === null ? 'empty migration verified' : 'existing migration verified'}).`,
   );
 } finally {
   await Promise.all([migrator.end({ timeout: 5 }), runtime.end({ timeout: 5 })]);
+}
+
+async function verifyPriorSchemaUpgrade() {
+  const upgradeInputs = [
+    upgradeBootstrapUrl,
+    upgradeMigrationUrl,
+    upgradeRuntimeUrl,
+    upgradeLegacyOwner,
+  ];
+  if (upgradeInputs.some(Boolean) && upgradeInputs.some((value) => !value)) {
+    throw new Error('Every DATABASE_UPGRADE_* input is required when prior-schema testing is set');
+  }
+  if (!upgradeBootstrapUrl || !upgradeMigrationUrl || !upgradeRuntimeUrl || !upgradeLegacyOwner) {
+    if (liveRequired) {
+      throw new Error('Required live tests must provide the DATABASE_UPGRADE_* inputs');
+    }
+    console.log('Prior-schema upgrade test skipped: missing DATABASE_UPGRADE_* inputs');
+    return;
+  }
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/u.test(upgradeLegacyOwner)) {
+    throw new Error('DATABASE_UPGRADE_LEGACY_OWNER is not a safe PostgreSQL identifier');
+  }
+
+  const bootstrap = postgres(upgradeBootstrapUrl, { max: 1, prepare: false });
+  const upgradeRuntime = postgres(upgradeRuntimeUrl, { max: 1, prepare: false });
+  try {
+    const baselinePath = fileURLToPath(
+      new URL('../migrations/0000_identity_tenancy_audit.sql', import.meta.url),
+    );
+    const baseline = await readFile(baselinePath, 'utf8');
+    const checksum = createHash('sha256').update(baseline).digest('hex');
+
+    await bootstrap.begin(async (transaction) => {
+      await transaction.unsafe(baseline);
+      await transaction.unsafe(`
+        CREATE TABLE public._orvex_migrations (
+          name text PRIMARY KEY,
+          checksum text NOT NULL,
+          applied_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+      await transaction`
+        INSERT INTO public._orvex_migrations (name, checksum)
+        VALUES ('0000_identity_tenancy_audit.sql', ${checksum})
+      `;
+    });
+
+    const [legacyOwnership] = await bootstrap`
+      SELECT owner.rolname AS owner
+      FROM pg_class relation
+      JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+      JOIN pg_roles owner ON owner.oid = relation.relowner
+      WHERE namespace.nspname = 'public' AND relation.relname = 'support_grants'
+    `;
+    assert(
+      legacyOwnership?.owner === upgradeLegacyOwner,
+      'Prior-schema fixture was not owned by the legacy bootstrap role',
+    );
+
+    await bootstrap.unsafe(`REASSIGN OWNED BY "${upgradeLegacyOwner}" TO orvex_owner`);
+    await bootstrap.unsafe('ALTER SCHEMA public OWNER TO orvex_owner');
+    await migrate(upgradeMigrationUrl);
+
+    const upgraded = await upgradeRuntime`
+      SELECT
+        to_regclass('public.security_events') IS NOT NULL AS security_events_ready,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'support_grants'
+            AND column_name = 'authorization_version'
+        ) AS support_version_ready,
+        (SELECT count(*)::int FROM public._orvex_migrations) AS migration_count
+    `;
+    assert(
+      upgraded[0].security_events_ready &&
+        upgraded[0].support_version_ready &&
+        upgraded[0].migration_count === 3,
+      'Prior schema did not upgrade through every forward migration',
+    );
+  } finally {
+    await Promise.all([bootstrap.end({ timeout: 5 }), upgradeRuntime.end({ timeout: 5 })]);
+  }
 }

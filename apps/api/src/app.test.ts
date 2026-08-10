@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
 import { MemoryAuditWriter } from './audit.js';
 import type { SessionStatusReader } from './authentication.js';
+import { MemorySecurityAuditWriter } from './security-audit.js';
 
 const config = {
   NODE_ENV: 'test' as const,
@@ -31,10 +32,12 @@ const tenantClaims: SessionClaims = {
 describe('identity -> tenant -> permission -> audit slice', () => {
   let app: FastifyInstance;
   let audit: MemoryAuditWriter;
+  let securityAudit: MemorySecurityAuditWriter;
   const now = new Date('2026-08-09T18:00:00.000Z');
 
   beforeEach(async () => {
     audit = new MemoryAuditWriter();
+    securityAudit = new MemorySecurityAuditWriter();
     const sessions: SessionStatusReader = {
       isActive: async (sessionId) => sessionId !== 'revoked-session',
     };
@@ -42,6 +45,7 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       audit,
       now: () => now,
       sessions,
+      securityAudit,
       supportGrants: {
         readApproved: async (grantId, tenantId, requesterId, at) =>
           grantId === 'revoked-grant' || at >= new Date('2026-08-09T18:15:00.000Z')
@@ -132,6 +136,34 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       headers: { authorization: `Bearer ${app.jwt.sign({ sub: 'missing-session' })}` },
     });
     expect(response.statusCode).toBe(401);
+    expect(securityAudit.events[0]).toMatchObject({
+      action: 'session.validate',
+      reason: 'invalid_or_revoked',
+    });
+  });
+
+  it('immutably audits an unscoped platform attempt without writing into a tenant stream', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantA}/summary`,
+      headers: {
+        authorization: `Bearer ${tokenFor({
+          sub: 'support-agent-a',
+          sessionId: 'platform-session-a',
+          audience: 'platform',
+          permissions: ['platform.support.request'],
+        })}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(audit.events).toHaveLength(0);
+    expect(securityAudit.events[0]).toMatchObject({
+      actorId: 'support-agent-a',
+      claimedTenantId: tenantA,
+      action: 'support.tenant.summary.read',
+      reason: 'missing_scoped_grant',
+    });
   });
 
   it('fails readiness closed when dependency probes are not configured', async () => {
@@ -222,6 +254,12 @@ describe('identity -> tenant -> permission -> audit slice', () => {
     });
 
     expect(response.statusCode).toBe(401);
+    expect(securityAudit.events[0]).toMatchObject({
+      actorId: 'support-agent-a',
+      supportGrantId: 'grant-a',
+      action: 'support.authentication.validate',
+      reason: 'invalid_or_revoked',
+    });
   });
 
   it('does not record an allowed outcome when the tenant read fails', async () => {

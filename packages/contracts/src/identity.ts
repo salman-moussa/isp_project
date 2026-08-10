@@ -42,6 +42,13 @@ export const sessionClaimsSchema = z
         message: 'Tenant sessions cannot contain platform support grants.',
       });
     }
+    if (claims.audience === 'platform' && claims.tenantId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['tenantId'],
+        message: 'Platform sessions must use an approved support grant for tenant scope.',
+      });
+    }
   });
 
 export type SupportGrant = z.infer<typeof supportGrantSchema>;

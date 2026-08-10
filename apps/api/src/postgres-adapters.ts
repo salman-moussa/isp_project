@@ -1,5 +1,6 @@
 import {
   appendAuditEvent,
+  appendSecurityEvent,
   isSessionActive,
   readApprovedSupportGrant,
   readTenantSummary,
@@ -13,6 +14,7 @@ import type {
   SupportGrantStatusReader,
 } from './authentication.js';
 import type { TenantSummaryReader } from './summary.js';
+import type { SecurityAuditEvent, SecurityAuditWriter } from './security-audit.js';
 
 export class PostgresSessionStatusReader implements SessionStatusReader {
   public constructor(private readonly database: Database) {}
@@ -59,6 +61,14 @@ export class PostgresAuditWriter implements AuditWriter {
 
   public async append(event: AuditEvent): Promise<void> {
     await appendAuditEvent(this.database, event);
+  }
+}
+
+export class PostgresSecurityAuditWriter implements SecurityAuditWriter {
+  public constructor(private readonly database: Database) {}
+
+  public async append(event: SecurityAuditEvent): Promise<void> {
+    await appendSecurityEvent(this.database, event);
   }
 }
 

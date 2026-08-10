@@ -161,6 +161,29 @@ export const auditEvents = pgTable(
   ],
 );
 
+export const securityEvents = pgTable(
+  'security_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    actorId: text('actor_id'),
+    sessionId: text('session_id'),
+    claimedTenantId: text('claimed_tenant_id'),
+    supportGrantId: text('support_grant_id'),
+    action: text('action').notNull(),
+    reason: text('reason').notNull(),
+    requestId: text('request_id').notNull(),
+    ipAddress: text('ip_address').notNull(),
+    userAgent: text('user_agent'),
+    metadata: jsonb('metadata').notNull().default({}),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('security_events_time_idx').on(table.occurredAt.desc()),
+    index('security_events_actor_time_idx').on(table.actorId, table.occurredAt.desc()),
+    unique('security_events_request_id_action_key').on(table.requestId, table.action),
+  ],
+);
+
 export const tenantDashboardSnapshots = pgTable(
   'tenant_dashboard_snapshots',
   {

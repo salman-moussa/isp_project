@@ -1,7 +1,13 @@
 import type { TenantSummary, VerifiedTenantId } from '@isp/contracts';
 import { and, desc, eq, gt, isNotNull, isNull } from 'drizzle-orm';
 import type { Database } from './client.js';
-import { auditEvents, sessions, supportGrants, tenantDashboardSnapshots } from './schema.js';
+import {
+  auditEvents,
+  securityEvents,
+  sessions,
+  supportGrants,
+  tenantDashboardSnapshots,
+} from './schema.js';
 import { inTenantTransaction } from './tenant-transaction.js';
 
 export async function isSessionActive(
@@ -172,5 +178,38 @@ export async function appendAuditEvent(database: Database, event: AuditRecord): 
       metadata: event.metadata,
       occurredAt: new Date(event.occurredAt),
     });
+  });
+}
+
+export interface SecurityAuditRecord {
+  readonly actorId?: string;
+  readonly sessionId?: string;
+  readonly claimedTenantId?: string;
+  readonly supportGrantId?: string;
+  readonly action: string;
+  readonly reason: string;
+  readonly requestId: string;
+  readonly ipAddress: string;
+  readonly userAgent?: string;
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly occurredAt: string;
+}
+
+export async function appendSecurityEvent(
+  database: Database,
+  event: SecurityAuditRecord,
+): Promise<void> {
+  await database.insert(securityEvents).values({
+    ...(event.actorId ? { actorId: event.actorId } : {}),
+    ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+    ...(event.claimedTenantId ? { claimedTenantId: event.claimedTenantId } : {}),
+    ...(event.supportGrantId ? { supportGrantId: event.supportGrantId } : {}),
+    action: event.action,
+    reason: event.reason,
+    requestId: event.requestId,
+    ipAddress: event.ipAddress,
+    ...(event.userAgent ? { userAgent: event.userAgent } : {}),
+    metadata: event.metadata,
+    occurredAt: new Date(event.occurredAt),
   });
 }

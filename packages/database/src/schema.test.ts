@@ -39,4 +39,21 @@ describe('tenant database safety migration', () => {
     expect(migration).toContain('support_grants_approval_state_check');
     expect(migration).toContain('ALTER DEFAULT PRIVILEGES FOR ROLE orvex_owner');
   });
+
+  it('stores authentication denials in an append-only control-plane sink', async () => {
+    const migrationUrl = new URL(
+      '../migrations/202608100030_control_security_audit.sql',
+      import.meta.url,
+    );
+    const migration = await readFile(fileURLToPath(migrationUrl), 'utf8');
+
+    expect(migration).toContain('CREATE TABLE security_events');
+    expect(migration).toContain('CREATE TRIGGER security_events_no_update_or_delete');
+    expect(migration).toContain('CREATE TRIGGER security_events_no_truncate');
+    expect(migration).toContain('GRANT INSERT ON TABLE security_events TO orvex_runtime');
+    expect(migration).toContain('GRANT SELECT ON TABLE _orvex_migrations TO orvex_runtime');
+    expect(migration).toContain(
+      'REVOKE SELECT, UPDATE, DELETE, TRUNCATE ON TABLE security_events FROM orvex_runtime',
+    );
+  });
 });

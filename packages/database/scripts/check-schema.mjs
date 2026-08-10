@@ -6,7 +6,11 @@ const hardening = await readFile(
   resolve('migrations/202608092100_harden_runtime_roles.sql'),
   'utf8',
 );
-const migration = `${baseline}\n${hardening}`;
+const securityAudit = await readFile(
+  resolve('migrations/202608100030_control_security_audit.sql'),
+  'utf8',
+);
+const migration = `${baseline}\n${hardening}\n${securityAudit}`;
 const requiredFragments = [
   'CREATE TABLE tenant_memberships',
   'CREATE TABLE support_grants',
@@ -19,6 +23,9 @@ const requiredFragments = [
   'CREATE TRIGGER audit_events_no_truncate',
   'GRANT SELECT, INSERT ON TABLE audit_events TO orvex_runtime',
   'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE audit_events FROM orvex_runtime',
+  'CREATE TABLE security_events',
+  'CREATE TRIGGER security_events_no_truncate',
+  'GRANT INSERT ON TABLE security_events TO orvex_runtime',
   "current_setting('app.tenant_id', true)",
 ];
 

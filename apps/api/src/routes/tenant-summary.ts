@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AuditWriter } from '../audit.js';
 import type { TenantSummaryReader } from '../summary.js';
+import type { SecurityAuditWriter } from '../security-audit.js';
 
 const paramsSchema = z.object({ tenantId: z.uuid() });
 
@@ -11,6 +12,7 @@ export interface TenantSummaryRouteOptions {
   readonly audit: AuditWriter;
   readonly summaries: TenantSummaryReader;
   readonly now: () => Date;
+  readonly securityAudit: SecurityAuditWriter;
 }
 
 export function registerTenantSummaryRoute(
@@ -57,10 +59,18 @@ export function registerTenantSummaryRoute(
             occurredAt: options.now().toISOString(),
           });
         } else {
-          request.log.warn(
-            { action: 'tenant.summary.read', requestedTenantId: tenantId },
-            'unscoped platform access denied; control-plane audit sink required',
-          );
+          await options.securityAudit.append({
+            actorId: request.auth.sub,
+            sessionId: request.auth.sessionId,
+            claimedTenantId: tenantId,
+            action: 'support.tenant.summary.read',
+            reason: 'missing_scoped_grant',
+            requestId: request.id,
+            ipAddress: request.ip,
+            ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+            metadata: { permission },
+            occurredAt: options.now().toISOString(),
+          });
         }
         throw error;
       }

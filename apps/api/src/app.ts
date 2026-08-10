@@ -19,6 +19,7 @@ import {
 import { DemoTenantSummaryReader, type TenantSummaryReader } from './summary.js';
 import { MemoryAuditWriter, type AuditWriter } from './audit.js';
 import { registerTenantSummaryRoute } from './routes/tenant-summary.js';
+import { MemorySecurityAuditWriter, type SecurityAuditWriter } from './security-audit.js';
 
 export interface AppDependencies {
   readonly audit?: AuditWriter;
@@ -27,6 +28,7 @@ export interface AppDependencies {
   readonly sessions?: SessionStatusReader;
   readonly supportGrants?: SupportGrantStatusReader;
   readonly readiness?: () => Promise<void>;
+  readonly securityAudit?: SecurityAuditWriter;
 }
 
 export async function buildApp(
@@ -71,10 +73,12 @@ export async function buildApp(
   await app.register(swaggerUi, { routePrefix: '/docs' });
 
   const now = dependencies.now ?? (() => new Date());
+  const securityAudit = dependencies.securityAudit ?? new MemorySecurityAuditWriter();
   registerAuthentication(
     app,
     dependencies.sessions ?? new DenyAllSessionStatusReader(),
     dependencies.supportGrants ?? new DenyAllSupportGrantStatusReader(),
+    securityAudit,
     now,
   );
 
@@ -92,6 +96,7 @@ export async function buildApp(
   registerTenantSummaryRoute(app, {
     audit: dependencies.audit ?? new MemoryAuditWriter(),
     summaries: dependencies.summaries ?? new DemoTenantSummaryReader(),
+    securityAudit,
     now,
   });
 

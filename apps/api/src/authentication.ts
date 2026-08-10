@@ -1,5 +1,6 @@
 import { sessionClaimsSchema, type Permission } from '@isp/contracts';
 import type { FastifyInstance } from 'fastify';
+import type { SecurityAuditWriter } from './security-audit.js';
 
 export interface SessionStatusReader {
   isActive(sessionId: string, userId: string, now: Date): Promise<boolean>;
@@ -51,31 +52,51 @@ export function registerAuthentication(
   app: FastifyInstance,
   sessions: SessionStatusReader,
   supportGrants: SupportGrantStatusReader,
+  securityAudit: SecurityAuditWriter,
   now: () => Date,
 ): void {
   app.decorateRequest('auth');
   app.decorate('authenticate', async (request) => {
-    const rawClaims = await request.jwtVerify();
-    const parsedClaims = sessionClaimsSchema.safeParse(rawClaims);
-    if (!parsedClaims.success) {
-      throw new SessionInvalidError();
-    }
-    const claims = parsedClaims.data;
-    if (!(await sessions.isActive(claims.sessionId, claims.sub, now()))) {
-      throw new SessionInvalidError();
-    }
-    if (claims.supportGrant) {
-      const approvedGrant = await supportGrants.readApproved(
-        claims.supportGrant.grantId,
-        claims.supportGrant.tenantId,
-        claims.sub,
-        now(),
-      );
-      if (!approvedGrant || !matchesApprovedGrant(claims.supportGrant, approvedGrant)) {
+    let claims: ReturnType<typeof sessionClaimsSchema.parse> | undefined;
+    try {
+      const rawClaims = await request.jwtVerify();
+      const parsedClaims = sessionClaimsSchema.safeParse(rawClaims);
+      if (!parsedClaims.success) {
         throw new SessionInvalidError();
       }
+      claims = parsedClaims.data;
+      if (!(await sessions.isActive(claims.sessionId, claims.sub, now()))) {
+        throw new SessionInvalidError();
+      }
+      if (claims.supportGrant) {
+        const approvedGrant = await supportGrants.readApproved(
+          claims.supportGrant.grantId,
+          claims.supportGrant.tenantId,
+          claims.sub,
+          now(),
+        );
+        if (!approvedGrant || !matchesApprovedGrant(claims.supportGrant, approvedGrant)) {
+          throw new SessionInvalidError();
+        }
+      }
+      request.auth = claims;
+    } catch (error) {
+      const claimedTenantId = claims?.tenantId ?? claims?.supportGrant?.tenantId;
+      await securityAudit.append({
+        ...(claims?.sub ? { actorId: claims.sub } : {}),
+        ...(claims?.sessionId ? { sessionId: claims.sessionId } : {}),
+        ...(claimedTenantId ? { claimedTenantId } : {}),
+        ...(claims?.supportGrant?.grantId ? { supportGrantId: claims.supportGrant.grantId } : {}),
+        action: claims?.supportGrant ? 'support.authentication.validate' : 'session.validate',
+        reason: error instanceof SessionInvalidError ? 'invalid_or_revoked' : 'verification_failed',
+        requestId: request.id,
+        ipAddress: request.ip,
+        ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+        metadata: {},
+        occurredAt: now().toISOString(),
+      });
+      throw error;
     }
-    request.auth = claims;
   });
 }
 

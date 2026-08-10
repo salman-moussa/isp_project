@@ -60,9 +60,25 @@ export async function migrate(databaseUrl = process.env.DATABASE_MIGRATION_URL) 
   }
 }
 
+export async function migrateConfiguredDatabases(environment = process.env) {
+  const controlUrl = environment.CONTROL_DATABASE_MIGRATION_URL;
+  const tenantUrl = environment.TENANT_DATABASE_MIGRATION_URL;
+  if (controlUrl || tenantUrl) {
+    if (!controlUrl || !tenantUrl) {
+      throw new Error(
+        'CONTROL_DATABASE_MIGRATION_URL and TENANT_DATABASE_MIGRATION_URL must be configured together',
+      );
+    }
+    await migrate(controlUrl);
+    if (tenantUrl !== controlUrl) await migrate(tenantUrl);
+    return;
+  }
+  await migrate(environment.DATABASE_MIGRATION_URL);
+}
+
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
 if (invokedPath === import.meta.url) {
-  migrate().catch((error) => {
+  migrateConfiguredDatabases().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   });

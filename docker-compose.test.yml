@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: isp_test
       ORVEX_RUNTIME_DB_PASSWORD: test-only-runtime-not-production
       ORVEX_MIGRATOR_DB_PASSWORD: test-only-migrator-not-production
+      ORVEX_CREATE_UPGRADE_TEST_DATABASE: '1'
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
