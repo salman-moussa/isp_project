@@ -15,24 +15,30 @@ import {
   StatusBadge,
   SupportSessionBanner,
   Surface,
+  TaskRouteView,
+  useHashNavigation,
   type Locale,
   type StateVariant,
 } from '@isp/ui';
 import { tenantCopy } from './copy';
+import { tenantRoutes } from './routes';
+
+const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 
 export function App() {
   const [locale, setLocale] = useState<Locale>('en');
-  const [activeNavigationId, setActiveNavigationId] = useState('dashboard');
+  const { activeId: activeNavigationId, navigate: navigateRoute } = useHashNavigation(
+    tenantNavigationIds,
+    'dashboard',
+  );
   const [drilldownId, setDrilldownId] = useState<string | null>(null);
   const [stateVariant, setStateVariant] = useState<StateVariant>('loading');
   const [supportSessionActive, setSupportSessionActive] = useState(false);
   const copy = tenantCopy[locale];
-  const activeNavigation =
-    copy.navigation.find((item) => item.id === activeNavigationId) ?? copy.navigation[0];
   const drilldown = drilldownId ? copy.drilldowns[drilldownId] : undefined;
 
   const navigate = (id: string) => {
-    setActiveNavigationId(id);
+    navigateRoute(id);
     setDrilldownId(null);
   };
 
@@ -197,22 +203,11 @@ export function App() {
           </div>
         </>
       ) : (
-        <>
-          <PageHeader
-            eyebrow={copy.moduleEyebrow}
-            title={activeNavigation.label}
-            description={copy.moduleDescription}
-          />
-          <div className="module-placeholder">
-            <StatePanel
-              variant="empty"
-              title={copy.moduleEmptyTitle}
-              description={copy.moduleEmptyDescription}
-              actionLabel={copy.moduleAction}
-              onAction={() => undefined}
-            />
-          </div>
-        </>
+        <TaskRouteView
+          route={tenantRoutes[locale][activeNavigationId]}
+          dataSourceLabel={copy.dataStatus}
+          onNavigate={navigate}
+        />
       )}
     </AppShell>
   );

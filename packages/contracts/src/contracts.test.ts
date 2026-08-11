@@ -12,6 +12,17 @@ describe('shared security and money contracts', () => {
     expect(result.success).toBe(false);
   });
 
+  it('rejects tenant sessions without a membership authorization version', () => {
+    const result = sessionClaimsSchema.safeParse({
+      sub: 'user-1',
+      sessionId: 'session-1',
+      audience: 'tenant',
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      permissions: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('rejects a platform session that tries to claim tenant scope without a support grant', () => {
     const result = sessionClaimsSchema.safeParse({
       sub: 'platform-user-1',

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
 import { MemoryAuditWriter } from './audit.js';
-import type { SessionStatusReader } from './authentication.js';
+import type { ActiveTenantMembership, SessionStatusReader } from './authentication.js';
 import { MemorySecurityAuditWriter } from './security-audit.js';
 
 const config = {
@@ -26,6 +26,7 @@ const tenantClaims: SessionClaims = {
   sessionId: 'session-a',
   audience: 'tenant',
   tenantId: tenantA,
+  authorizationVersion: 1,
   permissions: ['tenant.dashboard.view'],
 };
 
@@ -33,11 +34,18 @@ describe('identity -> tenant -> permission -> audit slice', () => {
   let app: FastifyInstance;
   let audit: MemoryAuditWriter;
   let securityAudit: MemorySecurityAuditWriter;
+  let membership: ActiveTenantMembership | null;
   const now = new Date('2026-08-09T18:00:00.000Z');
 
   beforeEach(async () => {
     audit = new MemoryAuditWriter();
     securityAudit = new MemorySecurityAuditWriter();
+    membership = {
+      tenantId: tenantA,
+      userId: tenantClaims.sub,
+      permissions: ['tenant.dashboard.view'],
+      authorizationVersion: 1,
+    };
     const sessions: SessionStatusReader = {
       isActive: async (sessionId) => sessionId !== 'revoked-session',
     };
@@ -46,6 +54,7 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       now: () => now,
       sessions,
       securityAudit,
+      tenantMemberships: { readActive: async () => membership },
       supportGrants: {
         readApproved: async (grantId, tenantId, requesterId, at) =>
           grantId === 'revoked-grant' || at >= new Date('2026-08-09T18:15:00.000Z')
@@ -64,7 +73,7 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       },
     });
     await app.ready();
-  });
+  }, 20_000);
 
   afterEach(async () => app.close());
 
@@ -144,15 +153,45 @@ describe('identity -> tenant -> permission -> audit slice', () => {
     });
   });
 
-  it('denies a tenant user without the explicit permission', async () => {
+  it('rejects tenant claims after canonical permissions are narrowed', async () => {
+    membership = { ...membership!, permissions: [], authorizationVersion: 2 };
     const response = await app.inject({
       method: 'GET',
       url: `/v1/tenants/${tenantA}/summary`,
       headers: {
-        authorization: `Bearer ${tokenFor({ ...tenantClaims, permissions: [] })}`,
+        authorization: `Bearer ${tokenFor(tenantClaims)}`,
       },
     });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects tenant claims for an inactive membership', async () => {
+    membership = null;
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantA}/summary`,
+      headers: { authorization: `Bearer ${tokenFor(tenantClaims)}` },
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects tenant claims whose membership authorization version is stale', async () => {
+    membership = { ...membership!, authorizationVersion: 2 };
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantA}/summary`,
+      headers: { authorization: `Bearer ${tokenFor(tenantClaims)}` },
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('accepts tenant claims that exactly match the active membership version and permissions', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantA}/summary`,
+      headers: { authorization: `Bearer ${tokenFor(tenantClaims)}` },
+    });
+    expect(response.statusCode).toBe(200);
   });
 
   it('rejects a revoked session even when its signed token has not expired', async () => {
@@ -370,6 +409,7 @@ describe('identity -> tenant -> permission -> audit slice', () => {
       audit,
       now: () => now,
       sessions: { isActive: async () => true },
+      tenantMemberships: { readActive: async () => membership },
       summaries: {
         read: async () => {
           throw new Error('database unavailable');

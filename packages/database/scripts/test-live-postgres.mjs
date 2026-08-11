@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { adoptLegacyBaseline } from './adopt-legacy-baseline.mjs';
@@ -13,6 +13,10 @@ const upgradeMigrationUrl = process.env.DATABASE_UPGRADE_MIGRATION_URL;
 const upgradeRuntimeUrl = process.env.DATABASE_UPGRADE_RUNTIME_URL;
 const upgradeLegacyOwner = process.env.DATABASE_UPGRADE_LEGACY_OWNER;
 const upgradeDatabaseName = process.env.DATABASE_UPGRADE_NAME;
+const migrationsDirectory = fileURLToPath(new URL('../migrations/', import.meta.url));
+const expectedMigrationNames = (await readdir(migrationsDirectory))
+  .filter((name) => name.endsWith('.sql'))
+  .sort((left, right) => left.localeCompare(right));
 
 if (!migrationUrl || !runtimeUrl) {
   const missing = [
@@ -54,7 +58,10 @@ const supportApprover = randomUUID();
 const supportGrant = randomUUID();
 
 try {
-  const before = await migrator`SELECT to_regclass('public.tenants')::text AS tenants_table`;
+  const before = await migrator.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+    return transaction`SELECT to_regclass('public.tenants')::text AS tenants_table`;
+  });
   if (liveRequired) {
     assert(
       before[0].tenants_table === null,
@@ -68,7 +75,11 @@ try {
     await transaction.unsafe('SET LOCAL ROLE orvex_owner');
     return transaction`SELECT name FROM public._orvex_migrations ORDER BY name`;
   });
-  assert(migrationState.length === 3, 'An empty database did not receive every migration');
+  assert(
+    JSON.stringify(migrationState.map((migration) => migration.name)) ===
+      JSON.stringify(expectedMigrationNames),
+    'An empty database did not receive the exact migration set',
+  );
 
   const roles = await runtime`
     SELECT rolname, rolcanlogin, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolreplication,
@@ -94,23 +105,96 @@ try {
     'Migrator must login',
   );
   assert(roles.find((role) => role.rolname === 'orvex_runtime').rolcanlogin, 'Runtime must login');
+  assert(
+    !roles.find((role) => role.rolname === 'orvex_migrator').rolinherit &&
+      !roles.find((role) => role.rolname === 'orvex_runtime').rolinherit,
+    'Migrator and runtime login roles must be NOINHERIT',
+  );
 
   const runtimeMembership = await runtime`
     SELECT pg_has_role(current_user, 'orvex_owner', 'MEMBER') AS owns_membership
   `;
   assert(!runtimeMembership[0].owns_membership, 'Runtime must not be a member of the owner role');
+  await expectRejected(
+    () =>
+      runtime.begin(async (transaction) => {
+        await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      }),
+    /permission denied to set role/i,
+    'Runtime owner-role assumption',
+  );
 
-  const owners = await runtime`
-    SELECT DISTINCT owner.rolname AS owner
+  const ownerMemberships = await runtime`
+    SELECT member_role.rolname AS member_name, membership.admin_option,
+           membership.inherit_option, membership.set_option
+    FROM pg_auth_members membership
+    JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+    JOIN pg_roles member_role ON member_role.oid = membership.member
+    WHERE granted_role.rolname = 'orvex_owner'
+    ORDER BY member_role.rolname
+  `;
+  assert(
+    ownerMemberships.length === 1 &&
+      ownerMemberships[0].member_name === 'orvex_migrator' &&
+      !ownerMemberships[0].admin_option &&
+      !ownerMemberships[0].inherit_option &&
+      ownerMemberships[0].set_option,
+    'Owner membership must be SET-only for the NOINHERIT migrator',
+  );
+
+  const tableOwners = await runtime`
+    SELECT relation.relname AS relation_name, owner.rolname AS owner
     FROM pg_class relation
     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
     JOIN pg_roles owner ON owner.oid = relation.relowner
     WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'p')
+    ORDER BY relation.relname
   `;
-  assert(
-    owners.length === 1 && owners[0].owner === 'orvex_owner',
-    'All application tables must be owned by the NOLOGIN owner role',
-  );
+  assert(tableOwners.length > 0, 'Expected application tables in the migrated schema');
+  for (const table of tableOwners) {
+    const expectedOwner =
+      table.relation_name === 'finance_audit_outbox'
+        ? 'orvex_finance_audit_relay_owner'
+        : 'orvex_owner';
+    assert(
+      table.owner === expectedOwner,
+      `${table.relation_name} must be owned by ${expectedOwner}`,
+    );
+  }
+
+  const tenantScopedTables = await runtime`
+    SELECT relation.relname AS relation_name, relation.relrowsecurity AS row_security,
+           relation.relforcerowsecurity AS force_row_security,
+           count(policy.policyname)::int AS policy_count,
+           bool_or(
+             policy.cmd = 'ALL'
+             AND 'public' = ANY(policy.roles)
+             AND policy.qual IS NOT NULL
+             AND policy.with_check IS NOT NULL
+           ) AS has_complete_public_policy
+    FROM pg_class relation
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    JOIN pg_attribute attribute
+      ON attribute.attrelid = relation.oid
+     AND attribute.attname = 'tenant_id'
+     AND attribute.attnum > 0
+     AND NOT attribute.attisdropped
+    LEFT JOIN pg_policies policy
+      ON policy.schemaname = namespace.nspname AND policy.tablename = relation.relname
+    WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'p')
+    GROUP BY relation.relname, relation.relrowsecurity, relation.relforcerowsecurity
+    ORDER BY relation.relname
+  `;
+  assert(tenantScopedTables.length > 0, 'Expected tenant-scoped tables in the migrated schema');
+  for (const table of tenantScopedTables) {
+    assert(table.row_security, `${table.relation_name} must enable RLS`);
+    assert(table.force_row_security, `${table.relation_name} must FORCE RLS`);
+    assert(table.policy_count > 0, `${table.relation_name} must define an RLS policy`);
+    assert(
+      table.has_complete_public_policy,
+      `${table.relation_name} must apply tenant filtering and write checks to every command`,
+    );
+  }
 
   await migrator.begin(async (transaction) => {
     await transaction.unsafe('SET LOCAL ROLE orvex_owner');
@@ -264,6 +348,119 @@ try {
     `;
   });
   assert(ownSnapshot.length === 1, 'Same-tenant INSERT should succeed');
+
+  await runtime.begin(async (transaction) => {
+    await transaction`SELECT set_config('app.tenant_id', ${tenantB}, true)`;
+    await transaction`
+      INSERT INTO tenant_dashboard_snapshots (tenant_id, active_subscribers)
+      VALUES (${tenantB}, 900)
+    `;
+  });
+
+  const importedSnapshots = await runtime.begin(async (transaction) => {
+    await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
+    return transaction`
+      WITH incoming (tenant_id, active_subscribers) AS (
+        VALUES (${tenantA}::uuid, 2::bigint), (${tenantA}::uuid, 3::bigint)
+      )
+      INSERT INTO tenant_dashboard_snapshots (tenant_id, active_subscribers)
+      SELECT tenant_id, active_subscribers FROM incoming
+      RETURNING tenant_id::text
+    `;
+  });
+  assert(
+    importedSnapshots.length === 2 && importedSnapshots.every((row) => row.tenant_id === tenantA),
+    'Same-tenant batch import did not remain tenant-scoped',
+  );
+
+  await expectRejected(
+    () =>
+      runtime.begin(async (transaction) => {
+        await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
+        await transaction`
+          WITH incoming (tenant_id, active_subscribers) AS (
+            VALUES (${tenantA}::uuid, 4::bigint), (${tenantB}::uuid, 5::bigint)
+          )
+          INSERT INTO tenant_dashboard_snapshots (tenant_id, active_subscribers)
+          SELECT tenant_id, active_subscribers FROM incoming
+        `;
+      }),
+    /row-level security/i,
+    'Mixed-tenant batch import',
+  );
+
+  const aggregateExport = await runtime.begin(async (transaction) => {
+    await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
+    return transaction`
+      SELECT snapshots.tenant_id::text AS tenant_id,
+             count(DISTINCT snapshots.id)::int AS snapshot_count,
+             count(DISTINCT memberships.user_id)::int AS member_count,
+             sum(snapshots.active_subscribers)::int AS active_subscribers,
+             jsonb_agg(DISTINCT jsonb_build_object(
+               'snapshotId', snapshots.id,
+               'activeSubscribers', snapshots.active_subscribers
+             )) AS export_rows
+      FROM tenant_dashboard_snapshots snapshots
+      JOIN tenant_memberships memberships ON memberships.tenant_id = snapshots.tenant_id
+      WHERE EXISTS (
+        SELECT 1 FROM support_grants grants WHERE grants.tenant_id = snapshots.tenant_id
+      )
+      GROUP BY snapshots.tenant_id
+    `;
+  });
+  assert(
+    aggregateExport.length === 1 &&
+      aggregateExport[0].tenant_id === tenantA &&
+      aggregateExport[0].snapshot_count === 3 &&
+      aggregateExport[0].member_count === 1 &&
+      aggregateExport[0].active_subscribers === 5 &&
+      aggregateExport[0].export_rows.length === 3,
+    'Join/subquery/aggregate export crossed tenant scope or returned an invalid aggregate',
+  );
+
+  const bulkUpdate = await runtime.begin(async (transaction) => {
+    await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
+    return transaction`
+      UPDATE tenant_dashboard_snapshots
+      SET online_subscribers = active_subscribers
+      RETURNING tenant_id::text
+    `;
+  });
+  assert(
+    bulkUpdate.length === 3 && bulkUpdate.every((row) => row.tenant_id === tenantA),
+    'Bulk UPDATE escaped the active tenant scope',
+  );
+
+  const ownUpsert = await runtime.begin(async (transaction) => {
+    await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
+    return transaction`
+      INSERT INTO tenant_memberships (tenant_id, user_id, role_key, permissions)
+      VALUES (${tenantA}, ${userA}, 'owner', ARRAY['billing.read'])
+      ON CONFLICT (tenant_id, user_id) DO UPDATE
+      SET permissions = EXCLUDED.permissions
+      RETURNING tenant_id::text, permissions
+    `;
+  });
+  assert(
+    ownUpsert.length === 1 &&
+      ownUpsert[0].tenant_id === tenantA &&
+      ownUpsert[0].permissions.includes('billing.read'),
+    'Same-tenant UPSERT did not update the scoped row',
+  );
+
+  await expectRejected(
+    () =>
+      runtime.begin(async (transaction) => {
+        await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
+        await transaction`
+          INSERT INTO tenant_memberships (tenant_id, user_id, role_key)
+          VALUES (${tenantB}, ${userB}, 'owner')
+          ON CONFLICT (tenant_id, user_id) DO UPDATE SET role_key = EXCLUDED.role_key
+        `;
+      }),
+    /row-level security/i,
+    'Cross-tenant UPSERT',
+  );
 
   const crossUpdate = await runtime.begin(async (transaction) => {
     await transaction`SELECT set_config('app.tenant_id', ${tenantB}, true)`;
@@ -427,6 +624,32 @@ async function verifyPriorSchemaUpgrade() {
       'Prior-schema fixture was not owned by the legacy bootstrap role',
     );
 
+    await bootstrap`ALTER TABLE public.tenant_dashboard_snapshots ADD COLUMN adoption_drift_probe text`;
+    await expectRejected(
+      () =>
+        adoptLegacyBaseline({
+          databaseUrl: upgradeBootstrapUrl,
+          databaseName: upgradeDatabaseName,
+          legacyOwner: upgradeLegacyOwner,
+        }),
+      /Legacy schema columns do not match/i,
+      'Legacy adoption with catalog drift',
+    );
+    const rejectedAdoptionState = await bootstrap`
+      SELECT to_regclass('public._orvex_migrations') IS NULL AS ledger_absent,
+             pg_get_userbyid(relation.relowner) AS table_owner
+      FROM pg_class relation
+      JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = 'tenant_dashboard_snapshots'
+    `;
+    assert(
+      rejectedAdoptionState[0]?.ledger_absent &&
+        rejectedAdoptionState[0]?.table_owner === upgradeLegacyOwner,
+      'Rejected legacy adoption changed the ledger or object ownership',
+    );
+    await bootstrap`ALTER TABLE public.tenant_dashboard_snapshots DROP COLUMN adoption_drift_probe`;
+
     await adoptLegacyBaseline({
       databaseUrl: upgradeBootstrapUrl,
       databaseName: upgradeDatabaseName,
@@ -442,12 +665,14 @@ async function verifyPriorSchemaUpgrade() {
           WHERE table_schema = 'public' AND table_name = 'support_grants'
             AND column_name = 'authorization_version'
         ) AS support_version_ready,
-        (SELECT count(*)::int FROM public._orvex_migrations) AS migration_count
+        ARRAY(
+          SELECT name FROM public._orvex_migrations ORDER BY name
+        ) AS migration_names
     `;
     assert(
       upgraded[0].security_events_ready &&
         upgraded[0].support_version_ready &&
-        upgraded[0].migration_count === 3,
+        JSON.stringify(upgraded[0].migration_names) === JSON.stringify(expectedMigrationNames),
       'Prior schema did not upgrade through every forward migration',
     );
   } finally {

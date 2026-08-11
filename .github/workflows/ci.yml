@@ -91,11 +91,18 @@ jobs:
         run: |
           set -euo pipefail
           pg_port="$(docker compose -f docker-compose.test.yml port postgres-test 5432 | sed 's/.*://')"
+          finance_upgrade_pg_port="$(docker compose -f docker-compose.test.yml port postgres-finance-upgrade-test 5432 | sed 's/.*://')"
           redis_port="$(docker compose -f docker-compose.test.yml port redis-test 6379 | sed 's/.*://')"
           minio_port="$(docker compose -f docker-compose.test.yml port minio-test 9000 | sed 's/.*://')"
           {
             echo "DATABASE_MIGRATION_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_test"
             echo "DATABASE_RUNTIME_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "CONTROL_FINANCE_AUDIT_RELAY_DATABASE_URL=postgresql://orvex_finance_audit_relay:test-only-relay-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "TENANT_FINANCE_AUDIT_RELAY_DATABASE_URL=postgresql://orvex_finance_audit_relay:test-only-relay-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
+            echo "TENANT_FINANCE_AUDIT_RUNTIME_DATABASE_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
+            echo "TENANT_FINANCE_AUDIT_MIGRATION_DATABASE_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
+            echo "FINANCE_AUDIT_UPGRADE_BOOTSTRAP_DATABASE_URL=postgresql://orvex_finance_upgrade_bootstrap:test-only-bootstrap-not-production@127.0.0.1:${finance_upgrade_pg_port}/isp_finance_upgrade_test"
+            echo "FINANCE_AUDIT_UPGRADE_MIGRATION_DATABASE_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${finance_upgrade_pg_port}/isp_finance_upgrade_test"
             echo "DATABASE_UPGRADE_BOOTSTRAP_URL=postgresql://orvex_bootstrap_test:test-only-bootstrap-not-production@127.0.0.1:${pg_port}/isp_upgrade_test"
             echo "DATABASE_UPGRADE_MIGRATION_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_upgrade_test"
             echo "DATABASE_UPGRADE_RUNTIME_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_upgrade_test"
@@ -111,3 +118,14 @@ jobs:
       - name: Stop isolated dependencies
         if: always()
         run: docker compose -f docker-compose.test.yml down --volumes
+
+  finance-audit-relay-container:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build Finance Audit Relay production image
+        run: >-
+          docker build --file workers/finance-audit-relay/Dockerfile --target runtime --tag
+          orvex-isp-finance-audit-relay:${{ github.sha }} .

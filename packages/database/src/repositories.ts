@@ -7,6 +7,7 @@ import {
   sessions,
   supportGrants,
   tenantDashboardSnapshots,
+  tenantMemberships,
 } from './schema.js';
 import { inTenantTransaction } from './tenant-transaction.js';
 
@@ -29,6 +30,46 @@ export async function isSessionActive(
     )
     .limit(1);
   return rows.length === 1;
+}
+
+export interface ActiveTenantMembership {
+  readonly tenantId: string;
+  readonly userId: string;
+  readonly permissions: readonly string[];
+  readonly authorizationVersion: number;
+}
+
+/** Canonical tenant authorization used to reject stale or narrowed session claims. */
+export async function readActiveTenantMembership(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  userId: string,
+): Promise<ActiveTenantMembership | null> {
+  return inTenantTransaction(database, tenantId, async (transaction) => {
+    const [membership] = await transaction
+      .select({
+        tenantId: tenantMemberships.tenantId,
+        userId: tenantMemberships.userId,
+        permissions: tenantMemberships.permissions,
+        authorizationVersion: tenantMemberships.authorizationVersion,
+      })
+      .from(tenantMemberships)
+      .where(
+        and(
+          eq(tenantMemberships.tenantId, tenantId),
+          eq(tenantMemberships.userId, userId),
+          eq(tenantMemberships.active, true),
+        ),
+      )
+      .limit(1);
+
+    if (!membership) return null;
+    return {
+      ...membership,
+      permissions: [...membership.permissions],
+      authorizationVersion: safeInteger(membership.authorizationVersion, 'authorizationVersion'),
+    };
+  });
 }
 
 export async function isSupportGrantActive(

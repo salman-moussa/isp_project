@@ -13,23 +13,29 @@ import {
   StatePanel,
   StatusBadge,
   Surface,
+  TaskRouteView,
+  useHashNavigation,
   type Locale,
   type StateVariant,
 } from '@isp/ui';
 import { platformCopy } from './copy';
+import { platformRoutes } from './routes';
+
+const platformNavigationIds = platformCopy.en.navigation.map((item) => item.id);
 
 export function App() {
   const [locale, setLocale] = useState<Locale>('en');
-  const [activeNavigationId, setActiveNavigationId] = useState('overview');
+  const { activeId: activeNavigationId, navigate: navigateRoute } = useHashNavigation(
+    platformNavigationIds,
+    'overview',
+  );
   const [drilldownId, setDrilldownId] = useState<string | null>(null);
   const [stateVariant, setStateVariant] = useState<StateVariant>('loading');
   const copy = platformCopy[locale];
-  const activeNavigation =
-    copy.navigation.find((item) => item.id === activeNavigationId) ?? copy.navigation[0];
   const drilldown = drilldownId ? copy.drilldowns[drilldownId] : undefined;
 
   const navigate = (id: string) => {
-    setActiveNavigationId(id);
+    navigateRoute(id);
     setDrilldownId(null);
   };
 
@@ -178,22 +184,11 @@ export function App() {
           </div>
         </>
       ) : (
-        <>
-          <PageHeader
-            eyebrow={copy.moduleEyebrow}
-            title={activeNavigation.label}
-            description={copy.moduleDescription}
-          />
-          <div className="module-placeholder">
-            <StatePanel
-              variant="empty"
-              title={copy.moduleEmptyTitle}
-              description={copy.moduleEmptyDescription}
-              actionLabel={copy.moduleAction}
-              onAction={() => undefined}
-            />
-          </div>
-        </>
+        <TaskRouteView
+          route={platformRoutes[locale][activeNavigationId]}
+          dataSourceLabel={copy.environment}
+          onNavigate={navigate}
+        />
       )}
     </AppShell>
   );

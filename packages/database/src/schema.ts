@@ -20,6 +20,9 @@ export const supportGrantStatus = pgEnum('support_grant_status', [
   'revoked',
   'expired',
 ]);
+export const financeCurrency = pgEnum('finance_currency', ['USD', 'LBP']);
+export const financeDocumentKind = pgEnum('finance_document_kind', ['posted', 'reversal']);
+export const financeAllocationKind = pgEnum('finance_allocation_kind', ['allocation', 'reversal']);
 
 export const tenants = pgTable(
   'tenants',
@@ -69,11 +72,13 @@ export const tenantMemberships = pgTable(
       .default(sql`ARRAY[]::text[]`),
     scope: jsonb('scope').notNull().default({}),
     active: boolean('active').notNull().default(true),
+    authorizationVersion: bigint('authorization_version', { mode: 'bigint' }).notNull().default(1n),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique('tenant_memberships_tenant_id_user_id_key').on(table.tenantId, table.userId),
     index('tenant_memberships_tenant_idx').on(table.tenantId),
+    check('tenant_memberships_authorization_version_check', sql`${table.authorizationVersion} > 0`),
   ],
 );
 
@@ -139,8 +144,13 @@ export const auditEvents = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').references(() => tenants.id),
     actorId: uuid('actor_id').references(() => users.id),
+    actorReference: text('actor_reference'),
     sessionId: uuid('session_id'),
+    sessionReference: text('session_reference'),
     supportGrantId: uuid('support_grant_id').references(() => supportGrants.id),
+    supportGrantReference: text('support_grant_reference'),
+    requestReference: text('request_reference'),
+    permission: text('permission'),
     action: text('action').notNull(),
     resourceType: text('resource_type').notNull(),
     resourceId: text('resource_id'),
@@ -207,5 +217,135 @@ export const tenantDashboardSnapshots = pgTable(
       'tenant_dashboard_snapshots_online_subscribers_check',
       sql`${table.onlineSubscribers} >= 0`,
     ),
+  ],
+);
+
+export const financeInvoices = pgTable(
+  'finance_invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    documentNumber: text('document_number').notNull(),
+    entryKind: financeDocumentKind('entry_kind').notNull().default('posted'),
+    reversesInvoiceId: uuid('reverses_invoice_id'),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: financeCurrency('currency').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    actorId: text('actor_id').notNull(),
+    postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('finance_invoices_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('finance_invoices_tenant_document_number_key').on(table.tenantId, table.documentNumber),
+    unique('finance_invoices_tenant_idempotency_key_key').on(table.tenantId, table.idempotencyKey),
+    unique('finance_invoices_reverses_invoice_id_key').on(table.reversesInvoiceId),
+    index('finance_invoices_tenant_posted_at_idx').on(table.tenantId, table.postedAt.desc()),
+    check('finance_invoices_amount_positive_check', sql`${table.amountMinor} > 0`),
+  ],
+);
+
+export const financePayments = pgTable(
+  'finance_payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    receiptNumber: text('receipt_number').notNull(),
+    entryKind: financeDocumentKind('entry_kind').notNull().default('posted'),
+    reversesPaymentId: uuid('reverses_payment_id'),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: financeCurrency('currency').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    actorId: text('actor_id').notNull(),
+    postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('finance_payments_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('finance_payments_tenant_receipt_number_key').on(table.tenantId, table.receiptNumber),
+    unique('finance_payments_tenant_idempotency_key_key').on(table.tenantId, table.idempotencyKey),
+    unique('finance_payments_reverses_payment_id_key').on(table.reversesPaymentId),
+    index('finance_payments_tenant_posted_at_idx').on(table.tenantId, table.postedAt.desc()),
+    check('finance_payments_amount_positive_check', sql`${table.amountMinor} > 0`),
+  ],
+);
+
+export const financePaymentAllocations = pgTable(
+  'finance_payment_allocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    paymentId: uuid('payment_id').notNull(),
+    invoiceId: uuid('invoice_id').notNull(),
+    entryKind: financeAllocationKind('entry_kind').notNull().default('allocation'),
+    reversesAllocationId: uuid('reverses_allocation_id'),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: financeCurrency('currency').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    actorId: text('actor_id').notNull(),
+    postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('finance_allocations_tenant_id_id_key').on(table.tenantId, table.id),
+    unique('finance_allocations_tenant_idempotency_key_key').on(
+      table.tenantId,
+      table.idempotencyKey,
+    ),
+    unique('finance_allocations_reverses_allocation_id_key').on(table.reversesAllocationId),
+    index('finance_allocations_tenant_invoice_idx').on(
+      table.tenantId,
+      table.invoiceId,
+      table.postedAt,
+    ),
+    index('finance_allocations_tenant_payment_idx').on(
+      table.tenantId,
+      table.paymentId,
+      table.postedAt,
+    ),
+    check('finance_allocations_amount_positive_check', sql`${table.amountMinor} > 0`),
+  ],
+);
+
+export const financeAuditOutbox = pgTable(
+  'finance_audit_outbox',
+  {
+    eventId: uuid('event_id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    sourceTable: text('source_table').notNull(),
+    sourceEntryId: uuid('source_entry_id').notNull(),
+    action: text('action').notNull(),
+    resourceType: text('resource_type').notNull(),
+    actorId: text('actor_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    supportGrantId: text('support_grant_id'),
+    requestId: text('request_id').notNull(),
+    ipAddress: text('ip_address').notNull(),
+    userAgent: text('user_agent'),
+    permission: text('permission').notNull(),
+    reason: text('reason').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: financeCurrency('currency').notNull(),
+    metadata: jsonb('metadata').notNull().default({}),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    clientPostedAt: timestamp('client_posted_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('finance_audit_outbox_source_key').on(table.sourceTable, table.sourceEntryId),
+    index('finance_audit_outbox_tenant_pending_idx')
+      .on(table.tenantId, table.createdAt, table.eventId)
+      .where(sql`${table.deliveredAt} IS NULL`),
+    check('finance_audit_outbox_amount_minor_check', sql`${table.amountMinor} > 0`),
   ],
 );

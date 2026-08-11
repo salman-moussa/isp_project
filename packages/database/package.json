@@ -15,7 +15,9 @@
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:integration": "node scripts/test-live-postgres.mjs",
+    "test:integration": "tsx --conditions=development scripts/test-live-finance-audit-upgrade.ts && node scripts/test-live-postgres.mjs && node scripts/test-live-finance.mjs && tsx --conditions=development scripts/test-live-finance-outbox.ts",
+    "test:finance-integration": "node scripts/test-live-finance.mjs",
+    "test:finance-outbox-integration": "tsx --conditions=development scripts/test-live-finance-outbox.ts",
     "db:check": "node scripts/check-schema.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
@@ -23,10 +25,10 @@
   },
   "dependencies": {
     "@isp/contracts": "0.1.0",
-    "drizzle-orm": "0.44.5",
+    "drizzle-orm": "0.45.2",
     "postgres": "3.4.7"
   },
   "devDependencies": {
-    "drizzle-kit": "0.31.4"
+    "drizzle-kit": "0.31.10"
   }
 }

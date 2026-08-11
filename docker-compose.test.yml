@@ -9,20 +9,53 @@ services:
       POSTGRES_DB: isp_test
       ORVEX_RUNTIME_DB_PASSWORD: test-only-runtime-not-production
       ORVEX_MIGRATOR_DB_PASSWORD: test-only-migrator-not-production
+      ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD: test-only-relay-not-production
       ORVEX_CREATE_UPGRADE_TEST_DATABASE: '1'
+      ORVEX_CREATE_FINANCE_AUDIT_UPGRADE_TEST_DATABASE: '1'
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
     tmpfs:
       - /var/lib/postgresql
     ports:
-      - '127.0.0.1::5432'
+      - target: 5432
+        published: '${POSTGRES_TEST_PORT:-55432}'
+        host_ip: 127.0.0.1
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U orvex_bootstrap_test -d isp_test']
       interval: 2s
       timeout: 3s
       retries: 30
-    networks: [test-data]
+    networks: [test-application, test-data]
+    security_opt: ['no-new-privileges:true']
+
+  postgres-finance-upgrade-test:
+    image: ${POSTGRES_IMAGE:-postgres:18.4-alpine}
+    environment:
+      POSTGRES_USER: orvex_finance_upgrade_bootstrap
+      POSTGRES_PASSWORD: test-only-bootstrap-not-production
+      POSTGRES_DB: isp_finance_upgrade_test
+      ORVEX_RUNTIME_DB_PASSWORD: test-only-runtime-not-production
+      ORVEX_MIGRATOR_DB_PASSWORD: test-only-migrator-not-production
+      ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD: test-only-relay-not-production
+      ORVEX_CREATE_FINANCE_AUDIT_RELAY_ROLES: '0'
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/docker/postgres/admin:/orvex-admin:ro
+    tmpfs:
+      - /var/lib/postgresql
+    ports:
+      - target: 5432
+        published: '${POSTGRES_FINANCE_UPGRADE_TEST_PORT:-55433}'
+        host_ip: 127.0.0.1
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U orvex_finance_upgrade_bootstrap -d isp_finance_upgrade_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [test-application, test-data]
     security_opt: ['no-new-privileges:true']
 
   redis-test:
@@ -40,14 +73,16 @@ services:
     tmpfs:
       - /data
     ports:
-      - '127.0.0.1::6379'
+      - target: 6379
+        published: '${REDIS_TEST_PORT:-56379}'
+        host_ip: 127.0.0.1
     healthcheck:
       test:
         ['CMD-SHELL', 'redis-cli --no-auth-warning -a test-only-not-production ping | grep PONG']
       interval: 2s
       timeout: 3s
       retries: 30
-    networks: [test-data]
+    networks: [test-application, test-data]
     security_opt: ['no-new-privileges:true']
 
   minio-test:
@@ -59,13 +94,15 @@ services:
     tmpfs:
       - /data
     ports:
-      - '127.0.0.1::9000'
+      - target: 9000
+        published: '${MINIO_TEST_PORT:-59000}'
+        host_ip: 127.0.0.1
     healthcheck:
       test: ['CMD-SHELL', 'curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null']
       interval: 2s
       timeout: 3s
       retries: 30
-    networks: [test-data]
+    networks: [test-application, test-data]
     security_opt: ['no-new-privileges:true']
 
   mailpit-test:
@@ -74,8 +111,12 @@ services:
       MP_MAX_MESSAGES: '100'
       MP_MAX_AGE: 1h
     ports:
-      - '127.0.0.1::1025'
-      - '127.0.0.1::8025'
+      - target: 1025
+        published: '${MAILPIT_SMTP_TEST_PORT:-51025}'
+        host_ip: 127.0.0.1
+      - target: 8025
+        published: '${MAILPIT_HTTP_TEST_PORT:-58025}'
+        host_ip: 127.0.0.1
     networks: [test-application]
     security_opt: ['no-new-privileges:true']
 

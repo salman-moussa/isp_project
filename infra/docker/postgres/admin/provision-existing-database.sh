@@ -8,6 +8,7 @@ set -eu
 : "${ORVEX_LEGACY_DB_OWNER:?ORVEX_LEGACY_DB_OWNER is required}"
 : "${ORVEX_RUNTIME_DB_PASSWORD:?ORVEX_RUNTIME_DB_PASSWORD is required}"
 : "${ORVEX_MIGRATOR_DB_PASSWORD:?ORVEX_MIGRATOR_DB_PASSWORD is required}"
+: "${ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:?ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD is required}"
 
 psql \
   --set=ON_ERROR_STOP=1 \
@@ -26,7 +27,6 @@ psql \
     'CREATE ROLE orvex_runtime LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT',
     :'runtime_password'
   ) WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'orvex_runtime')\gexec
-
   ALTER ROLE orvex_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
   ALTER ROLE orvex_migrator LOGIN PASSWORD :'migrator_password'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
@@ -38,5 +38,6 @@ psql \
 SQL
 
 script_directory="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+"$script_directory/bootstrap-finance-audit-relay-roles.sh"
 repository_root="$(CDPATH= cd -- "$script_directory/../../../.." && pwd)"
 node "$repository_root/packages/database/scripts/adopt-legacy-baseline.mjs"

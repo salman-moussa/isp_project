@@ -4,6 +4,7 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import { FinanceConflictError, IdempotencyConflictError } from '@isp/database';
 import { AuthorizationDeniedError } from '@isp/domain';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ulid } from 'ulid';
@@ -12,20 +13,26 @@ import type { ApiConfig } from './config.js';
 import {
   DenyAllSessionStatusReader,
   DenyAllSupportGrantStatusReader,
+  DenyAllTenantMembershipStatusReader,
   registerAuthentication,
   type SessionStatusReader,
   type SupportGrantStatusReader,
+  type TenantMembershipStatusReader,
 } from './authentication.js';
 import { DemoTenantSummaryReader, type TenantSummaryReader } from './summary.js';
 import { MemoryAuditWriter, type AuditWriter } from './audit.js';
 import { registerTenantSummaryRoute } from './routes/tenant-summary.js';
+import { registerTenantFinanceRoutes } from './routes/tenant-finance.js';
 import { MemorySecurityAuditWriter, type SecurityAuditWriter } from './security-audit.js';
+import { type FinanceWriter, UnconfiguredFinanceWriter } from './finance.js';
 
 export interface AppDependencies {
   readonly audit?: AuditWriter;
+  readonly finance?: FinanceWriter;
   readonly summaries?: TenantSummaryReader;
   readonly now?: () => Date;
   readonly sessions?: SessionStatusReader;
+  readonly tenantMemberships?: TenantMembershipStatusReader;
   readonly supportGrants?: SupportGrantStatusReader;
   readonly readiness?: () => Promise<void>;
   readonly securityAudit?: SecurityAuditWriter;
@@ -77,6 +84,7 @@ export async function buildApp(
   registerAuthentication(
     app,
     dependencies.sessions ?? new DenyAllSessionStatusReader(),
+    dependencies.tenantMemberships ?? new DenyAllTenantMembershipStatusReader(),
     dependencies.supportGrants ?? new DenyAllSupportGrantStatusReader(),
     securityAudit,
     now,
@@ -142,11 +150,22 @@ export async function buildApp(
     securityAudit,
     now,
   });
+  registerTenantFinanceRoutes(app, {
+    audit: dependencies.audit ?? new MemoryAuditWriter(),
+    finance: dependencies.finance ?? new UnconfiguredFinanceWriter(),
+    securityAudit,
+    now,
+  });
 
   app.setErrorHandler((error, request, reply) => {
     const requestId = request.id;
     if (error instanceof AuthorizationDeniedError) {
       return reply.code(403).send({
+        error: { code: error.code, message: error.message, requestId },
+      });
+    }
+    if (error instanceof IdempotencyConflictError || error instanceof FinanceConflictError) {
+      return reply.code(409).send({
         error: { code: error.code, message: error.message, requestId },
       });
     }
@@ -160,17 +179,25 @@ export async function buildApp(
         },
       });
     }
-    if (error.validation) {
+    const frameworkValidation =
+      typeof error === 'object' && error !== null && 'validation' in error
+        ? error.validation
+        : undefined;
+    if (frameworkValidation) {
       return reply.code(400).send({
         error: {
           code: 'VALIDATION_FAILED',
           message: 'The request did not match the expected contract.',
           requestId,
-          details: { issues: error.validation },
+          details: { issues: frameworkValidation },
         },
       });
     }
-    if (error.statusCode === 401) {
+    const frameworkStatus =
+      typeof error === 'object' && error !== null && 'statusCode' in error
+        ? error.statusCode
+        : undefined;
+    if (frameworkStatus === 401) {
       return reply.code(401).send({
         error: {
           code: 'AUTHENTICATION_REQUIRED',

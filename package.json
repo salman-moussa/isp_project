@@ -14,9 +14,10 @@
     "workers/*"
   ],
   "scripts": {
-    "build": "npm run build:packages && npm run build:apps",
+    "build": "npm run build:packages && npm run build:apps && npm run build:workers",
     "build:packages": "npm run build --workspace=@isp/contracts && npm run build --workspace=@isp/domain && npm run build --workspace=@isp/database",
     "build:apps": "npm run build --workspace=@isp/api && npm run build --workspace=@isp/platform-web && npm run build --workspace=@isp/tenant-web",
+    "build:workers": "npm run build --workspace=@isp/finance-audit-relay",
     "dev": "npm run dev --workspace=@isp/api",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -40,7 +41,7 @@
     "tsx": "4.20.5",
     "typescript": "5.9.2",
     "typescript-eslint": "8.41.0",
-    "vitest": "3.2.4"
+    "vitest": "3.2.7"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

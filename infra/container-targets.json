@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "name": "finance-audit-relay",
+    "context": ".",
+    "dockerfile": "workers/finance-audit-relay/Dockerfile",
+    "target": "runtime",
+    "healthEndpoint": "http://127.0.0.1:9464/ready",
+    "runsAsRoot": false
+  }
+]

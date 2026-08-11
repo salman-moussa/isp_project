@@ -1087,14 +1087,91 @@
     width: 61%;
   }
 
-  .module-placeholder {
+  .route-metrics {
     display: grid;
-    min-height: 25rem;
-    place-items: center;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
   }
 
-  .module-placeholder .state-panel {
-    width: min(100%, 48rem);
+  .route-disclosure {
+    display: flex;
+    justify-content: flex-end;
+    margin-block-end: var(--space-3);
+  }
+
+  .route-metric {
+    position: relative;
+    display: grid;
+    gap: var(--space-2);
+    min-height: 9.5rem;
+    padding: var(--space-5);
+  }
+
+  .route-metric > h2 {
+    margin: 0;
+    color: var(--color-ink-muted);
+    font-size: 0.76rem;
+    font-weight: 750;
+  }
+
+  .route-metric > strong {
+    font-family: var(--font-latin);
+    font-size: 1.55rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .route-metric > small {
+    color: var(--color-ink-muted);
+    font-size: 0.72rem;
+  }
+
+  .route-metric > .status-badge {
+    position: absolute;
+    inset-block-start: var(--space-4);
+    inset-inline-end: var(--space-4);
+    max-width: 48%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .route-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 0.8fr);
+    gap: var(--space-4);
+    margin-block-start: var(--space-4);
+  }
+
+  .route-queue {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .route-queue li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    min-height: 4.4rem;
+    padding: var(--space-3) var(--space-5);
+    border-block-end: 1px solid var(--color-border);
+  }
+
+  .route-queue li:last-child {
+    border-block-end: 0;
+  }
+
+  .route-queue li > span:first-child {
+    display: grid;
+  }
+
+  .route-queue strong {
+    font-size: 0.82rem;
+  }
+
+  .route-queue small {
+    color: var(--color-ink-muted);
+    font-size: 0.72rem;
   }
 
   @keyframes spin {
@@ -1126,6 +1203,10 @@
 @media (max-width: 76rem) {
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .route-workspace {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1186,7 +1267,8 @@
   }
 
   .kpi-grid,
-  .content-grid {
+  .content-grid,
+  .route-metrics {
     grid-template-columns: 1fr;
   }
 

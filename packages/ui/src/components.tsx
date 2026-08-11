@@ -7,7 +7,14 @@ import {
   useState,
 } from 'react';
 import { useDocumentLocale } from './locale';
-import type { DrilldownItem, Locale, NavigationItem, ShellContext, Tone } from './types';
+import type {
+  DrilldownItem,
+  Locale,
+  NavigationItem,
+  ShellContext,
+  TaskRouteDefinition,
+  Tone,
+} from './types';
 
 function cn(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ');
@@ -204,6 +211,10 @@ export function AppShell({
         href="#main-content"
         inert={mobileViewport && mobileOpen}
         aria-hidden={mobileViewport && mobileOpen ? true : undefined}
+        onClick={(event) => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}
       >
         {skipLabel}
       </a>
@@ -250,7 +261,9 @@ export function AppShell({
           <button
             className="navigation-scrim"
             type="button"
-            aria-label={closeMenuLabel}
+            aria-hidden="true"
+            tabIndex={-1}
+            title={closeMenuLabel}
             onClick={() => setMobileOpen(false)}
           />
         )}
@@ -637,5 +650,74 @@ export function QuickAction({
         →
       </span>
     </button>
+  );
+}
+
+export function TaskRouteView({
+  route,
+  dataSourceLabel,
+  onNavigate,
+}: {
+  route: TaskRouteDefinition;
+  dataSourceLabel: string;
+  onNavigate: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="route-disclosure">
+        <StatusBadge tone="neutral">{dataSourceLabel}</StatusBadge>
+      </div>
+      <PageHeader eyebrow={route.eyebrow} title={route.title} description={route.description} />
+      <div className="route-metrics" aria-label={route.title}>
+        {route.metrics.map((metric) => (
+          <article className="surface route-metric" key={metric.label}>
+            <h2>{metric.label}</h2>
+            <strong dir="auto">{metric.value}</strong>
+            <small>{metric.detail}</small>
+            <StatusBadge tone={metric.tone}>{metric.status}</StatusBadge>
+          </article>
+        ))}
+      </div>
+      <div className="route-workspace">
+        <Surface>
+          <div className="surface__header">
+            <div>
+              <h2>{route.queueTitle}</h2>
+              <p>{route.queueDescription}</p>
+            </div>
+            <StatusBadge tone="neutral">{String(route.queue.length)}</StatusBadge>
+          </div>
+          <ul className="route-queue">
+            {route.queue.map((item) => (
+              <li key={`${item.label}-${item.value}`}>
+                <span>
+                  <strong>{item.label}</strong>
+                  {item.detail && <small>{item.detail}</small>}
+                </span>
+                <StatusBadge tone={item.tone}>{item.value}</StatusBadge>
+              </li>
+            ))}
+          </ul>
+        </Surface>
+        <Surface>
+          <div className="surface__header">
+            <div>
+              <h2>{route.nextTitle}</h2>
+              <p>{route.nextDescription}</p>
+            </div>
+          </div>
+          <div className="quick-actions">
+            {route.actions.map((action) => (
+              <QuickAction
+                key={`${action.targetId}-${action.label}`}
+                label={action.label}
+                description={action.description}
+                onClick={() => onNavigate(action.targetId)}
+              />
+            ))}
+          </div>
+        </Surface>
+      </div>
+    </>
   );
 }

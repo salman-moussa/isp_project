@@ -6,6 +6,17 @@ export interface SessionStatusReader {
   isActive(sessionId: string, userId: string, now: Date): Promise<boolean>;
 }
 
+export interface TenantMembershipStatusReader {
+  readActive(tenantId: string, userId: string): Promise<ActiveTenantMembership | null>;
+}
+
+export interface ActiveTenantMembership {
+  readonly tenantId: string;
+  readonly userId: string;
+  readonly permissions: readonly Permission[];
+  readonly authorizationVersion: number;
+}
+
 export interface SupportGrantStatusReader {
   readApproved(
     grantId: string,
@@ -33,6 +44,12 @@ export class DenyAllSessionStatusReader implements SessionStatusReader {
   }
 }
 
+export class DenyAllTenantMembershipStatusReader implements TenantMembershipStatusReader {
+  public async readActive(): Promise<null> {
+    return null;
+  }
+}
+
 export class DenyAllSupportGrantStatusReader implements SupportGrantStatusReader {
   public async readApproved(): Promise<null> {
     return null;
@@ -51,6 +68,7 @@ export class SessionInvalidError extends Error {
 export function registerAuthentication(
   app: FastifyInstance,
   sessions: SessionStatusReader,
+  tenantMemberships: TenantMembershipStatusReader,
   supportGrants: SupportGrantStatusReader,
   securityAudit: SecurityAuditWriter,
   now: () => Date,
@@ -68,7 +86,12 @@ export function registerAuthentication(
       if (!(await sessions.isActive(claims.sessionId, claims.sub, now()))) {
         throw new SessionInvalidError();
       }
-      if (claims.supportGrant) {
+      if (claims.audience === 'tenant') {
+        const membership = await tenantMemberships.readActive(claims.tenantId!, claims.sub);
+        if (!membership || !matchesActiveTenantMembership(claims, membership)) {
+          throw new SessionInvalidError();
+        }
+      } else if (claims.supportGrant) {
         const approvedGrant = await supportGrants.readApproved(
           claims.supportGrant.grantId,
           claims.supportGrant.tenantId,
@@ -98,6 +121,19 @@ export function registerAuthentication(
       throw error;
     }
   });
+}
+
+function matchesActiveTenantMembership(
+  claims: ReturnType<typeof sessionClaimsSchema.parse>,
+  membership: ActiveTenantMembership,
+): boolean {
+  return (
+    claims.audience === 'tenant' &&
+    claims.tenantId === membership.tenantId &&
+    claims.sub === membership.userId &&
+    claims.authorizationVersion === membership.authorizationVersion &&
+    samePermissionSet(claims.permissions, membership.permissions)
+  );
 }
 
 function matchesApprovedGrant(

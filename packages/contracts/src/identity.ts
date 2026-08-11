@@ -20,6 +20,7 @@ export const sessionClaimsSchema = z
     sessionId: identifier,
     audience: z.enum(['platform', 'tenant']),
     tenantId: identifier.optional(),
+    authorizationVersion: z.number().int().positive().optional(),
     permissions: z.array(z.enum(permissions)),
     branchIds: z.array(identifier).optional(),
     areaIds: z.array(identifier).optional(),
@@ -35,6 +36,13 @@ export const sessionClaimsSchema = z
         message: 'Tenant sessions require a tenant identifier.',
       });
     }
+    if (claims.audience === 'tenant' && !claims.authorizationVersion) {
+      context.addIssue({
+        code: 'custom',
+        path: ['authorizationVersion'],
+        message: 'Tenant sessions require a membership authorization version.',
+      });
+    }
     if (claims.audience === 'tenant' && claims.supportGrant) {
       context.addIssue({
         code: 'custom',
@@ -47,6 +55,13 @@ export const sessionClaimsSchema = z
         code: 'custom',
         path: ['tenantId'],
         message: 'Platform sessions must use an approved support grant for tenant scope.',
+      });
+    }
+    if (claims.audience === 'platform' && claims.authorizationVersion) {
+      context.addIssue({
+        code: 'custom',
+        path: ['authorizationVersion'],
+        message: 'Platform sessions cannot contain tenant membership authorization versions.',
       });
     }
   });

@@ -20,7 +20,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "5.9.2",
-    "vitest": "3.2.4"
+    "vitest": "3.2.7"
   },
   "scripts": {
     "lint": "eslint src",

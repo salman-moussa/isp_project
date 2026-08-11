@@ -12,6 +12,9 @@ services:
         ${ORVEX_RUNTIME_DB_PASSWORD:?Set a distinct local runtime database password}
       ORVEX_MIGRATOR_DB_PASSWORD:
         ${ORVEX_MIGRATOR_DB_PASSWORD:?Set a distinct local migration database password}
+      ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:
+        ${ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:?Set a distinct finance audit relay database
+        password}
       PGDATA: /var/lib/postgresql/18/docker
     ports:
       - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
@@ -27,6 +30,44 @@ services:
     networks: [data]
     security_opt: ['no-new-privileges:true']
     shm_size: 256mb
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+
+  finance-audit-relay:
+    build:
+      context: .
+      dockerfile: workers/finance-audit-relay/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      FINANCE_AUDIT_CONTROL_DATABASE_URL:
+        ${FINANCE_AUDIT_CONTROL_DATABASE_URL:?Set the container-internal control-plane relay DSN}
+      FINANCE_AUDIT_TENANTS_JSON:
+        ${FINANCE_AUDIT_TENANTS_JSON:?Set the tenant IDs and tenant-plane relay DSNs JSON}
+      FINANCE_AUDIT_HEALTH_HOST: 0.0.0.0
+      FINANCE_AUDIT_HEALTH_PORT: '9464'
+      FINANCE_AUDIT_BATCH_SIZE: ${FINANCE_AUDIT_BATCH_SIZE:-100}
+      FINANCE_AUDIT_POLL_INTERVAL_MS: ${FINANCE_AUDIT_POLL_INTERVAL_MS:-1000}
+      FINANCE_AUDIT_READINESS_MAX_BACKLOG_COUNT: ${FINANCE_AUDIT_READINESS_MAX_BACKLOG_COUNT:-500}
+      FINANCE_AUDIT_READINESS_MAX_BACKLOG_AGE_MS: ${FINANCE_AUDIT_READINESS_MAX_BACKLOG_AGE_MS:-120000}
+    ports:
+      - '127.0.0.1:${FINANCE_AUDIT_HEALTH_HOST_PORT:-9464}:9464'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9464/ready']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    networks: [application, data]
+    user: '1000:1000'
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
     logging:
       options: { max-size: '10m', max-file: '3' }
 

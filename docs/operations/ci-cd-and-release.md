@@ -31,7 +31,13 @@ package lifecycle code; required script policy should tighten as each phase land
    owner-approved change window.
 2. Verify required scans/tests, SBOM, signatures/attestations, image digest and configuration diff.
 3. Preview backward-compatible expand/migrate/contract migrations and restore compatibility. Confirm
-   no destructive automatic down migration.
+   no destructive automatic down migration. For an existing database volume that already has the
+   Orvex migration ledger but predates the finance audit relay roles, a DBA must first run
+   `infra/docker/postgres/admin/bootstrap-finance-audit-relay-roles.sh` once per control and tenant
+   database. Supply a privileged `DATABASE_BOOTSTRAP_URL` and the relay password through the secret
+   manager. This roles-only bootstrap does not adopt or mutate the application schema; run the
+   normal forward migration only after it succeeds. Do not use the legacy adoption bridge on an
+   already-migrated database.
 4. Confirm recent backup health and whether this release requires a new pre-deploy backup. A
    dashboard state is not a restore test.
 5. Deploy the digest to staging; run readiness, smoke, critical E2E, migration and DAST; record

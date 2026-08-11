@@ -214,7 +214,7 @@ async function readCatalogManifest(transaction, schemaName) {
                attribute.attnotnull AS not_null, attribute.attidentity AS identity_kind,
                attribute.attgenerated AS generated_kind, attribute.attstorage AS storage,
                attribute.attcompression AS compression,
-               COALESCE(collation.collname, '') AS collation,
+               COALESCE(collation_row.collname, '') AS collation,
                COALESCE(collation_namespace.nspname, '') AS collation_schema,
                attribute.attacl::text AS privileges,
                COALESCE(pg_get_expr(default_value.adbin, default_value.adrelid), '') AS default_expression
@@ -223,9 +223,9 @@ async function readCatalogManifest(transaction, schemaName) {
         JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
         LEFT JOIN pg_attrdef default_value
           ON default_value.adrelid = relation.oid AND default_value.adnum = attribute.attnum
-        LEFT JOIN pg_collation collation ON collation.oid = attribute.attcollation
+        LEFT JOIN pg_collation collation_row ON collation_row.oid = attribute.attcollation
         LEFT JOIN pg_namespace collation_namespace
-          ON collation_namespace.oid = collation.collnamespace
+          ON collation_namespace.oid = collation_row.collnamespace
         WHERE namespace.nspname = ${schemaName}
           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
           AND relation.relname <> '_orvex_migrations'
@@ -392,14 +392,14 @@ async function readCatalogManifest(transaction, schemaName) {
         ORDER BY source_type.typname, target_type.typname
       `,
     transaction`
-        SELECT collation.collname AS collation_name, collation.collprovider AS provider,
-               collation.collisdeterministic AS deterministic,
-               collation.collencoding::int AS encoding, collation.collcollate AS collate,
-               collation.collctype AS character_type
-        FROM pg_collation collation
-        JOIN pg_namespace namespace ON namespace.oid = collation.collnamespace
+        SELECT collation_row.collname AS collation_name, collation_row.collprovider AS provider,
+               collation_row.collisdeterministic AS deterministic,
+               collation_row.collencoding::int AS encoding, collation_row.collcollate AS collate,
+               collation_row.collctype AS character_type
+        FROM pg_collation collation_row
+        JOIN pg_namespace namespace ON namespace.oid = collation_row.collnamespace
         WHERE namespace.nspname = ${schemaName}
-        ORDER BY collation.collname
+        ORDER BY collation_row.collname
       `,
     transaction`
         SELECT operator_class.opcname AS class_name, access_method.amname AS access_method,

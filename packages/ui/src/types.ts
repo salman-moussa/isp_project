@@ -29,3 +29,30 @@ export interface SelectOption {
   label: string;
   icon?: ReactNode;
 }
+
+export interface TaskRouteMetric {
+  label: string;
+  value: string;
+  detail: string;
+  status: string;
+  tone?: Tone;
+}
+
+export interface TaskRouteAction {
+  label: string;
+  description: string;
+  targetId: string;
+}
+
+export interface TaskRouteDefinition {
+  eyebrow: string;
+  title: string;
+  description: string;
+  metrics: TaskRouteMetric[];
+  queueTitle: string;
+  queueDescription: string;
+  queue: DrilldownItem[];
+  nextTitle: string;
+  nextDescription: string;
+  actions: TaskRouteAction[];
+}
