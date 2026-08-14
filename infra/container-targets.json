@@ -6,5 +6,13 @@
     "target": "runtime",
     "healthEndpoint": "http://127.0.0.1:9464/ready",
     "runsAsRoot": false
+  },
+  {
+    "name": "network-worker",
+    "context": ".",
+    "dockerfile": "workers/network-worker/Dockerfile",
+    "target": "runtime",
+    "healthEndpoint": "http://127.0.0.1:8092/ready",
+    "runsAsRoot": false
   }
 ]

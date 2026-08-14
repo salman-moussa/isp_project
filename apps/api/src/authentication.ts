@@ -15,6 +15,10 @@ export interface ActiveTenantMembership {
   readonly userId: string;
   readonly permissions: readonly Permission[];
   readonly authorizationVersion: number;
+  readonly branchIds?: readonly string[];
+  readonly areaIds?: readonly string[];
+  readonly routeIds?: readonly string[];
+  readonly recordIds?: readonly string[];
 }
 
 export interface SupportGrantStatusReader {
@@ -132,7 +136,11 @@ function matchesActiveTenantMembership(
     claims.tenantId === membership.tenantId &&
     claims.sub === membership.userId &&
     claims.authorizationVersion === membership.authorizationVersion &&
-    samePermissionSet(claims.permissions, membership.permissions)
+    samePermissionSet(claims.permissions, membership.permissions) &&
+    sameOptionalSet(claims.branchIds, membership.branchIds) &&
+    sameOptionalSet(claims.areaIds, membership.areaIds) &&
+    sameOptionalSet(claims.routeIds, membership.routeIds) &&
+    sameOptionalSet(claims.recordIds, membership.recordIds)
   );
 }
 
@@ -158,4 +166,11 @@ function samePermissionSet(left: readonly Permission[], right: readonly Permissi
   return (
     leftSet.size === rightSet.size && [...leftSet].every((permission) => rightSet.has(permission))
   );
+}
+
+function sameOptionalSet(left?: readonly string[], right?: readonly string[]): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === rightSet.size && [...leftSet].every((value) => rightSet.has(value));
 }

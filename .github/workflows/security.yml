@@ -80,7 +80,7 @@ jobs:
       - name: Use repository npm version
         run: npm install --global npm@11.17.0
       - run: npm ci --ignore-scripts --audit=false
-      - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/security/audit-production.mjs
 
   dependency-review:
     if: github.event_name == 'pull_request'

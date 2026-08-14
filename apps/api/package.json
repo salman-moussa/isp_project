@@ -10,6 +10,7 @@
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:auth-integration": "tsx --conditions=development scripts/test-live-auth.ts",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

@@ -19,6 +19,8 @@ const baseCapabilities = {
   can_execute_marker: true,
   discovery_exists: true,
   can_execute_discovery: true,
+  operations_ready: true,
+  subscription_state_ready: true,
 };
 
 describe('finance audit relay database capability probes', () => {

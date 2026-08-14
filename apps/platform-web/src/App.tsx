@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityList,
   AppShell,
@@ -16,14 +16,53 @@ import {
   TaskRouteView,
   useHashNavigation,
   type Locale,
+  type ApiSession,
   type StateVariant,
 } from '@isp/ui';
 import { platformCopy } from './copy';
 import { platformRoutes } from './routes';
+import {
+  ControlCenterWorkspace,
+  type ControlCenterClientRow,
+  type ControlCenterFilters,
+} from './control-center/ControlCenterWorkspace';
+import { readControlClients } from './api';
 
 const platformNavigationIds = platformCopy.en.navigation.map((item) => item.id);
+const demonstrationClients: readonly ControlCenterClientRow[] = [
+  {
+    id: 'northline-demo',
+    tradingName: 'Northline ISP (demo)',
+    legalName: 'Northline Internet Services SAL',
+    state: 'active',
+    packageName: 'Scale',
+    deploymentHealth: 'healthy',
+    supportStatus: 'clear',
+    openTicketCount: 0,
+  },
+  {
+    id: 'metn-demo',
+    tradingName: 'Metn Fiber (demo)',
+    legalName: 'Metn Fiber Networks SARL',
+    state: 'trial',
+    packageName: 'Growth',
+    deploymentHealth: 'attention',
+    supportStatus: 'open',
+    openTicketCount: 2,
+  },
+  {
+    id: 'chouf-demo',
+    tradingName: 'Chouf Connect (demo)',
+    legalName: 'Chouf Connect SARL',
+    state: 'grace',
+    packageName: 'Starter',
+    deploymentHealth: 'blocked',
+    supportStatus: 'escalated',
+    openTicketCount: 1,
+  },
+];
 
-export function App() {
+export function App({ session }: { readonly session?: ApiSession } = {}) {
   const [locale, setLocale] = useState<Locale>('en');
   const { activeId: activeNavigationId, navigate: navigateRoute } = useHashNavigation(
     platformNavigationIds,
@@ -31,8 +70,47 @@ export function App() {
   );
   const [drilldownId, setDrilldownId] = useState<string | null>(null);
   const [stateVariant, setStateVariant] = useState<StateVariant>('loading');
+  const [controlFilters, setControlFilters] = useState<ControlCenterFilters>({
+    query: '',
+    state: '',
+    deploymentHealth: '',
+    supportStatus: '',
+  });
+  const [controlClients, setControlClients] = useState<readonly ControlCenterClientRow[]>(
+    session ? [] : demonstrationClients,
+  );
+  const [controlState, setControlState] = useState<'loading' | 'ready' | 'empty' | 'error'>(
+    session ? 'loading' : 'ready',
+  );
   const copy = platformCopy[locale];
   const drilldown = drilldownId ? copy.drilldowns[drilldownId] : undefined;
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    setControlState('loading');
+    void readControlClients(session)
+      .then((clients) => {
+        if (!active) return;
+        setControlClients(clients);
+        setControlState(clients.length ? 'ready' : 'empty');
+      })
+      .catch(() => active && setControlState('error'));
+    return () => {
+      active = false;
+    };
+  }, [session]);
+  const filteredControlClients = controlClients.filter((client) => {
+    const query = controlFilters.query.trim().toLocaleLowerCase(locale);
+    return (
+      (!query ||
+        client.legalName.toLocaleLowerCase(locale).includes(query) ||
+        client.tradingName.toLocaleLowerCase(locale).includes(query)) &&
+      (!controlFilters.state || client.state === controlFilters.state) &&
+      (!controlFilters.deploymentHealth ||
+        client.deploymentHealth === controlFilters.deploymentHealth) &&
+      (!controlFilters.supportStatus || client.supportStatus === controlFilters.supportStatus)
+    );
+  });
 
   const navigate = (id: string) => {
     navigateRoute(id);
@@ -65,7 +143,12 @@ export function App() {
             arabicLabel={copy.arabicLabel}
             groupLabel={copy.languageLabel}
           />
-          <button type="button" className="user-chip" aria-label={copy.userLabel}>
+          <button
+            type="button"
+            className="user-chip"
+            aria-label={copy.userLabel}
+            onClick={session?.logout}
+          >
             <span aria-hidden="true">MH</span>
           </button>
         </>
@@ -183,6 +266,31 @@ export function App() {
             />
           </div>
         </>
+      ) : activeNavigationId === 'clients' ? (
+        <ControlCenterWorkspace
+          locale={locale}
+          viewState={
+            controlState === 'ready' && filteredControlClients.length === 0 ? 'empty' : controlState
+          }
+          clients={filteredControlClients}
+          onApplyFilters={setControlFilters}
+          onOpenClient={() => navigate('subscriptions')}
+          onAddClient={() => navigate('sales')}
+          canAddClient={false}
+          onRetry={() => {
+            setControlFilters({ query: '', state: '', deploymentHealth: '', supportStatus: '' });
+            if (session) {
+              setControlState('loading');
+              void readControlClients(session)
+                .then((clients) => {
+                  setControlClients(clients);
+                  setControlState(clients.length ? 'ready' : 'empty');
+                })
+                .catch(() => setControlState('error'));
+            }
+          }}
+          onOpenAudit={() => navigate('administration')}
+        />
       ) : (
         <TaskRouteView
           route={platformRoutes[locale][activeNavigationId]}

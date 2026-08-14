@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Orvex ISP Collect",
+    "slug": "orvex-isp-collect",
+    "scheme": "orvex-collect",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "solutions.orvex.isp.collect",
+      "versionCode": 1,
+      "permissions": ["android.permission.BLUETOOTH_CONNECT", "android.permission.BLUETOOTH_SCAN"]
+    },
+    "ios": {
+      "bundleIdentifier": "solutions.orvex.isp.collect",
+      "supportsTablet": false
+    },
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": false,
+          "faceIDPermission": "Allow Orvex ISP Collect to unlock protected collection data."
+        }
+      ],
+      "expo-localization"
+    ],
+    "extra": {
+      "apiBaseUrlRequired": true,
+      "eas": { "projectId": "REPLACE_WITH_EAS_PROJECT_ID" }
+    }
+  }
+}

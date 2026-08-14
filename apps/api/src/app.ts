@@ -4,8 +4,24 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { FinanceConflictError, IdempotencyConflictError } from '@isp/database';
-import { AuthorizationDeniedError } from '@isp/domain';
+import {
+  ControlCenterAuthorizationError,
+  ControlCenterConflictError,
+  ControlCenterIdempotencyError,
+  ControlCenterNotFoundError,
+  ControlCenterPreconditionError,
+  ControlCenterValidationError,
+  CollectAuthorizationError,
+  CollectConflictError,
+  CollectValidationError,
+  FinanceConflictError,
+  IdempotencyConflictError,
+  OperationsAuthorizationError,
+  OperationsConflictError,
+  OperationsIdempotencyConflictError,
+  OperationsValidationError,
+} from '@isp/database';
+import { AuthorizationDeniedError, ControlCenterRuleError } from '@isp/domain';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ulid } from 'ulid';
 import { ZodError } from 'zod';
@@ -25,6 +41,16 @@ import { registerTenantSummaryRoute } from './routes/tenant-summary.js';
 import { registerTenantFinanceRoutes } from './routes/tenant-finance.js';
 import { MemorySecurityAuditWriter, type SecurityAuditWriter } from './security-audit.js';
 import { type FinanceWriter, UnconfiguredFinanceWriter } from './finance.js';
+import {
+  registerControlCenterRoutes,
+  type ControlCenterApiService,
+} from './routes/control-center/index.js';
+import { registerTenantOperationsRoutes } from './routes/operations/index.js';
+import type { OperationsWriter } from './routes/operations/contracts.js';
+import { registerCollectRoutes } from './routes/collect/index.js';
+import type { CollectApiService } from './collect-service.js';
+import type { AuthService } from './auth-service.js';
+import { registerAuthRoutes } from './routes/auth.js';
 
 export interface AppDependencies {
   readonly audit?: AuditWriter;
@@ -36,6 +62,10 @@ export interface AppDependencies {
   readonly supportGrants?: SupportGrantStatusReader;
   readonly readiness?: () => Promise<void>;
   readonly securityAudit?: SecurityAuditWriter;
+  readonly controlCenter?: ControlCenterApiService;
+  readonly operations?: OperationsWriter;
+  readonly collect?: CollectApiService;
+  readonly auth?: AuthService | ((app: FastifyInstance) => AuthService);
 }
 
 export async function buildApp(
@@ -89,6 +119,12 @@ export async function buildApp(
     securityAudit,
     now,
   );
+  if (dependencies.auth) {
+    registerAuthRoutes(
+      app,
+      typeof dependencies.auth === 'function' ? dependencies.auth(app) : dependencies.auth,
+    );
+  }
 
   app.get(
     '/health',
@@ -156,18 +192,65 @@ export async function buildApp(
     securityAudit,
     now,
   });
+  if (dependencies.controlCenter) {
+    registerControlCenterRoutes(app, { service: dependencies.controlCenter, now });
+  }
+  if (dependencies.operations) {
+    registerTenantOperationsRoutes(app, {
+      writer: dependencies.operations,
+      audit: dependencies.audit ?? new MemoryAuditWriter(),
+      securityAudit,
+      now,
+    });
+  }
+  if (dependencies.collect) {
+    registerCollectRoutes(app, { service: dependencies.collect, now });
+  }
 
   app.setErrorHandler((error, request, reply) => {
     const requestId = request.id;
-    if (error instanceof AuthorizationDeniedError) {
+    if (
+      error instanceof AuthorizationDeniedError ||
+      error instanceof ControlCenterAuthorizationError ||
+      error instanceof OperationsAuthorizationError ||
+      error instanceof CollectAuthorizationError
+    ) {
       return reply.code(403).send({
         error: { code: error.code, message: error.message, requestId },
       });
     }
-    if (error instanceof IdempotencyConflictError || error instanceof FinanceConflictError) {
+    if (
+      error instanceof IdempotencyConflictError ||
+      error instanceof FinanceConflictError ||
+      error instanceof ControlCenterIdempotencyError ||
+      error instanceof ControlCenterConflictError ||
+      error instanceof OperationsConflictError ||
+      error instanceof OperationsIdempotencyConflictError ||
+      error instanceof CollectConflictError
+    ) {
       return reply.code(409).send({
         error: { code: error.code, message: error.message, requestId },
       });
+    }
+    if (error instanceof ControlCenterPreconditionError) {
+      return reply
+        .code(412)
+        .send({ error: { code: error.code, message: error.message, requestId } });
+    }
+    if (error instanceof ControlCenterNotFoundError) {
+      return reply
+        .code(404)
+        .send({ error: { code: error.code, message: error.message, requestId } });
+    }
+    if (error instanceof ControlCenterValidationError || error instanceof ControlCenterRuleError) {
+      return reply
+        .code(400)
+        .send({ error: { code: error.code, message: error.message, requestId } });
+    }
+    if (error instanceof OperationsValidationError || error instanceof CollectValidationError) {
+      return reply
+        .code(400)
+        .send({ error: { code: error.code, message: error.message, requestId } });
     }
     if (error instanceof ZodError) {
       return reply.code(400).send({
@@ -202,6 +285,15 @@ export async function buildApp(
         error: {
           code: 'AUTHENTICATION_REQUIRED',
           message: 'Authentication is required.',
+          requestId,
+        },
+      });
+    }
+    if (frameworkStatus === 400) {
+      return reply.code(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: error instanceof Error ? error.message : 'The request was invalid.',
           requestId,
         },
       });

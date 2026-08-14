@@ -1,0 +1,87 @@
+# Preparation only: validate against the pinned Collector image selected by the release owner.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 384
+    spike_limit_mib: 96
+  resource/redact:
+    attributes:
+      - key: enduser.id
+        action: delete
+      - key: user.id
+        action: delete
+      - key: user.email
+        action: delete
+      - key: user.name
+        action: delete
+      - key: tenant.id
+        action: delete
+      - key: db.connection_string
+        action: delete
+  transform/redact:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_matching_keys(attributes,
+            "(?i)(authorization|cookie|token|secret|password|credential|phone|email|address|subscriber|pppoe|document|request\\.body|response\\.body)")
+          - delete_key(attributes, "url.full")
+          - delete_key(attributes, "url.query")
+    metric_statements:
+      - context: datapoint
+        statements:
+          - delete_matching_keys(attributes,
+            "(?i)(authorization|cookie|token|secret|password|credential|phone|email|address|subscriber|pppoe|document|request_id|trace_id|job_id|event_id|tenant)")
+    log_statements:
+      - context: log
+        statements:
+          - delete_matching_keys(attributes,
+            "(?i)(authorization|cookie|token|secret|password|credential|phone|email|address|subscriber|pppoe|document|request\\.body|response\\.body)")
+          - set(body, "[REDACTED: unstructured log body rejected]") where not IsMap(body)
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    enable_open_metrics: true
+  otlphttp/upstream:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    tls:
+      insecure: false
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/redact, transform/redact, batch]
+      exporters: [otlphttp/upstream]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/redact, transform/redact, batch]
+      exporters: [prometheus, otlphttp/upstream]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/redact, transform/redact, batch]
+      exporters: [otlphttp/upstream]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: basic
+      address: 0.0.0.0:8888

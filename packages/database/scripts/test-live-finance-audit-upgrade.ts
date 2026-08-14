@@ -80,7 +80,7 @@ try {
 
   await runRolesOnlyBootstrap();
   await assertSetOnlyOwnerMembership();
-  await migrate(migrationUrl);
+  await migrate(migrationUrl, { databaseScope: 'tenant' });
 
   const upgraded = await bootstrap.begin(async (transaction) => {
     await transaction`SELECT set_config('app.tenant_id', ${tenantId}, true)`;

@@ -1,8 +1,14 @@
 import {
   createDatabase,
   drainFinanceAuditOutbox,
+  drainControlSubscriptionStateOutbox,
+  drainOperationsAuditOutbox,
   listFinanceAuditRelayTenants,
+  listOperationsAuditRelayTenants,
+  listPendingControlSubscriptionStateTenants,
+  readControlSubscriptionStateBacklog,
   readFinanceAuditBacklog,
+  readOperationsRelayBacklog,
 } from '@isp/database';
 import type { VerifiedTenantId } from '@isp/contracts';
 import { readRelayConfig } from './config.js';
@@ -42,13 +48,46 @@ async function main(): Promise<void> {
   ): RelayTenantTarget => ({
     tenantId,
     probe: () => probeTenantRelayCapability(tenantPool.client),
-    drain: (deliveredAt, batchSize) =>
-      drainFinanceAuditOutbox(tenantPool.db, control.db, tenantId, deliveredAt, batchSize),
+    async drain(deliveredAt, batchSize) {
+      const delivered = await drainFinanceAuditOutbox(
+        tenantPool.db,
+        control.db,
+        tenantId,
+        deliveredAt,
+        batchSize,
+      );
+      const operationsDelivered = await drainOperationsAuditOutbox(
+        tenantPool.db,
+        control.db,
+        tenantId,
+        deliveredAt,
+        batchSize,
+      );
+      const statesDelivered = await drainControlSubscriptionStateOutbox(
+        control.db,
+        tenantPool.db,
+        tenantId,
+        deliveredAt,
+        batchSize,
+      );
+      return delivered + operationsDelivered + statesDelivered;
+    },
     async readBacklog() {
-      const backlog = await readFinanceAuditBacklog(tenantPool.db, tenantId);
+      const [finance, operations, states] = await Promise.all([
+        readFinanceAuditBacklog(tenantPool.db, tenantId),
+        readOperationsRelayBacklog(tenantPool.db, tenantId),
+        readControlSubscriptionStateBacklog(control.db, tenantId),
+      ]);
+      const oldestOccurredAt = [
+        finance.oldestOccurredAt,
+        operations.oldestOccurredAt,
+        states.oldestOccurredAt,
+      ]
+        .filter((value): value is string => value !== undefined)
+        .sort()[0];
       return {
-        count: backlog.pendingCount,
-        ...(backlog.oldestOccurredAt ? { oldestOccurredAt: backlog.oldestOccurredAt } : {}),
+        count: finance.pendingCount + operations.count + states.count,
+        ...(oldestOccurredAt ? { oldestOccurredAt } : {}),
       };
     },
   });
@@ -61,12 +100,20 @@ async function main(): Promise<void> {
       if (!knownTenants) throw new Error('Finance audit relay database routing is unavailable.');
       const discoveredTenantIds = await listFinanceAuditRelayTenants(tenantPool.db);
       for (const tenantId of discoveredTenantIds) knownTenants.add(tenantId);
+      const operationsTenantIds = await listOperationsAuditRelayTenants(tenantPool.db);
+      for (const tenantId of operationsTenantIds) knownTenants.add(tenantId);
       for (const tenantId of knownTenants) {
         if (routedTenantIds.has(tenantId)) {
           throw new Error('A finance audit tenant is routed to more than one database.');
         }
         routedTenantIds.add(tenantId);
         targets.push(createTarget(tenantPool, tenantId));
+      }
+    }
+    const pendingStateTenants = await listPendingControlSubscriptionStateTenants(control.db);
+    for (const tenantId of pendingStateTenants) {
+      if (!routedTenantIds.has(tenantId)) {
+        throw new Error('A pending subscription state has no configured tenant database route.');
       }
     }
     return targets;

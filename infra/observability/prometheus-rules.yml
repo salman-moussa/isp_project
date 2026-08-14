@@ -1,0 +1,125 @@
+# Metric names are instrumentation contracts. Rules must not be enabled until series/cardinality are
+# confirmed in staging and thresholds are accepted by the named owners.
+groups:
+  - name: orvex-api-database
+    rules:
+      - alert: OrvexApiHighErrorRate
+        expr: |
+          sum by (deployment_environment, service_name, http_route) (rate(orvex_http_server_requests_total{http_status_code=~"5.."}[5m]))
+          /
+          sum by (deployment_environment, service_name, http_route) (rate(orvex_http_server_requests_total[5m])) > 0.02
+          and
+          sum by (deployment_environment, service_name, http_route) (increase(orvex_http_server_requests_total[5m])) >= 60
+        for: 5m
+        labels: { severity: high, owner: core-api-oncall, dedup_key: 'environment:service:route' }
+        annotations:
+          summary: Orvex API 5xx ratio exceeds the candidate SLO.
+          runbook: docs/release/runbooks/api-slo.md
+      - alert: OrvexApiLatencySloBreach
+        expr: |
+          histogram_quantile(0.95, sum by (le, deployment_environment, service_name, http_route) (rate(orvex_http_server_request_duration_seconds_bucket[15m]))) > 0.8
+        for: 15m
+        labels:
+          { severity: warning, owner: core-api-oncall, dedup_key: 'environment:service:route' }
+        annotations:
+          summary: Orvex API p95 exceeds 800 ms.
+          runbook: docs/release/runbooks/api-slo.md
+      - alert: OrvexDatabasePoolSaturation
+        expr: orvex_db_pool_in_use / orvex_db_pool_limit > 0.8
+        for: 10m
+        labels: { severity: high, owner: sre-dba-oncall, dedup_key: 'environment:database:pool' }
+        annotations:
+          summary: Database pool is above 80 percent utilization.
+          runbook: docs/release/runbooks/database-saturation.md
+      - alert: OrvexDatabaseLockWait
+        expr:
+          histogram_quantile(0.95, sum by (le, deployment_environment, database_key)
+          (rate(orvex_db_lock_wait_seconds_bucket[10m]))) > 0.25
+        for: 10m
+        labels: { severity: high, owner: sre-dba-oncall, dedup_key: 'environment:database' }
+        annotations:
+          summary: Database lock wait p95 exceeds 250 ms.
+          runbook: docs/release/runbooks/database-saturation.md
+  - name: orvex-correctness-and-workers
+    rules:
+      - alert: OrvexQueueOldestAge
+        expr: orvex_queue_oldest_age_seconds > orvex_queue_age_objective_seconds
+        for: 10m
+        labels: { severity: high, owner: workload-owner-oncall, dedup_key: 'environment:queue' }
+        annotations:
+          summary: A durable workload queue exceeds its oldest-age objective.
+          runbook: docs/release/runbooks/queue-backlog.md
+      - alert: OrvexDeadLetterGrowth
+        expr:
+          increase(orvex_queue_dead_letter_total[15m]) > 10 or
+          increase(orvex_critical_queue_dead_letter_total[5m]) > 0
+        for: 1m
+        labels:
+          {
+            severity: high,
+            owner: workload-owner-oncall,
+            dedup_key: 'environment:queue:error_class',
+          }
+        annotations:
+          summary: Durable work entered a dead-letter state.
+          runbook: docs/release/runbooks/queue-backlog.md
+      - alert: OrvexPaymentInvariantViolation
+        expr: increase(orvex_payment_invariant_violation_total[1m]) > 0
+        for: 0m
+        labels:
+          { severity: critical, owner: finance-security-oncall, dedup_key: 'environment:invariant' }
+        annotations:
+          summary: A payment or idempotency invariant failed.
+          runbook: docs/release/runbooks/payment-integrity.md
+      - alert: OrvexTenantIsolationSignal
+        expr: increase(orvex_tenant_isolation_signal_total[1m]) > 0
+        for: 0m
+        labels:
+          {
+            severity: critical,
+            owner: security-incident-commander,
+            dedup_key: 'environment:signal_class',
+          }
+        annotations:
+          summary: A high-confidence tenant-isolation signal was detected.
+          runbook: docs/release/runbooks/tenant-isolation.md
+      - alert: OrvexTelemetryRedactionViolation
+        expr: increase(orvex_telemetry_redaction_violation_total[1m]) > 0
+        for: 0m
+        labels:
+          {
+            severity: critical,
+            owner: security-sre-oncall,
+            dedup_key: 'environment:service:signal',
+          }
+        annotations:
+          summary: Forbidden telemetry content or a sentinel was observed.
+          runbook: docs/release/runbooks/telemetry-leak.md
+  - name: orvex-release-and-recovery
+    rules:
+      - alert: OrvexBackupMissed
+        expr:
+          time() - orvex_backup_last_success_timestamp_seconds > orvex_backup_schedule_seconds +
+          orvex_backup_grace_seconds
+        for: 15m
+        labels: { severity: high, owner: sre-backup-oncall, dedup_key: 'environment:backup_scope' }
+        annotations:
+          summary: An encrypted backup is outside its accepted schedule.
+          runbook: docs/release/runbooks/backup-restore.md
+      - alert: OrvexRestoreExerciseOverdue
+        expr:
+          time() - orvex_restore_exercise_last_success_timestamp_seconds >
+          orvex_restore_exercise_cadence_seconds
+        for: 1h
+        labels:
+          { severity: warning, owner: sre-backup-oncall, dedup_key: 'environment:restore_scope' }
+        annotations:
+          summary: An isolated restore exercise is overdue.
+          runbook: docs/release/runbooks/backup-restore.md
+      - alert: OrvexDeploymentSmokeFailed
+        expr: orvex_deployment_smoke_success == 0
+        for: 1m
+        labels: { severity: high, owner: release-oncall, dedup_key: 'environment:deployment' }
+        annotations:
+          summary: A required post-deployment smoke gate failed.
+          runbook: docs/release/runbooks/failed-deployment.md

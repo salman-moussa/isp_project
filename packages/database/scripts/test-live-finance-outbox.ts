@@ -46,8 +46,8 @@ assert.notEqual(
   tenantRelayUrl,
   'control and tenant relay DSNs need distinct databases',
 );
-await migrate(controlMigrationUrl);
-await migrate(tenantMigrationUrl);
+await migrate(controlMigrationUrl, { databaseScope: 'control' });
+await migrate(tenantMigrationUrl, { databaseScope: 'tenant' });
 const controlAdmin = postgres(controlMigrationUrl, { max: 1, prepare: false });
 const tenantAdmin = postgres(tenantMigrationUrl, { max: 1, prepare: false });
 const tenantStore = createDatabase(runtimeUrl);
@@ -67,6 +67,19 @@ try {
       `;
     });
   }
+  await tenantAdmin.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+    await transaction`
+      INSERT INTO operations_context_keys(key_id, secret, active_from)
+      VALUES (${`finance-outbox-${randomUUID()}`}, decode(${Buffer.alloc(32, 19).toString('hex')}, 'hex'),
+        ${new Date(now.getTime() - 60_000).toISOString()}::timestamptz)
+    `;
+    await transaction`
+      SELECT record_operations_platform_subscription_state(
+        ${randomUUID()}::uuid, ${tenantId}::uuid, 'active', 1, ${now.toISOString()}::timestamptz
+      )
+    `;
+  });
 
   await assertTenantDatabaseReady(tenantStore.client);
   const invoice = await postInvoice(tenantStore.db, tenantId, {

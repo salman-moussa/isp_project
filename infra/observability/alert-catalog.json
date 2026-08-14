@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "alerts": [
+    {
+      "name": "OrvexApiHighErrorRate",
+      "severity": "high",
+      "owner": "core-api-oncall",
+      "dedupKey": "environment:service:route",
+      "threshold": "5xx ratio > 2% for 5m with >= 60 requests",
+      "runbook": "docs/release/runbooks/api-slo.md"
+    },
+    {
+      "name": "OrvexApiLatencySloBreach",
+      "severity": "warning",
+      "owner": "core-api-oncall",
+      "dedupKey": "environment:service:route",
+      "threshold": "p95 > 800ms for 15m",
+      "runbook": "docs/release/runbooks/api-slo.md"
+    },
+    {
+      "name": "OrvexDatabasePoolSaturation",
+      "severity": "high",
+      "owner": "sre-dba-oncall",
+      "dedupKey": "environment:database:pool",
+      "threshold": "in-use/limit > 80% for 10m",
+      "runbook": "docs/release/runbooks/database-saturation.md"
+    },
+    {
+      "name": "OrvexDatabaseLockWait",
+      "severity": "high",
+      "owner": "sre-dba-oncall",
+      "dedupKey": "environment:database",
+      "threshold": "lock wait p95 > 250ms for 10m",
+      "runbook": "docs/release/runbooks/database-saturation.md"
+    },
+    {
+      "name": "OrvexQueueOldestAge",
+      "severity": "high",
+      "owner": "workload-owner-oncall",
+      "dedupKey": "environment:queue",
+      "threshold": "oldest accepted item exceeds queue objective for 10m",
+      "runbook": "docs/release/runbooks/queue-backlog.md"
+    },
+    {
+      "name": "OrvexDeadLetterGrowth",
+      "severity": "high",
+      "owner": "workload-owner-oncall",
+      "dedupKey": "environment:queue:error_class",
+      "threshold": "new dead-letter items > 0 for critical queues or > 10/15m otherwise",
+      "runbook": "docs/release/runbooks/queue-backlog.md"
+    },
+    {
+      "name": "OrvexPaymentInvariantViolation",
+      "severity": "critical",
+      "owner": "finance-security-oncall",
+      "dedupKey": "environment:invariant",
+      "threshold": "any payment/idempotency invariant violation",
+      "runbook": "docs/release/runbooks/payment-integrity.md"
+    },
+    {
+      "name": "OrvexTenantIsolationSignal",
+      "severity": "critical",
+      "owner": "security-incident-commander",
+      "dedupKey": "environment:signal_class",
+      "threshold": "any high-confidence cross-tenant signal",
+      "runbook": "docs/release/runbooks/tenant-isolation.md"
+    },
+    {
+      "name": "OrvexTelemetryRedactionViolation",
+      "severity": "critical",
+      "owner": "security-sre-oncall",
+      "dedupKey": "environment:service:signal",
+      "threshold": "any sentinel or forbidden attribute observed",
+      "runbook": "docs/release/runbooks/telemetry-leak.md"
+    },
+    {
+      "name": "OrvexBackupMissed",
+      "severity": "high",
+      "owner": "sre-backup-oncall",
+      "dedupKey": "environment:backup_scope",
+      "threshold": "no successful encrypted backup within accepted schedule + grace",
+      "runbook": "docs/release/runbooks/backup-restore.md"
+    },
+    {
+      "name": "OrvexRestoreExerciseOverdue",
+      "severity": "warning",
+      "owner": "sre-backup-oncall",
+      "dedupKey": "environment:restore_scope",
+      "threshold": "no successful isolated restore within accepted cadence",
+      "runbook": "docs/release/runbooks/backup-restore.md"
+    },
+    {
+      "name": "OrvexDeploymentSmokeFailed",
+      "severity": "high",
+      "owner": "release-oncall",
+      "dedupKey": "environment:deployment",
+      "threshold": "any required post-deploy smoke or readiness gate fails",
+      "runbook": "docs/release/runbooks/failed-deployment.md"
+    }
+  ]
+}

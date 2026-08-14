@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "scenarios": {
+    "local-smoke": {
+      "description": "One-minute harness and API health validation; not capacity evidence.",
+      "durationSeconds": 60,
+      "requestsPerSecond": 5,
+      "maxInFlight": 4,
+      "requestTimeoutMs": 2000,
+      "endpoints": [
+        { "method": "GET", "path": "/health", "weight": 4, "expectedStatuses": [200] },
+        { "method": "GET", "path": "/ready", "weight": 1, "expectedStatuses": [200] }
+      ],
+      "thresholds": { "errorRateMax": 0.01, "p95MsMax": 500 }
+    },
+    "local-reference": {
+      "description": "Bounded local mixed health/readiness baseline; not the fleet reference workload.",
+      "durationSeconds": 600,
+      "requestsPerSecond": 25,
+      "maxInFlight": 16,
+      "requestTimeoutMs": 3000,
+      "endpoints": [
+        { "method": "GET", "path": "/health", "weight": 9, "expectedStatuses": [200] },
+        { "method": "GET", "path": "/ready", "weight": 1, "expectedStatuses": [200] }
+      ],
+      "thresholds": { "errorRateMax": 0.01, "p95MsMax": 500 }
+    },
+    "local-soak-preflight": {
+      "description": "Thirty-minute leak/saturation preflight before an authorized staging soak.",
+      "durationSeconds": 1800,
+      "requestsPerSecond": 20,
+      "maxInFlight": 16,
+      "requestTimeoutMs": 3000,
+      "endpoints": [
+        { "method": "GET", "path": "/health", "weight": 19, "expectedStatuses": [200] },
+        { "method": "GET", "path": "/ready", "weight": 1, "expectedStatuses": [200] }
+      ],
+      "thresholds": { "errorRateMax": 0.005, "p95MsMax": 500 }
+    },
+    "staging-soak-8h": {
+      "description": "Eight-hour staging scaffold. Requires both non-production and extended-run acknowledgements.",
+      "durationSeconds": 28800,
+      "requestsPerSecond": 50,
+      "maxInFlight": 32,
+      "requestTimeoutMs": 5000,
+      "endpoints": [
+        { "method": "GET", "path": "/health", "weight": 9, "expectedStatuses": [200] },
+        { "method": "GET", "path": "/ready", "weight": 1, "expectedStatuses": [200] }
+      ],
+      "thresholds": { "errorRateMax": 0.005, "p95MsMax": 500 }
+    }
+  }
+}

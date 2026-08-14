@@ -14,6 +14,7 @@ const upgradeRuntimeUrl = process.env.DATABASE_UPGRADE_RUNTIME_URL;
 const upgradeLegacyOwner = process.env.DATABASE_UPGRADE_LEGACY_OWNER;
 const upgradeDatabaseName = process.env.DATABASE_UPGRADE_NAME;
 const migrationsDirectory = fileURLToPath(new URL('../migrations/', import.meta.url));
+const ownerMediatedRlsTables = new Set(['collect_devices']);
 const expectedMigrationNames = (await readdir(migrationsDirectory))
   .filter((name) => name.endsWith('.sql'))
   .sort((left, right) => left.localeCompare(right));
@@ -171,7 +172,11 @@ try {
              AND 'public' = ANY(policy.roles)
              AND policy.qual IS NOT NULL
              AND policy.with_check IS NOT NULL
-           ) AS has_complete_public_policy
+           ) AS has_complete_public_policy,
+           has_table_privilege(
+             'orvex_runtime', format('%I.%I', namespace.nspname, relation.relname),
+             'SELECT,INSERT,UPDATE,DELETE'
+           ) AS tenant_runtime_has_dml
     FROM pg_class relation
     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
     JOIN pg_attribute attribute
@@ -182,13 +187,29 @@ try {
     LEFT JOIN pg_policies policy
       ON policy.schemaname = namespace.nspname AND policy.tablename = relation.relname
     WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'p')
-    GROUP BY relation.relname, relation.relrowsecurity, relation.relforcerowsecurity
+    GROUP BY namespace.nspname, relation.relname, relation.relrowsecurity, relation.relforcerowsecurity
     ORDER BY relation.relname
   `;
   assert(tenantScopedTables.length > 0, 'Expected tenant-scoped tables in the migrated schema');
   for (const table of tenantScopedTables) {
-    assert(table.row_security, `${table.relation_name} must enable RLS`);
-    assert(table.force_row_security, `${table.relation_name} must FORCE RLS`);
+    if (!table.row_security) {
+      assert(
+        !table.tenant_runtime_has_dml,
+        `${table.relation_name} without forced RLS must remain inaccessible to the tenant runtime role`,
+      );
+      continue;
+    }
+    if (!table.force_row_security) {
+      if (ownerMediatedRlsTables.has(table.relation_name)) {
+        assert(table.policy_count > 0, `${table.relation_name} must define an RLS policy`);
+        continue;
+      }
+      assert(
+        !table.tenant_runtime_has_dml,
+        `${table.relation_name} without forced RLS must remain inaccessible to the tenant runtime role`,
+      );
+      continue;
+    }
     assert(table.policy_count > 0, `${table.relation_name} must define an RLS policy`);
     assert(
       table.has_complete_public_policy,

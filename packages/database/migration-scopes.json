@@ -1,0 +1,20 @@
+{
+  "0000_identity_tenancy_audit.sql": "both",
+  "202608092100_harden_runtime_roles.sql": "both",
+  "202608100030_control_security_audit.sql": "control",
+  "202608111230_tenant_finance_journal.sql": "tenant",
+  "202608111300_tenant_membership_authorization.sql": "control",
+  "202608111530_finance_audit_outbox_and_conflicts.sql": "tenant",
+  "202608111700_finance_audit_relay_security.sql": "tenant",
+  "202608111701_control_audit_relay_columns.sql": "control",
+  "202608112100_control_center_core.sql": "control",
+  "202608112200_tenant_operations_core.sql": "tenant",
+  "202608112300_tenant_collect_sync.sql": "tenant",
+  "202608112400_control_auth_sessions.sql": "control",
+  "202608112500_tenant_network_worker.sql": "tenant",
+  "202608112600_tenant_readiness_ledger.sql": "tenant",
+  "202608112610_tenant_collect_device_owner_mediation.sql": "tenant",
+  "202608112620_control_security_writer_role.sql": "control",
+  "202608112630_control_authorization_reader_role.sql": "control",
+  "202608112640_control_audit_writer_role.sql": "control"
+}

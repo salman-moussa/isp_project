@@ -12,6 +12,8 @@ interface CapabilityRow extends Record<string, unknown> {
   readonly can_execute_marker: boolean;
   readonly discovery_exists: boolean;
   readonly can_execute_discovery: boolean;
+  readonly operations_ready: boolean;
+  readonly subscription_state_ready: boolean;
 }
 
 export async function probeControlRelayCapability(client: DatabaseClient): Promise<void> {
@@ -34,7 +36,18 @@ export async function probeControlRelayCapability(client: DatabaseClient): Promi
       true AS marker_exists,
       true AS can_execute_marker,
       true AS discovery_exists,
-      true AS can_execute_discovery
+      true AS can_execute_discovery,
+      to_regclass('public.control_center_subscription_state_outbox') IS NOT NULL
+        AND has_function_privilege(current_user,
+          'public.list_control_subscription_state_relay_tenants()','EXECUTE')
+        AND has_function_privilege(current_user,
+          'public.read_control_subscription_state_outbox(uuid,integer)','EXECUTE')
+        AND has_function_privilege(current_user,
+          'public.read_control_subscription_state_backlog(uuid)','EXECUTE')
+        AND has_function_privilege(current_user,
+          'public.mark_control_subscription_state_delivered(uuid,timestamp with time zone)','EXECUTE')
+        AS subscription_state_ready,
+      true AS operations_ready
   `);
   assertCapability(row, false);
 }
@@ -69,7 +82,21 @@ export async function probeTenantRelayCapability(client: DatabaseClient): Promis
         current_user,
         'public.list_finance_audit_relay_tenants()',
         'EXECUTE'
-      ) AS can_execute_discovery
+      ) AS can_execute_discovery,
+      to_regclass('public.operations_audit_outbox') IS NOT NULL
+        AND has_function_privilege(current_user,
+          'public.list_operations_audit_relay_tenants()','EXECUTE')
+        AND has_function_privilege(current_user,
+          'public.read_operations_audit_outbox(uuid,integer)','EXECUTE')
+        AND has_function_privilege(current_user,
+          'public.read_operations_audit_backlog(uuid)','EXECUTE')
+        AND has_function_privilege(current_user,
+          'public.mark_operations_audit_outbox_delivered(uuid,timestamp with time zone)','EXECUTE')
+        AS operations_ready,
+      to_regclass('public.operations_platform_subscription_events') IS NOT NULL
+        AND has_function_privilege(current_user,
+          'public.record_operations_platform_subscription_state(uuid,uuid,text,bigint,timestamp with time zone)','EXECUTE')
+        AS subscription_state_ready
   `);
   assertCapability(row, true);
 }
@@ -81,6 +108,8 @@ function assertCapability(row: CapabilityRow | undefined, tenantPlane: boolean):
     !row.schema_usage ||
     !row.can_select ||
     (!tenantPlane && !row.can_insert) ||
+    !row.operations_ready ||
+    !row.subscription_state_ready ||
     (tenantPlane &&
       (!row.marker_exists ||
         !row.can_execute_marker ||

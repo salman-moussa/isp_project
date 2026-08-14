@@ -59,22 +59,41 @@ describe('Orvex ISP Control Center shell', () => {
       await user.click(navigationButton!);
 
       expect(navigationButton).toHaveAttribute('aria-current', 'page');
-      expect(
-        screen.getByRole('heading', { level: 1, name: platformRoutes.en[item.id].title }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(platformCopy.en.environment, { selector: '.route-disclosure *' }),
-      ).toBeVisible();
-      expect(
-        screen.getByRole('heading', {
-          level: 2,
-          name: platformRoutes.en[item.id].metrics[0].label,
-        }),
-      ).toBeInTheDocument();
+      if (item.id === 'clients') {
+        expect(
+          screen.getByRole('heading', { level: 1, name: 'ISP client lifecycle' }),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Northline ISP (demo)')).toBeVisible();
+      } else {
+        expect(
+          screen.getByRole('heading', { level: 1, name: platformRoutes.en[item.id].title }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(platformCopy.en.environment, { selector: '.route-disclosure *' }),
+        ).toBeVisible();
+        expect(
+          screen.getByRole('heading', {
+            level: 2,
+            name: platformRoutes.en[item.id].metrics[0].label,
+          }),
+        ).toBeInTheDocument();
+      }
     }
 
     const results = await axe.run(container);
     expect(results.violations).toEqual([]);
+  });
+
+  it('mounts the Control Center workspace with working demonstration filters', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'ISP clients' }));
+
+    await user.type(screen.getByRole('searchbox'), 'Metn');
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }));
+    expect(screen.getByText('Metn Fiber (demo)')).toBeVisible();
+    expect(screen.queryByText('Northline ISP (demo)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add ISP client' })).not.toBeInTheDocument();
   });
 
   it('loads a deep link and follows browser back and forward history events', async () => {
@@ -98,7 +117,7 @@ describe('Orvex ISP Control Center shell', () => {
     window.history.replaceState(null, '', '#/clients');
     fireEvent.popState(window);
     expect(
-      screen.getByRole('heading', { level: 1, name: platformRoutes.en.clients.title }),
+      screen.getByRole('heading', { level: 1, name: 'ISP client lifecycle' }),
     ).toBeInTheDocument();
   });
 

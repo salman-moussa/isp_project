@@ -17,7 +17,7 @@ if (!migrationUrl || !runtimeUrl) {
   process.exit(0);
 }
 
-await migrate(migrationUrl);
+await migrate(migrationUrl, { databaseScope: 'tenant' });
 const admin = postgres(migrationUrl, { max: 1, prepare: false });
 const runtimeOne = postgres(runtimeUrl, {
   max: 1,

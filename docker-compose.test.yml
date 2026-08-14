@@ -8,8 +8,10 @@ services:
       POSTGRES_PASSWORD: test-only-bootstrap-not-production
       POSTGRES_DB: isp_test
       ORVEX_RUNTIME_DB_PASSWORD: test-only-runtime-not-production
+      ORVEX_CONTROL_API_DB_PASSWORD: test-only-control-api-not-production
       ORVEX_MIGRATOR_DB_PASSWORD: test-only-migrator-not-production
       ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD: test-only-relay-not-production
+      ORVEX_NETWORK_WORKER_DB_PASSWORD: test-only-network-worker-not-production
       ORVEX_CREATE_UPGRADE_TEST_DATABASE: '1'
       ORVEX_CREATE_FINANCE_AUDIT_UPGRADE_TEST_DATABASE: '1'
       PGDATA: /var/lib/postgresql/18/docker
@@ -36,8 +38,10 @@ services:
       POSTGRES_PASSWORD: test-only-bootstrap-not-production
       POSTGRES_DB: isp_finance_upgrade_test
       ORVEX_RUNTIME_DB_PASSWORD: test-only-runtime-not-production
+      ORVEX_CONTROL_API_DB_PASSWORD: test-only-control-api-not-production
       ORVEX_MIGRATOR_DB_PASSWORD: test-only-migrator-not-production
       ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD: test-only-relay-not-production
+      ORVEX_NETWORK_WORKER_DB_PASSWORD: test-only-network-worker-not-production
       ORVEX_CREATE_FINANCE_AUDIT_RELAY_ROLES: '0'
       PGDATA: /var/lib/postgresql/18/docker
     volumes:

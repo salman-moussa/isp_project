@@ -1,0 +1,1279 @@
+import type { VerifiedTenantId } from '@isp/contracts';
+import { sql, type SQL } from 'drizzle-orm';
+import type { Database } from '../client.js';
+import { inOperationsTransaction } from './context.js';
+import type {
+  BillingRunResult,
+  BillingPolicyVersionInput,
+  CollectorAssignmentInput,
+  CollectorEvidenceInput,
+  CollectorReconciliationInput,
+  CreateIssueInput,
+  CreateSubscriberRecord,
+  ExportJobInput,
+  InstallationTransitionInput,
+  IssueTransitionInput,
+  NetworkActionInput,
+  OfficePaymentRequestInput,
+  OperationsConfigurationInput,
+  PaymentCorrectionInput,
+  PlanVersionInput,
+  PrepareBillingRunInput,
+  ServiceInstallationInput,
+  SubscriberRecord,
+} from './types.js';
+
+type TenantTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+function uuidArray(values: readonly string[] | undefined): SQL {
+  if (values === undefined) return sql`NULL::uuid[]`;
+  return values.length === 0
+    ? sql`ARRAY[]::uuid[]`
+    : sql`ARRAY[${sql.join(
+        values.map((value) => sql`${value}::uuid`),
+        sql`,`,
+      )}]::uuid[]`;
+}
+
+export class OperationsIdempotencyConflictError extends Error {
+  public readonly code = 'OPERATIONS_IDEMPOTENCY_CONFLICT';
+  public constructor() {
+    super('The idempotency key was already used for different operations data.');
+    this.name = 'OperationsIdempotencyConflictError';
+  }
+}
+
+export class PlatformSubscriptionNetworkRestrictionError extends Error {
+  public readonly code = 'PLATFORM_SUBSCRIPTION_NETWORK_RESTRICTION';
+  public constructor() {
+    super('The platform subscription does not permit new subscriber network work.');
+    this.name = 'PlatformSubscriptionNetworkRestrictionError';
+  }
+}
+
+interface SubscriberRow {
+  readonly [key: string]: unknown;
+  readonly id: string;
+  readonly tenant_id: string;
+  readonly subscriber_number: string;
+  readonly display_name: string;
+  readonly status: SubscriberRecord['status'];
+  readonly household_id: string;
+  readonly primary_location_id: string;
+  readonly idempotency_key: string;
+  readonly request_fingerprint: string;
+}
+
+export async function createSubscriber(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: CreateSubscriberRecord,
+): Promise<SubscriberRecord> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:${input.idempotencyKey}`}, 0))
+    `);
+    const [existing] = await transaction.execute<SubscriberRow>(sql`
+      SELECT * FROM operations_subscribers
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (existing) return assertSubscriberReplay(existing, input);
+
+    const [insertedHousehold] = await transaction.execute<{
+      readonly id: string;
+      readonly branch_id: string;
+      readonly display_name: string;
+    }>(sql`
+      INSERT INTO operations_households(tenant_id, branch_id, reference_code, display_name)
+      VALUES (${tenantId}, ${input.branchId}, ${input.householdReference}, ${input.householdName})
+      ON CONFLICT (tenant_id, reference_code) DO NOTHING
+      RETURNING id, branch_id, display_name
+    `);
+    const household =
+      insertedHousehold ??
+      (
+        await transaction.execute<{
+          readonly id: string;
+          readonly branch_id: string;
+          readonly display_name: string;
+        }>(sql`
+      SELECT id, branch_id, display_name FROM operations_households
+      WHERE tenant_id = ${tenantId} AND reference_code = ${input.householdReference}
+      FOR SHARE
+    `)
+      )[0];
+    if (!household) throw new Error('Unable to create the subscriber household.');
+    if (
+      household.branch_id !== undefined &&
+      (household.branch_id !== input.branchId || household.display_name !== input.householdName)
+    )
+      throw new OperationsIdempotencyConflictError();
+    const [location] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_locations
+        (tenant_id, household_id, branch_id, area_id, route_id, label, area_code, address_line)
+      VALUES
+        (${tenantId}, ${household.id}, ${input.branchId}, ${input.areaId}, ${input.routeId},
+         ${input.locationLabel}, ${input.areaCode ?? null}, ${input.addressLine})
+      RETURNING id
+    `);
+    if (!location) throw new Error('Unable to create the subscriber location.');
+    const [subscriber] = await transaction.execute<SubscriberRow>(sql`
+      INSERT INTO operations_subscribers
+        (tenant_id, subscriber_number, idempotency_key, request_fingerprint, household_id, primary_location_id,
+         display_name, branch_id, area_id, route_id)
+      VALUES
+        (${tenantId}, ${input.subscriberNumber}, ${input.idempotencyKey}, ${subscriberFingerprint(input)}, ${household.id},
+         ${location.id}, ${input.displayName}, ${input.branchId}, ${input.areaId}, ${input.routeId})
+      RETURNING *
+    `);
+    if (!subscriber) throw new Error('Unable to create the subscriber.');
+    if (input.primaryPhone) {
+      await transaction.execute(sql`
+        INSERT INTO operations_contacts
+          (tenant_id, subscriber_id, contact_kind, contact_value, label, is_primary)
+        VALUES (${tenantId}, ${subscriber.id}, 'phone', ${input.primaryPhone}, 'primary', true)
+      `);
+    }
+    return mapSubscriber(subscriber);
+  });
+}
+
+export async function prepareRecurringInvoices(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: PrepareBillingRunInput,
+): Promise<BillingRunResult> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [run] = await transaction.execute<{
+      readonly id: string;
+      readonly tenant_id: string;
+      readonly status: BillingRunResult['status'];
+      readonly idempotency_key: string;
+      readonly period_start: string | Date;
+      readonly period_end: string | Date;
+      readonly requested_by: string;
+    }>(sql`
+      INSERT INTO operations_billing_runs
+        (tenant_id, idempotency_key, period_start, period_end, requested_by,
+         scope_branch_ids, scope_area_ids, scope_route_ids, status)
+      VALUES
+        (${tenantId}, ${input.idempotencyKey}, ${input.periodStart}::date, ${input.periodEnd}::date,
+         ${input.requestedBy}, ${uuidArray(input.branchIds)}, ${uuidArray(input.areaIds)},
+         ${uuidArray(input.routeIds)}, 'running')
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING *
+    `);
+    if (!run) return replayBillingRun(transaction, tenantId, input);
+    const [coverageGap] = await transaction.execute<{ readonly missing_count: string }>(sql`
+      SELECT count(*)::text AS missing_count
+      FROM operations_services s
+      CROSS JOIN LATERAL (
+        SELECT day_value::date AS billing_date
+        FROM generate_series(${input.periodStart}::date, ${input.periodEnd}::date - 1, interval '1 day') day_value
+        WHERE extract(day FROM day_value)::integer = s.billing_anchor_day
+        ORDER BY day_value LIMIT 1
+      ) due
+      WHERE s.tenant_id = ${tenantId} AND s.status = 'active'
+        AND s.activated_at::date <= due.billing_date
+        AND (s.terminated_at IS NULL OR s.terminated_at::date > due.billing_date)
+        AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id = ANY(${uuidArray(input.branchIds)}))
+        AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id = ANY(${uuidArray(input.areaIds)}))
+        AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id = ANY(${uuidArray(input.routeIds)}))
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM operations_plan_versions version
+            WHERE version.tenant_id = s.tenant_id AND version.plan_id = s.plan_id
+              AND version.effective_from <= due.billing_date
+              AND (version.effective_to IS NULL OR version.effective_to > due.billing_date)
+          )
+          OR NOT EXISTS (
+            SELECT 1 FROM operations_billing_policies policy
+            WHERE policy.tenant_id = s.tenant_id
+              AND (policy.branch_id = s.branch_id OR policy.branch_id IS NULL)
+              AND policy.effective_from <= due.billing_date
+              AND (policy.effective_to IS NULL OR policy.effective_to > due.billing_date)
+          )
+        )
+    `);
+    if (safeInteger(coverageGap?.missing_count ?? '0') > 0) {
+      throw new Error(
+        'Effective plan or billing-policy coverage is missing for an eligible service.',
+      );
+    }
+    await transaction.execute(sql`
+      INSERT INTO operations_invoice_preparations
+        (tenant_id, billing_run_id, service_id, subtotal_minor, vat_rate_basis_points, vat_minor,
+         currency, branch_id, area_id, route_id, billing_date, period_start, period_end,
+         plan_version_id, billing_policy_id)
+      SELECT
+        s.tenant_id, ${run.id}, s.id, pv.recurring_amount_minor, bp.vat_rate_basis_points,
+        CASE bp.rounding_mode
+          WHEN 'down' THEN (pv.recurring_amount_minor * bp.vat_rate_basis_points) / 10000
+          WHEN 'up' THEN (pv.recurring_amount_minor * bp.vat_rate_basis_points + 9999) / 10000
+          ELSE (pv.recurring_amount_minor * bp.vat_rate_basis_points + 5000) / 10000
+        END,
+        pv.currency, s.branch_id, s.area_id, s.route_id, due.billing_date,
+        ${input.periodStart}::date, ${input.periodEnd}::date, pv.id, bp.id
+      FROM operations_services s
+      JOIN operations_plans p ON p.tenant_id = s.tenant_id AND p.id = s.plan_id
+      CROSS JOIN LATERAL (
+        SELECT day_value::date AS billing_date
+        FROM generate_series(
+          ${input.periodStart}::date,
+          ${input.periodEnd}::date - 1,
+          interval '1 day'
+        ) day_value
+        WHERE extract(day FROM day_value)::integer = s.billing_anchor_day
+        ORDER BY day_value
+        LIMIT 1
+      ) due
+      JOIN LATERAL (
+        SELECT version.* FROM operations_plan_versions version
+        WHERE version.tenant_id = s.tenant_id AND version.plan_id = s.plan_id
+          AND version.effective_from <= due.billing_date
+          AND (version.effective_to IS NULL OR version.effective_to > due.billing_date)
+        ORDER BY version.version DESC LIMIT 1
+      ) pv ON true
+      JOIN LATERAL (
+        SELECT policy.* FROM operations_billing_policies policy
+        WHERE policy.tenant_id = s.tenant_id
+          AND (policy.branch_id = s.branch_id OR policy.branch_id IS NULL)
+          AND policy.effective_from <= due.billing_date
+          AND (policy.effective_to IS NULL OR policy.effective_to > due.billing_date)
+        ORDER BY (policy.branch_id IS NOT NULL) DESC, policy.version DESC LIMIT 1
+      ) bp ON true
+      WHERE s.tenant_id = ${tenantId} AND s.status = 'active' AND p.active
+        AND (s.activated_at IS NULL OR s.activated_at::date <= due.billing_date)
+        AND (s.terminated_at IS NULL OR s.terminated_at::date > due.billing_date)
+        AND (
+          (extract(year FROM age(due.billing_date, s.activated_at::date))::integer * 12
+            + extract(month FROM age(due.billing_date, s.activated_at::date))::integer)
+          % pv.billing_interval_months = 0
+        )
+        AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id = ANY(${uuidArray(input.branchIds)}))
+        AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id = ANY(${uuidArray(input.areaIds)}))
+        AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id = ANY(${uuidArray(input.routeIds)}))
+    `);
+    await transaction.execute(sql`
+      UPDATE operations_billing_runs
+      SET status = 'succeeded', completed_at = now()
+      WHERE tenant_id = ${tenantId} AND id = ${run.id}
+    `);
+    return billingResult(transaction, tenantId, run.id, input.idempotencyKey, 'succeeded');
+  });
+}
+
+export async function enqueueSubscriberNetworkAction(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: NetworkActionInput,
+): Promise<{ readonly id: string; readonly replayed: boolean }> {
+  try {
+    return await inOperationsTransaction(
+      database,
+      tenantId,
+      input.authorization,
+      async (transaction) => {
+        const [inserted] = await transaction.execute<{
+          readonly id: string;
+          readonly service_id: string;
+          readonly action: NetworkActionInput['action'];
+          readonly payload: unknown;
+          readonly requested_by: string;
+        }>(sql`
+        INSERT INTO operations_network_action_outbox
+          (tenant_id, service_id, branch_id, area_id, route_id, action, payload,
+           idempotency_key, requested_by)
+        SELECT
+          s.tenant_id, s.id, s.branch_id, s.area_id, s.route_id, ${input.action},
+          ${JSON.stringify(input.payload)}::jsonb, ${input.idempotencyKey}, ${input.requestedBy}
+        FROM operations_services s
+        WHERE s.tenant_id = ${tenantId} AND s.id = ${input.serviceId}
+        ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+        RETURNING id, service_id, action, payload, requested_by
+      `);
+        if (inserted) return { id: inserted.id, replayed: false };
+        const [existing] = await transaction.execute<{
+          readonly id: string;
+          readonly service_id: string;
+          readonly action: NetworkActionInput['action'];
+          readonly payload: unknown;
+          readonly requested_by: string;
+        }>(sql`
+        SELECT id, service_id, action, payload, requested_by
+        FROM operations_network_action_outbox
+        WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+      `);
+        if (
+          !existing ||
+          existing.service_id !== input.serviceId ||
+          existing.action !== input.action ||
+          existing.requested_by !== input.requestedBy ||
+          stableJson(existing.payload) !== stableJson(input.payload)
+        ) {
+          throw new OperationsIdempotencyConflictError();
+        }
+        return { id: existing.id, replayed: true };
+      },
+    );
+  } catch (error) {
+    if (databaseCode(error) === 'P4032') throw new PlatformSubscriptionNetworkRestrictionError();
+    throw error;
+  }
+}
+
+export async function reconcileCollector(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: CollectorReconciliationInput,
+): Promise<{ readonly id: string; readonly differenceMinor: number }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{
+      readonly id: string;
+      readonly difference_minor: string;
+    }>(sql`
+      INSERT INTO operations_collector_reconciliations
+        (tenant_id, collector_user_id, route_id, business_date, currency,
+         expected_minor, declared_minor, previous_reconciliation_id, reason, approved_by,
+         idempotency_key, reconciled_by)
+      VALUES
+        (${tenantId}, ${input.collectorUserId}, ${input.routeId}, ${input.businessDate}::date,
+         ${input.currency}, 0, 0, ${input.previousReconciliationId ?? null},
+         ${input.reason ?? null}, ${input.approvedBy ?? null}, ${input.idempotencyKey},
+         ${input.reconciledBy})
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id, difference_minor
+    `);
+    if (inserted) {
+      return { id: inserted.id, differenceMinor: safeInteger(inserted.difference_minor) };
+    }
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly collector_user_id: string;
+      readonly route_id: string;
+      readonly business_date: Date | string;
+      readonly currency: string;
+      readonly expected_minor: string;
+      readonly declared_minor: string;
+      readonly difference_minor: string;
+      readonly previous_reconciliation_id: string | null;
+      readonly reason: string | null;
+      readonly approved_by: string | null;
+      readonly reconciled_by: string;
+    }>(sql`
+      SELECT id, collector_user_id, route_id, business_date, currency, expected_minor,
+             declared_minor, difference_minor, previous_reconciliation_id, reason,
+             approved_by, reconciled_by
+      FROM operations_collector_reconciliations
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      existing.collector_user_id !== input.collectorUserId ||
+      existing.route_id !== input.routeId ||
+      day(existing.business_date) !== input.businessDate ||
+      existing.currency !== input.currency ||
+      (existing.previous_reconciliation_id ?? undefined) !== input.previousReconciliationId ||
+      (existing.reason ?? undefined) !== input.reason ||
+      (existing.approved_by ?? undefined) !== input.approvedBy ||
+      existing.reconciled_by !== input.reconciledBy
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: existing.id, differenceMinor: safeInteger(existing.difference_minor) };
+  });
+}
+
+export async function requestOperationsExport(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: ExportJobInput,
+): Promise<{ readonly id: string; readonly status: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{
+      readonly id: string;
+      readonly status: string;
+    }>(sql`
+      INSERT INTO operations_export_jobs
+        (tenant_id, report_key, filters, format, scope_branch_ids, scope_area_ids,
+         scope_route_ids, scope_record_ids, idempotency_key, requested_by)
+      VALUES
+        (${tenantId}, ${input.reportKey}, ${JSON.stringify(input.filters)}::jsonb, ${input.format},
+         ${uuidArray(input.branchIds)}, ${uuidArray(input.areaIds)},
+         ${uuidArray(input.routeIds)}, ${uuidArray(input.recordIds)},
+         ${input.idempotencyKey}, ${input.requestedBy})
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id, status
+    `);
+    if (inserted) return inserted;
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly status: string;
+      readonly report_key: string;
+      readonly filters: unknown;
+      readonly format: string;
+      readonly requested_by: string;
+      readonly scope_branch_ids: readonly string[] | null;
+      readonly scope_area_ids: readonly string[] | null;
+      readonly scope_route_ids: readonly string[] | null;
+      readonly scope_record_ids: readonly string[] | null;
+    }>(sql`
+      SELECT id, status, report_key, filters, format, requested_by,
+             scope_branch_ids, scope_area_ids, scope_route_ids, scope_record_ids
+      FROM operations_export_jobs
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      existing.report_key !== input.reportKey ||
+      stableJson(existing.filters) !== stableJson(input.filters) ||
+      existing.format !== input.format ||
+      existing.requested_by !== input.requestedBy ||
+      stableJson(existing.scope_branch_ids ?? undefined) !== stableJson(input.branchIds) ||
+      stableJson(existing.scope_area_ids ?? undefined) !== stableJson(input.areaIds) ||
+      stableJson(existing.scope_route_ids ?? undefined) !== stableJson(input.routeIds) ||
+      stableJson(existing.scope_record_ids ?? undefined) !== stableJson(input.recordIds)
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: existing.id, status: existing.status };
+  });
+}
+
+export async function recordOfficePaymentCorrection(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: PaymentCorrectionInput,
+): Promise<{ readonly id: string; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_office_payment_corrections
+        (tenant_id, payment_request_id, previous_correction_id, finance_allocation_id,
+         correction_kind, reason, idempotency_key, actor_id)
+      VALUES
+        (${tenantId}, ${input.paymentRequestId}, ${input.previousCorrectionId ?? null},
+         ${input.financeAllocationId ?? null}, ${input.correctionKind}, ${input.reason},
+         ${input.idempotencyKey}, ${input.actorId})
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id
+    `);
+    if (inserted) return { id: inserted.id, replayed: false };
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly payment_request_id: string;
+      readonly previous_correction_id: string | null;
+      readonly finance_allocation_id: string | null;
+      readonly correction_kind: PaymentCorrectionInput['correctionKind'];
+      readonly reason: string;
+      readonly actor_id: string;
+    }>(sql`
+      SELECT id, payment_request_id, previous_correction_id, finance_allocation_id,
+             correction_kind, reason, actor_id
+      FROM operations_office_payment_corrections
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      existing.payment_request_id !== input.paymentRequestId ||
+      (existing.previous_correction_id ?? undefined) !== input.previousCorrectionId ||
+      (existing.finance_allocation_id ?? undefined) !== input.financeAllocationId ||
+      existing.correction_kind !== input.correctionKind ||
+      existing.reason !== input.reason ||
+      existing.actor_id !== input.actorId
+    ) {
+      throw new OperationsIdempotencyConflictError();
+    }
+    return { id: existing.id, replayed: true };
+  });
+}
+
+export async function transitionInstallation(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: InstallationTransitionInput,
+): Promise<{
+  readonly id: string;
+  readonly status: string;
+  readonly version: number;
+  readonly replayed: boolean;
+}> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [priorEvent] = await transaction.execute<{
+      readonly installation_id: string;
+      readonly to_status: string;
+      readonly note: string | null;
+      readonly evidence: unknown;
+      readonly expected_version: number;
+      readonly actor_id: string;
+    }>(sql`
+      SELECT installation_id, to_status, note, evidence, expected_version, actor_id
+      FROM operations_installation_events
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (priorEvent) {
+      if (
+        priorEvent.installation_id !== input.installationId ||
+        priorEvent.to_status !== input.toStatus ||
+        (priorEvent.note ?? undefined) !== input.note ||
+        stableJson(priorEvent.evidence) !== stableJson(input.evidence) ||
+        priorEvent.expected_version !== input.expectedVersion ||
+        priorEvent.actor_id !== input.actorId
+      )
+        throw new OperationsIdempotencyConflictError();
+      const [current] = await transaction.execute<{
+        readonly status: string;
+        readonly version: number;
+      }>(sql`
+        SELECT status, version FROM operations_installations
+        WHERE tenant_id = ${tenantId} AND id = ${input.installationId}
+      `);
+      if (!current) throw new Error('Installation no longer exists.');
+      return { id: input.installationId, ...current, replayed: true };
+    }
+
+    const [current] = await transaction.execute<{
+      readonly status: string;
+      readonly version: number;
+    }>(sql`
+      SELECT status, version FROM operations_installations
+      WHERE tenant_id = ${tenantId} AND id = ${input.installationId}
+      FOR UPDATE
+    `);
+    if (
+      !current ||
+      current.version !== input.expectedVersion ||
+      !installationAllowed(current.status, input.toStatus)
+    ) {
+      throw new Error('The installation transition conflicts with its current state.');
+    }
+    await transaction.execute(sql`
+      INSERT INTO operations_installation_events
+        (tenant_id, installation_id, from_status, to_status, note, evidence,
+         expected_version, actor_id, idempotency_key)
+      VALUES
+        (${tenantId}, ${input.installationId}, ${current.status}, ${input.toStatus},
+         ${input.note ?? null}, ${JSON.stringify(input.evidence)}::jsonb, ${input.expectedVersion},
+         ${input.actorId}, ${input.idempotencyKey})
+    `);
+    const [updated] = await transaction.execute<{
+      readonly status: string;
+      readonly version: number;
+    }>(sql`
+      SELECT status, version FROM operations_installations
+      WHERE tenant_id = ${tenantId} AND id = ${input.installationId}
+    `);
+    if (!updated) throw new Error('Unable to update the installation.');
+    return { id: input.installationId, ...updated, replayed: false };
+  });
+}
+
+export async function createSupportIssue(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: CreateIssueInput,
+): Promise<{ readonly id: string; readonly issueNumber: string; readonly status: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{
+      readonly id: string;
+      readonly issue_number: string;
+      readonly status: string;
+      readonly subject: string;
+      readonly description: string;
+      readonly priority: string;
+      readonly subscriber_id: string | null;
+      readonly service_id: string | null;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+    }>(sql`
+      INSERT INTO operations_support_issues
+        (tenant_id, issue_number, idempotency_key, subscriber_id, service_id,
+         branch_id, area_id, route_id, subject, description, priority)
+      VALUES
+        (${tenantId}, ${input.issueNumber}, ${input.idempotencyKey}, ${input.subscriberId ?? null},
+         ${input.serviceId ?? null}, ${input.branchId}, ${input.areaId}, ${input.routeId},
+         ${input.subject}, ${input.description}, ${input.priority})
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id, issue_number, status, subject, description, priority, subscriber_id,
+        service_id, branch_id, area_id, route_id
+    `);
+    const actual =
+      row ??
+      (
+        await transaction.execute<NonNullable<typeof row>>(sql`
+      SELECT id, issue_number, status, subject, description, priority, subscriber_id,
+        service_id, branch_id, area_id, route_id
+      FROM operations_support_issues
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `)
+      )[0];
+    if (
+      !actual ||
+      actual.issue_number !== input.issueNumber ||
+      actual.subject !== input.subject ||
+      actual.description !== input.description ||
+      actual.priority !== input.priority ||
+      (actual.subscriber_id ?? undefined) !== input.subscriberId ||
+      (actual.service_id ?? undefined) !== input.serviceId ||
+      actual.branch_id !== input.branchId ||
+      actual.area_id !== input.areaId ||
+      actual.route_id !== input.routeId
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: actual.id, issueNumber: actual.issue_number, status: actual.status };
+  });
+}
+
+export async function recordOfficePaymentRequest(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: OfficePaymentRequestInput,
+): Promise<{ readonly id: string; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_office_payment_requests (
+        tenant_id, subscriber_id, finance_payment_id, branch_id, area_id, route_id,
+        idempotency_key, receipt_number, amount_minor, currency, requested_by
+      ) VALUES (
+        ${tenantId}, ${input.subscriberId}, ${input.financePaymentId}, ${input.branchId},
+        ${input.areaId}, ${input.routeId}, ${input.idempotencyKey}, ${input.receiptNumber},
+        ${input.amountMinor}, ${input.currency}, ${input.requestedBy}
+      )
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id
+    `);
+    if (inserted) return { id: inserted.id, replayed: false };
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly subscriber_id: string;
+      readonly finance_payment_id: string;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+      readonly receipt_number: string;
+      readonly amount_minor: string;
+      readonly currency: string;
+      readonly requested_by: string;
+    }>(sql`
+      SELECT id, subscriber_id, finance_payment_id, branch_id, area_id, route_id,
+        receipt_number, amount_minor, currency, requested_by
+      FROM operations_office_payment_requests
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      existing.subscriber_id !== input.subscriberId ||
+      existing.finance_payment_id !== input.financePaymentId ||
+      existing.branch_id !== input.branchId ||
+      existing.area_id !== input.areaId ||
+      existing.route_id !== input.routeId ||
+      existing.receipt_number !== input.receiptNumber ||
+      safeInteger(existing.amount_minor) !== input.amountMinor ||
+      existing.currency !== input.currency ||
+      existing.requested_by !== input.requestedBy
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: existing.id, replayed: true };
+  });
+}
+
+export async function createOperationsPlanVersion(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: PlanVersionInput,
+): Promise<{ readonly planId: string; readonly versionId: string; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:plan:${input.idempotencyKey}`}, 0)
+    )`);
+    const [replay] = await transaction.execute<{
+      readonly id: string;
+      readonly plan_id: string;
+      readonly version: number;
+      readonly recurring_amount_minor: string;
+      readonly currency: string;
+      readonly billing_interval_months: number;
+      readonly effective_from: Date | string;
+      readonly effective_to: Date | string | null;
+      readonly created_by: string;
+      readonly branch_id: string | null;
+      readonly code: string;
+      readonly name_en: string;
+      readonly name_ar: string;
+    }>(sql`
+      SELECT v.id, v.plan_id, v.version, v.recurring_amount_minor, v.currency,
+        v.billing_interval_months, v.effective_from, v.effective_to, v.created_by,
+        p.branch_id, p.code, p.name_en, p.name_ar
+      FROM operations_plan_versions v
+      JOIN operations_plans p ON p.tenant_id = v.tenant_id AND p.id = v.plan_id
+      WHERE v.tenant_id = ${tenantId} AND v.idempotency_key = ${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (
+        (input.planId !== undefined && replay.plan_id !== input.planId) ||
+        replay.version !== input.version ||
+        safeInteger(replay.recurring_amount_minor) !== input.recurringAmountMinor ||
+        replay.currency !== input.currency ||
+        replay.billing_interval_months !== input.billingIntervalMonths ||
+        day(replay.effective_from) !== input.effectiveFrom ||
+        (replay.effective_to === null ? undefined : day(replay.effective_to)) !==
+          input.effectiveTo ||
+        replay.created_by !== input.createdBy ||
+        (replay.branch_id ?? undefined) !== input.branchId ||
+        replay.code !== input.code ||
+        replay.name_en !== input.nameEn ||
+        replay.name_ar !== input.nameAr
+      )
+        throw new OperationsIdempotencyConflictError();
+      return { planId: replay.plan_id, versionId: replay.id, replayed: true };
+    }
+
+    let planId = input.planId;
+    if (!planId) {
+      const [plan] = await transaction.execute<{ readonly id: string }>(sql`
+        INSERT INTO operations_plans (
+          tenant_id, branch_id, code, name_en, name_ar, recurring_amount_minor, currency,
+          billing_interval_months, idempotency_key
+        ) VALUES (
+          ${tenantId}, ${input.branchId ?? null}, ${input.code}, ${input.nameEn}, ${input.nameAr},
+          ${input.recurringAmountMinor}, ${input.currency}, ${input.billingIntervalMonths},
+          ${input.idempotencyKey}
+        )
+        RETURNING id
+      `);
+      if (!plan) throw new Error('Unable to create the operations plan.');
+      planId = plan.id;
+    }
+    const [version] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_plan_versions (
+        tenant_id, plan_id, version, recurring_amount_minor, currency, billing_interval_months,
+        effective_from, effective_to, created_by, idempotency_key
+      ) VALUES (
+        ${tenantId}, ${planId}, ${input.version}, ${input.recurringAmountMinor}, ${input.currency},
+        ${input.billingIntervalMonths}, ${input.effectiveFrom}::date, ${input.effectiveTo ?? null}::date,
+        ${input.createdBy}, ${input.idempotencyKey}
+      )
+      RETURNING id
+    `);
+    if (!version) throw new Error('Unable to create the plan version.');
+    return { planId, versionId: version.id, replayed: false };
+  });
+}
+
+export async function createBillingPolicyVersion(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: BillingPolicyVersionInput,
+): Promise<{ readonly id: string; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_billing_policies (
+        tenant_id, branch_id, version, vat_rate_basis_points, rounding_mode,
+        effective_from, effective_to, created_by, idempotency_key
+      ) VALUES (
+        ${tenantId}, ${input.branchId ?? null}, ${input.version}, ${input.vatRateBasisPoints},
+        ${input.roundingMode}, ${input.effectiveFrom}::date, ${input.effectiveTo ?? null}::date,
+        ${input.createdBy}, ${input.idempotencyKey}
+      )
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id
+    `);
+    if (inserted) return { id: inserted.id, replayed: false };
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly branch_id: string | null;
+      readonly version: number;
+      readonly vat_rate_basis_points: number;
+      readonly rounding_mode: string;
+      readonly effective_from: Date | string;
+      readonly effective_to: Date | string | null;
+      readonly created_by: string;
+    }>(sql`
+      SELECT id, branch_id, version, vat_rate_basis_points, rounding_mode,
+        effective_from, effective_to, created_by
+      FROM operations_billing_policies
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      (existing.branch_id ?? undefined) !== input.branchId ||
+      existing.version !== input.version ||
+      existing.vat_rate_basis_points !== input.vatRateBasisPoints ||
+      existing.rounding_mode !== input.roundingMode ||
+      day(existing.effective_from) !== input.effectiveFrom ||
+      (existing.effective_to === null ? undefined : day(existing.effective_to)) !==
+        input.effectiveTo ||
+      existing.created_by !== input.createdBy
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: existing.id, replayed: true };
+  });
+}
+
+export async function createServiceInstallation(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: ServiceInstallationInput,
+): Promise<{
+  readonly serviceId: string;
+  readonly installationId: string;
+  readonly replayed: boolean;
+}> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:service:${input.idempotencyKey}`}, 0)
+    )`);
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly subscriber_id: string;
+      readonly location_id: string;
+      readonly plan_id: string;
+      readonly service_number: string;
+      readonly billing_anchor_day: number;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+    }>(sql`
+      SELECT id, subscriber_id, location_id, plan_id, service_number, billing_anchor_day,
+        branch_id, area_id, route_id
+      FROM operations_services
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (existing) {
+      if (
+        existing.subscriber_id !== input.subscriberId ||
+        existing.location_id !== input.locationId ||
+        existing.plan_id !== input.planId ||
+        existing.service_number !== input.serviceNumber ||
+        existing.billing_anchor_day !== input.billingAnchorDay ||
+        existing.branch_id !== input.branchId ||
+        existing.area_id !== input.areaId ||
+        existing.route_id !== input.routeId
+      )
+        throw new OperationsIdempotencyConflictError();
+      const [installation] = await transaction.execute<{
+        readonly id: string;
+        readonly scheduled_for: string | Date | null;
+        readonly installer_user_id: string | null;
+      }>(sql`
+        SELECT id, scheduled_for, installer_user_id FROM operations_installations
+        WHERE tenant_id = ${tenantId} AND service_id = ${existing.id}
+      `);
+      if (!installation) throw new Error('The replayed service is missing its installation.');
+      if (
+        (installation.installer_user_id ?? undefined) !== input.installerUserId ||
+        (installation.scheduled_for === null
+          ? undefined
+          : new Date(installation.scheduled_for).toISOString()) !==
+          (input.scheduledFor === undefined
+            ? undefined
+            : new Date(input.scheduledFor).toISOString())
+      )
+        throw new OperationsIdempotencyConflictError();
+      return { serviceId: existing.id, installationId: installation.id, replayed: true };
+    }
+    const [service] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_services (
+        tenant_id, subscriber_id, location_id, plan_id, service_number, status,
+        billing_anchor_day, branch_id, area_id, route_id, idempotency_key
+      )
+      SELECT s.tenant_id, s.id, l.id, p.id, ${input.serviceNumber}, 'pending_installation',
+        ${input.billingAnchorDay}, ${input.branchId}, ${input.areaId}, ${input.routeId},
+        ${input.idempotencyKey}
+      FROM operations_subscribers s
+      JOIN operations_locations l ON l.tenant_id = s.tenant_id AND l.id = ${input.locationId}
+      JOIN operations_plans p ON p.tenant_id = s.tenant_id AND p.id = ${input.planId} AND p.active
+      WHERE s.tenant_id = ${tenantId} AND s.id = ${input.subscriberId}
+        AND s.branch_id = ${input.branchId} AND s.area_id = ${input.areaId}
+        AND s.route_id = ${input.routeId} AND l.household_id = s.household_id
+        AND l.branch_id = s.branch_id AND l.area_id = s.area_id AND l.route_id = s.route_id
+        AND (p.branch_id IS NULL OR p.branch_id = s.branch_id)
+      RETURNING id
+    `);
+    if (!service) throw new Error('The subscriber, location, plan, and scope are not eligible.');
+    const [installation] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_installations (
+        tenant_id, service_id, status, scheduled_for, installer_user_id,
+        branch_id, area_id, route_id, idempotency_key
+      ) VALUES (
+        ${tenantId}, ${service.id}, 'requested', ${input.scheduledFor ?? null}::timestamptz,
+        ${input.installerUserId ?? null}, ${input.branchId}, ${input.areaId}, ${input.routeId},
+        ${input.idempotencyKey}
+      ) RETURNING id
+    `);
+    if (!installation) throw new Error('Unable to create the installation.');
+    return { serviceId: service.id, installationId: installation.id, replayed: false };
+  });
+}
+
+export async function assignCollectorInvoice(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: CollectorAssignmentInput,
+): Promise<{ readonly id: string; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_collector_assignments (
+        tenant_id, collector_user_id, subscriber_id, route_id, route_reference,
+        finance_invoice_id, due_on, expected_amount_minor, currency, idempotency_key
+      )
+      SELECT ${tenantId}, ${input.collectorUserId}, ${input.subscriberId}, r.id, r.code,
+        ${input.financeInvoiceId}, ${input.dueOn}::date, 1, invoice.currency, ${input.idempotencyKey}
+      FROM operations_routes r
+      JOIN finance_invoices invoice ON invoice.tenant_id = r.tenant_id
+        AND invoice.id = ${input.financeInvoiceId}
+      JOIN operations_invoice_preparations preparation
+        ON preparation.tenant_id = invoice.tenant_id
+        AND preparation.finance_invoice_id = invoice.id
+        AND preparation.posting_status = 'posted'
+      JOIN operations_services service
+        ON service.tenant_id = preparation.tenant_id AND service.id = preparation.service_id
+      WHERE r.tenant_id = ${tenantId} AND r.id = ${input.routeId}
+        AND service.subscriber_id = ${input.subscriberId} AND service.route_id = r.id
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id
+    `);
+    if (inserted) return { id: inserted.id, replayed: false };
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly collector_user_id: string;
+      readonly subscriber_id: string;
+      readonly route_id: string;
+      readonly finance_invoice_id: string;
+      readonly due_on: Date | string;
+    }>(sql`
+      SELECT id, collector_user_id, subscriber_id, route_id, finance_invoice_id, due_on
+      FROM operations_collector_assignments
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      existing.collector_user_id !== input.collectorUserId ||
+      existing.subscriber_id !== input.subscriberId ||
+      existing.route_id !== input.routeId ||
+      existing.finance_invoice_id !== input.financeInvoiceId ||
+      day(existing.due_on) !== input.dueOn
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: existing.id, replayed: true };
+  });
+}
+
+export async function recordCollectorEvidence(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: CollectorEvidenceInput,
+): Promise<{ readonly id: string; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_collector_collection_evidence (
+        tenant_id, assignment_id, finance_payment_id, amount_minor, currency,
+        recorded_by, idempotency_key
+      ) VALUES (
+        ${tenantId}, ${input.assignmentId}, ${input.financePaymentId}, 1, 'USD',
+        ${input.recordedBy}, ${input.idempotencyKey}
+      )
+      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+      RETURNING id
+    `);
+    if (inserted) return { id: inserted.id, replayed: false };
+    const [existing] = await transaction.execute<{
+      readonly id: string;
+      readonly assignment_id: string;
+      readonly finance_payment_id: string;
+      readonly recorded_by: string;
+    }>(sql`
+      SELECT id, assignment_id, finance_payment_id, recorded_by
+      FROM operations_collector_collection_evidence
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      !existing ||
+      existing.assignment_id !== input.assignmentId ||
+      existing.finance_payment_id !== input.financePaymentId ||
+      existing.recorded_by !== input.recordedBy
+    )
+      throw new OperationsIdempotencyConflictError();
+    return { id: existing.id, replayed: true };
+  });
+}
+
+export async function transitionSupportIssue(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: IssueTransitionInput,
+): Promise<{
+  readonly id: string;
+  readonly status: string;
+  readonly version: number;
+  readonly replayed: boolean;
+}> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [prior] = await transaction.execute<{
+      readonly issue_id: string;
+      readonly to_status: string;
+      readonly note: string | null;
+      readonly evidence: unknown;
+      readonly expected_version: number;
+      readonly actor_id: string;
+    }>(sql`
+      SELECT issue_id, to_status, note, evidence, expected_version, actor_id
+      FROM operations_issue_events
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (
+      prior &&
+      (prior.issue_id !== input.issueId ||
+        prior.to_status !== input.toStatus ||
+        (prior.note ?? undefined) !== input.note ||
+        stableJson(prior.evidence) !== stableJson(input.evidence) ||
+        prior.expected_version !== input.expectedVersion ||
+        prior.actor_id !== input.actorId)
+    )
+      throw new OperationsIdempotencyConflictError();
+    if (!prior) {
+      const [issue] = await transaction.execute<{
+        readonly status: string;
+        readonly version: number;
+      }>(sql`
+        SELECT status, version FROM operations_support_issues
+        WHERE tenant_id = ${tenantId} AND id = ${input.issueId} FOR UPDATE
+      `);
+      if (!issue || issue.version !== input.expectedVersion) {
+        throw new Error('The support issue changed before this transition.');
+      }
+      await transaction.execute(sql`
+        INSERT INTO operations_issue_events (
+          tenant_id, issue_id, from_status, to_status, note, evidence, expected_version,
+          actor_id, idempotency_key
+        ) VALUES (
+          ${tenantId}, ${input.issueId}, ${issue.status}, ${input.toStatus}, ${input.note ?? null},
+          ${JSON.stringify(input.evidence)}::jsonb, ${input.expectedVersion}, ${input.actorId},
+          ${input.idempotencyKey}
+        )
+      `);
+    }
+    const [current] = await transaction.execute<{
+      readonly status: string;
+      readonly version: number;
+    }>(sql`
+      SELECT status, version FROM operations_support_issues
+      WHERE tenant_id = ${tenantId} AND id = ${input.issueId}
+    `);
+    if (!current) throw new Error('Support issue no longer exists.');
+    return { id: input.issueId, ...current, replayed: prior !== undefined };
+  });
+}
+
+export async function configureOperations(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: OperationsConfigurationInput,
+): Promise<{ readonly key: string; readonly version: number; readonly replayed: boolean }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:configuration:${input.key}`}, 0)
+    )`);
+    const fingerprint = stableJson({
+      key: input.key,
+      value: input.value,
+      branchId: input.branchId,
+      expectedVersion: input.expectedVersion,
+      updatedBy: input.updatedBy,
+    });
+    const [replay] = await transaction.execute<{
+      readonly version: number;
+      readonly request_fingerprint: string;
+    }>(sql`
+      SELECT version, request_fingerprint FROM operations_configuration_changes
+      WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (replay.request_fingerprint !== fingerprint)
+        throw new OperationsIdempotencyConflictError();
+      return { key: input.key, version: replay.version, replayed: true };
+    }
+    const [existing] = await transaction.execute<{
+      readonly version: number;
+      readonly idempotency_key: string;
+      readonly request_fingerprint: string;
+      readonly value: unknown;
+      readonly branch_id: string | null;
+    }>(sql`
+      SELECT version, idempotency_key, request_fingerprint, value, branch_id
+      FROM operations_configuration
+      WHERE tenant_id = ${tenantId} AND config_key = ${input.key} FOR UPDATE
+    `);
+    if (
+      existing &&
+      (input.expectedVersion === undefined || existing.version !== input.expectedVersion)
+    ) {
+      throw new Error('Operations configuration version changed.');
+    }
+    const [saved] = await transaction.execute<{ readonly version: number }>(sql`
+      INSERT INTO operations_configuration (
+        tenant_id, config_key, value, branch_id, version, updated_by,
+        idempotency_key, request_fingerprint
+      ) VALUES (
+        ${tenantId}, ${input.key}, ${JSON.stringify(input.value)}::jsonb, ${input.branchId ?? null},
+        1, ${input.updatedBy}, ${input.idempotencyKey}, ${fingerprint}
+      )
+      ON CONFLICT (tenant_id, config_key) DO UPDATE SET
+        value = EXCLUDED.value, branch_id = EXCLUDED.branch_id,
+        version = operations_configuration.version + 1, updated_by = EXCLUDED.updated_by,
+        updated_at = clock_timestamp(), idempotency_key = EXCLUDED.idempotency_key,
+        request_fingerprint = EXCLUDED.request_fingerprint
+      RETURNING version
+    `);
+    if (!saved) throw new Error('Unable to save Operations configuration.');
+    await transaction.execute(sql`
+      INSERT INTO operations_configuration_changes (
+        tenant_id, config_key, branch_id, version, before_value, after_value,
+        idempotency_key, request_fingerprint, actor_id
+      ) VALUES (
+        ${tenantId}, ${input.key}, ${input.branchId ?? null}, ${saved.version},
+        ${existing ? JSON.stringify(existing.value) : null}::jsonb,
+        ${JSON.stringify(input.value)}::jsonb, ${input.idempotencyKey}, ${fingerprint},
+        ${input.updatedBy}
+      )
+    `);
+    return { key: input.key, version: saved.version, replayed: false };
+  });
+}
+
+async function replayBillingRun(
+  transaction: TenantTransaction,
+  tenantId: VerifiedTenantId,
+  input: PrepareBillingRunInput,
+): Promise<BillingRunResult> {
+  const [row] = await transaction.execute<{
+    readonly id: string;
+    readonly status: BillingRunResult['status'];
+    readonly period_start: Date | string;
+    readonly period_end: Date | string;
+    readonly requested_by: string;
+    readonly scope_branch_ids: readonly string[] | null;
+    readonly scope_area_ids: readonly string[] | null;
+    readonly scope_route_ids: readonly string[] | null;
+  }>(sql`
+    SELECT id, status, period_start, period_end, requested_by,
+      scope_branch_ids, scope_area_ids, scope_route_ids
+    FROM operations_billing_runs
+    WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
+  `);
+  if (
+    !row ||
+    day(row.period_start) !== input.periodStart ||
+    day(row.period_end) !== input.periodEnd ||
+    row.requested_by !== input.requestedBy ||
+    stableJson(row.scope_branch_ids ?? undefined) !== stableJson(input.branchIds) ||
+    stableJson(row.scope_area_ids ?? undefined) !== stableJson(input.areaIds) ||
+    stableJson(row.scope_route_ids ?? undefined) !== stableJson(input.routeIds)
+  ) {
+    throw new OperationsIdempotencyConflictError();
+  }
+  return billingResult(transaction, tenantId, row.id, input.idempotencyKey, row.status);
+}
+
+async function billingResult(
+  transaction: TenantTransaction,
+  tenantId: VerifiedTenantId,
+  id: string,
+  idempotencyKey: string,
+  status: BillingRunResult['status'],
+): Promise<BillingRunResult> {
+  const [count] = await transaction.execute<{ readonly prepared_count: string }>(sql`
+    SELECT count(*)::text AS prepared_count
+    FROM operations_invoice_preparations
+    WHERE tenant_id = ${tenantId} AND billing_run_id = ${id}
+  `);
+  return {
+    id,
+    tenantId,
+    status,
+    preparedCount: safeInteger(count?.prepared_count ?? '0'),
+    idempotencyKey,
+  };
+}
+
+function assertSubscriberReplay(
+  row: SubscriberRow,
+  input: CreateSubscriberRecord,
+): SubscriberRecord {
+  if (row.request_fingerprint !== subscriberFingerprint(input)) {
+    throw new OperationsIdempotencyConflictError();
+  }
+  return mapSubscriber(row);
+}
+
+function subscriberFingerprint(input: CreateSubscriberRecord): string {
+  return stableJson({
+    subscriberNumber: input.subscriberNumber,
+    displayName: input.displayName,
+    householdReference: input.householdReference,
+    householdName: input.householdName,
+    locationLabel: input.locationLabel,
+    addressLine: input.addressLine,
+    branchId: input.branchId,
+    areaId: input.areaId,
+    routeId: input.routeId,
+    areaCode: input.areaCode,
+    primaryPhone: input.primaryPhone,
+    idempotencyKey: input.idempotencyKey,
+  });
+}
+
+function mapSubscriber(row: SubscriberRow): SubscriberRecord {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id as VerifiedTenantId,
+    subscriberNumber: row.subscriber_number,
+    displayName: row.display_name,
+    status: row.status,
+    householdId: row.household_id,
+    locationId: row.primary_location_id,
+    idempotencyKey: row.idempotency_key,
+  };
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+function safeInteger(value: string): number {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result)) throw new RangeError('Operations count exceeds safe range.');
+  return result;
+}
+
+function day(value: Date | string): string {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function databaseCode(error: unknown): string | undefined {
+  let current = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== 'object') return undefined;
+    if ('code' in current && typeof current.code === 'string') return current.code;
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return undefined;
+}
+
+function installationAllowed(from: string, to: string): boolean {
+  const transitions: Readonly<Record<string, readonly string[]>> = {
+    requested: ['scheduled', 'cancelled'],
+    scheduled: ['in_progress', 'blocked', 'cancelled'],
+    in_progress: ['blocked', 'ready_for_activation', 'cancelled'],
+    blocked: ['scheduled', 'in_progress', 'cancelled'],
+    ready_for_activation: ['completed', 'blocked'],
+    completed: [],
+    cancelled: [],
+  };
+  return transitions[from]?.includes(to) ?? false;
+}

@@ -10,11 +10,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-isp_control}
       ORVEX_RUNTIME_DB_PASSWORD:
         ${ORVEX_RUNTIME_DB_PASSWORD:?Set a distinct local runtime database password}
+      ORVEX_CONTROL_API_DB_PASSWORD:
+        ${ORVEX_CONTROL_API_DB_PASSWORD:?Set a distinct Control Center API database password}
       ORVEX_MIGRATOR_DB_PASSWORD:
         ${ORVEX_MIGRATOR_DB_PASSWORD:?Set a distinct local migration database password}
       ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:
         ${ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:?Set a distinct finance audit relay database
         password}
+      ORVEX_NETWORK_WORKER_DB_PASSWORD:
+        ${ORVEX_NETWORK_WORKER_DB_PASSWORD:?Set a distinct network worker database password}
       PGDATA: /var/lib/postgresql/18/docker
     ports:
       - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
@@ -58,6 +62,45 @@ services:
       - '127.0.0.1:${FINANCE_AUDIT_HEALTH_HOST_PORT:-9464}:9464'
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9464/ready']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    networks: [application, data]
+    user: '1000:1000'
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+
+  network-worker:
+    build:
+      context: .
+      dockerfile: workers/network-worker/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NETWORK_WORKER_MODE: configured
+      NETWORK_WORKER_PORT: '8092'
+      NETWORK_WORKER_POLL_INTERVAL_MS: ${NETWORK_WORKER_POLL_INTERVAL_MS:-250}
+      NETWORK_DATABASE_URL:
+        ${NETWORK_WORKER_DATABASE_URL:?Set the container-internal network worker DSN}
+      NETWORK_WORKER_ID: ${NETWORK_WORKER_ID:?Set a unique network worker identity}
+      NETWORK_ROUTER_ALLOWED_ORIGINS:
+        ${NETWORK_ROUTER_ALLOWED_ORIGINS:?Set the exact HTTPS RouterOS origin allowlist}
+      NETWORK_SECRET_FILES_JSON:
+        ${NETWORK_SECRET_FILES_JSON:?Map secret references to /run/secrets files as JSON}
+      NETWORK_ROUTER_TIMEOUT_MS: ${NETWORK_ROUTER_TIMEOUT_MS:-10000}
+    ports:
+      - '127.0.0.1:${NETWORK_WORKER_HEALTH_HOST_PORT:-8092}:8092'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8092/ready']
       interval: 10s
       timeout: 3s
       retries: 6

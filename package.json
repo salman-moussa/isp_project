@@ -15,9 +15,9 @@
   ],
   "scripts": {
     "build": "npm run build:packages && npm run build:apps && npm run build:workers",
-    "build:packages": "npm run build --workspace=@isp/contracts && npm run build --workspace=@isp/domain && npm run build --workspace=@isp/database",
-    "build:apps": "npm run build --workspace=@isp/api && npm run build --workspace=@isp/platform-web && npm run build --workspace=@isp/tenant-web",
-    "build:workers": "npm run build --workspace=@isp/finance-audit-relay",
+    "build:packages": "npm run build --workspace=@isp/contracts && npm run build --workspace=@isp/domain && npm run build --workspace=@isp/database && npm run build --workspace=@isp/providers",
+    "build:apps": "npm run build --workspace=@isp/api && npm run build --workspace=@isp/platform-web && npm run build --workspace=@isp/tenant-web && npm run build --workspace=@isp/collect",
+    "build:workers": "npm run build --workspace=@isp/finance-audit-relay && npm run build --workspace=@isp/network-worker",
     "dev": "npm run dev --workspace=@isp/api",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -27,9 +27,11 @@
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "test:integration": "npm run test:integration --workspace=@isp/database",
     "db:check": "npm run db:check --workspace=@isp/database",
+    "phase-g:check": "node scripts/release/validate-phase-g.mjs",
+    "security:audit": "node scripts/security/audit-production.mjs",
     "brand:check": "node scripts/brand-check.mjs",
     "smoke:api": "node scripts/smoke-api-artifact.mjs",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run smoke:api && npm run db:check && npm run test:integration"
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run smoke:api && npm run db:check && npm run phase-g:check && npm run security:audit && npm run test:integration"
   },
   "devDependencies": {
     "@eslint/js": "9.35.0",
@@ -38,6 +40,7 @@
     "eslint-config-prettier": "10.1.8",
     "globals": "16.3.0",
     "prettier": "3.6.2",
+    "react-native": "0.86.2",
     "tsx": "4.20.5",
     "typescript": "5.9.2",
     "typescript-eslint": "8.41.0",
@@ -46,5 +49,8 @@
   "allowScripts": {
     "esbuild@0.25.12": true,
     "esbuild@0.18.20": true
+  },
+  "overrides": {
+    "react-native": "0.86.2"
   }
 }

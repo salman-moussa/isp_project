@@ -25,6 +25,7 @@ export const sessionClaimsSchema = z
     branchIds: z.array(identifier).optional(),
     areaIds: z.array(identifier).optional(),
     routeIds: z.array(identifier).optional(),
+    recordIds: z.array(identifier).optional(),
     mfaVerifiedAt: z.string().datetime({ offset: true }).optional(),
     supportGrant: supportGrantSchema.optional(),
   })

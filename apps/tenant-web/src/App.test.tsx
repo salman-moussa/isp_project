@@ -2,8 +2,9 @@ import axe from 'axe-core';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from './App';
+import { App, tenantOperationsTasks } from './App';
 import { tenantCopy } from './copy';
+import { operationsTaskCopy } from './operations/OperationsWorkspace';
 import { tenantRoutes } from './routes';
 
 describe('Orvex ISP Operations shell', () => {
@@ -25,7 +26,10 @@ describe('Orvex ISP Operations shell', () => {
       'page',
     );
     expect(
-      screen.getByRole('heading', { level: 1, name: tenantRoutes.ar.payments.title }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: operationsTaskCopy.ar['office-payment'].title,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -101,18 +105,25 @@ describe('Orvex ISP Operations shell', () => {
       await user.click(navigationButton!);
 
       expect(navigationButton).toHaveAttribute('aria-current', 'page');
-      expect(
-        screen.getByRole('heading', { level: 1, name: tenantRoutes.en[item.id].title }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(tenantCopy.en.dataStatus, { selector: '.route-disclosure *' }),
-      ).toBeVisible();
-      expect(
-        screen.getByRole('heading', {
-          level: 2,
-          name: tenantRoutes.en[item.id].metrics[0].label,
-        }),
-      ).toBeInTheDocument();
+      const operationsTask = tenantOperationsTasks[item.id];
+      if (operationsTask) {
+        expect(
+          screen.getByRole('heading', {
+            level: 1,
+            name: operationsTaskCopy.en[operationsTask].title,
+          }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: operationsTaskCopy.en[operationsTask].primary }),
+        ).toBeDisabled();
+      } else {
+        expect(
+          screen.getByRole('heading', { level: 1, name: tenantRoutes.en[item.id].title }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(tenantCopy.en.dataStatus, { selector: '.route-disclosure *' }),
+        ).toBeVisible();
+      }
     }
 
     const results = await axe.run(container);
@@ -125,7 +136,10 @@ describe('Orvex ISP Operations shell', () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: tenantRoutes.en.payments.title }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: operationsTaskCopy.en['office-payment'].title,
+      }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Subscribers' }));
@@ -134,13 +148,19 @@ describe('Orvex ISP Operations shell', () => {
     window.history.replaceState(null, '', '#/payments');
     fireEvent.popState(window);
     expect(
-      screen.getByRole('heading', { level: 1, name: tenantRoutes.en.payments.title }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: operationsTaskCopy.en['office-payment'].title,
+      }),
     ).toBeInTheDocument();
 
     window.history.replaceState(null, '', '#/subscribers');
     fireEvent.popState(window);
     expect(
-      screen.getByRole('heading', { level: 1, name: tenantRoutes.en.subscribers.title }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: operationsTaskCopy.en.subscriber.title,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -158,7 +178,10 @@ describe('Orvex ISP Operations shell', () => {
       'page',
     );
     expect(
-      screen.getByRole('heading', { level: 1, name: tenantRoutes.en.payments.title }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: operationsTaskCopy.en['office-payment'].title,
+      }),
     ).toBeInTheDocument();
   });
 });

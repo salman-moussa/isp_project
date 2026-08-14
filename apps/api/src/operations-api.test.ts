@@ -1,0 +1,220 @@
+import type { SessionClaims } from '@isp/contracts';
+import { AuthorizationDeniedError } from '@isp/domain';
+import Fastify from 'fastify';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryAuditWriter } from './audit.js';
+import { MemorySecurityAuditWriter } from './security-audit.js';
+import type { OperationsWriter } from './routes/operations/contracts.js';
+import { registerTenantOperationsRoutes } from './routes/operations/tenant-operations.js';
+
+const tenantId = '00000000-0000-4000-8000-00000000000a';
+const otherTenantId = '00000000-0000-4000-8000-00000000000b';
+const serviceId = '10000000-0000-4000-8000-000000000001';
+const branchId = '20000000-0000-4000-8000-000000000001';
+const areaId = '30000000-0000-4000-8000-000000000001';
+const routeId = '40000000-0000-4000-8000-000000000001';
+const claims: SessionClaims = {
+  sub: 'operations-user-a',
+  sessionId: 'operations-session-a',
+  audience: 'tenant',
+  tenantId,
+  authorizationVersion: 1,
+  branchIds: [branchId],
+  areaIds: [areaId],
+  routeIds: [routeId],
+  permissions: [
+    'tenant.subscriber.create',
+    'tenant.invoice.create',
+    'tenant.collection.reconcile',
+    'tenant.network.job.create',
+  ],
+};
+
+function writerMocks() {
+  return {
+    createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
+    prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
+    recordOfficePayment: vi.fn(async () => ({ id: 'payment-a' })),
+    recordPaymentCorrection: vi.fn(async () => ({ id: 'correction-a' })),
+    createPlanVersion: vi.fn(async () => ({ id: 'plan-version-a' })),
+    createBillingPolicyVersion: vi.fn(async () => ({ id: 'billing-policy-a' })),
+    createServiceInstallation: vi.fn(async () => ({ id: 'service-a' })),
+    assignCollector: vi.fn(async () => ({ id: 'assignment-a' })),
+    recordCollectorEvidence: vi.fn(async () => ({ id: 'evidence-a' })),
+    reconcileCollector: vi.fn(async () => ({ id: 'reconciliation-a' })),
+    transitionInstallation: vi.fn(async () => ({ id: 'installation-a' })),
+    createIssue: vi.fn(async () => ({ id: 'issue-a' })),
+    transitionIssue: vi.fn(async () => ({ id: 'issue-a' })),
+    requestExport: vi.fn(async () => ({ id: 'export-a' })),
+    configure: vi.fn(async () => ({ key: 'billing' })),
+    enqueueNetworkAction: vi.fn(async () => ({ id: 'network-action-a' })),
+  } satisfies OperationsWriter;
+}
+
+async function makeApp(activeClaims: SessionClaims, writer: OperationsWriter) {
+  const app = Fastify({ logger: false });
+  const audit = new MemoryAuditWriter();
+  app.decorate('authenticate', async (request) => {
+    request.auth = activeClaims;
+  });
+  registerTenantOperationsRoutes(app, {
+    audit,
+    securityAudit: new MemorySecurityAuditWriter(),
+    writer,
+    now: () => new Date('2026-08-11T12:00:00.000Z'),
+  });
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof AuthorizationDeniedError) {
+      return reply
+        .code(403)
+        .send({ error: { code: error.code, message: error.message, requestId: request.id } });
+    }
+    return reply.code(500).send({
+      error: { code: 'INTERNAL_ERROR', message: 'Request failed.', requestId: request.id },
+    });
+  });
+  await app.ready();
+  return { app, audit };
+}
+
+describe('tenant operations API route plugin', () => {
+  let writer: ReturnType<typeof writerMocks>;
+
+  beforeEach(() => {
+    writer = writerMocks();
+  });
+
+  it('forwards the verified tenant, actor, and idempotency key for subscriber creation', async () => {
+    const { app, audit } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/subscribers`,
+      headers: { 'idempotency-key': 'subscriber-create-001' },
+      payload: {
+        subscriberNumber: 'SUB-1001',
+        displayName: 'Maya Haddad',
+        householdReference: 'HH-1001',
+        householdName: 'Haddad household',
+        locationLabel: 'Home',
+        addressLine: 'Hamra, Beirut',
+        branchId,
+        areaId,
+        routeId,
+        primaryPhone: '+9611000000',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(writer.createSubscriber).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        actorId: claims.sub,
+        idempotencyKey: 'subscriber-create-001',
+        subscriberNumber: 'SUB-1001',
+        branchIds: [branchId],
+        auditAction: 'tenant.subscriber.create',
+        permission: 'tenant.subscriber.create',
+      }),
+    );
+    expect(audit.events).toHaveLength(0);
+    await app.close();
+  });
+
+  it('denies a cross-tenant mutation before invoking the writer', async () => {
+    const { app, audit } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${otherTenantId}/operations/billing-runs`,
+      headers: { 'idempotency-key': 'billing-run-001' },
+      payload: { periodStart: '2026-08-01', periodEnd: '2026-09-01' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(writer.prepareBilling).not.toHaveBeenCalled();
+    expect(audit.events.at(-1)).toMatchObject({
+      result: 'denied',
+      tenantId,
+      resourceId: otherTenantId,
+    });
+    await app.close();
+  });
+
+  it('denies a missing focused permission', async () => {
+    const { app } = await makeApp({ ...claims, permissions: [] }, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/exports`,
+      headers: { 'idempotency-key': 'report-export-001' },
+      payload: { reportKey: 'subscriber-aging', format: 'csv', filters: {} },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(writer.requestExport).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('exposes no platform-state action and delegates only an explicit subscriber service action', async () => {
+    const { app } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/network-actions`,
+      headers: { 'idempotency-key': 'network-action-001' },
+      payload: { serviceId, action: 'change_profile', payload: { profileReference: '20M' } },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(writer.enqueueNetworkAction).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ serviceId, action: 'change_profile' }),
+    );
+    expect(response.body).not.toContain('platformSubscription');
+    await app.close();
+  });
+
+  it('rejects caller-controlled VAT and reconciliation totals', async () => {
+    const { app } = await makeApp(claims, writer);
+    const billing = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/billing-runs`,
+      headers: { 'idempotency-key': 'billing-rate-001' },
+      payload: { periodStart: '2026-08-01', periodEnd: '2026-09-01', vatRateBasisPoints: 1100 },
+    });
+    expect(billing.statusCode).toBe(500);
+    expect(writer.prepareBilling).not.toHaveBeenCalled();
+    const reconciliation = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/collector-reconciliations`,
+      headers: { 'idempotency-key': 'collector-total-001' },
+      payload: {
+        collectorUserId: '50000000-0000-4000-8000-000000000001',
+        routeId,
+        businessDate: '2026-08-11',
+        currency: 'USD',
+        expectedMinor: 100,
+        declaredMinor: 100,
+      },
+    });
+    expect(reconciliation.statusCode).toBe(500);
+    expect(writer.reconcileCollector).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('denies a selected route outside the signed session scope', async () => {
+    const { app } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/collector-assignments`,
+      headers: { 'idempotency-key': 'assignment-scope-001' },
+      payload: {
+        collectorUserId: '50000000-0000-4000-8000-000000000001',
+        subscriberId: '60000000-0000-4000-8000-000000000001',
+        routeId: '40000000-0000-4000-8000-000000000099',
+        financeInvoiceId: '70000000-0000-4000-8000-000000000001',
+        dueOn: '2026-08-12',
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(writer.assignCollector).not.toHaveBeenCalled();
+    await app.close();
+  });
+});

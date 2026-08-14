@@ -1,0 +1,40 @@
+{
+  "name": "@isp/collect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "expo": {
+    "install": {
+      "exclude": [
+        "react"
+      ]
+    }
+  },
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "build": "tsc --noEmit --pretty false",
+    "build:android:development": "eas build --platform android --profile development",
+    "build:android:production": "eas build --platform android --profile production",
+    "lint": "eslint src tests App.tsx index.ts",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "expo": "57.0.12",
+    "expo-crypto": "57.0.1",
+    "expo-file-system": "57.0.2",
+    "expo-localization": "57.0.1",
+    "expo-secure-store": "57.0.1",
+    "react": "19.2.8",
+    "react-native": "0.86.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.4",
+    "eslint": "9.35.0",
+    "typescript": "6.0.3",
+    "vitest": "3.2.7"
+  }
+}

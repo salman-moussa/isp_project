@@ -1,0 +1,641 @@
+import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
+import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import type { AuditWriter } from '../../audit.js';
+import type { SecurityAuditWriter } from '../../security-audit.js';
+import type { OperationsDefinition, OperationsWriter } from './contracts.js';
+
+const tenantParams = z.object({ tenantId: z.uuid() });
+const headers = z.object({ 'idempotency-key': z.string().trim().min(8).max(200) });
+const uuid = z.uuid();
+const scopedLocation = { branchId: uuid, areaId: uuid, routeId: uuid } as const;
+
+const subscriberBody = z
+  .object({
+    subscriberNumber: z.string().trim().min(1).max(80),
+    displayName: z.string().trim().min(1).max(200),
+    householdReference: z.string().trim().min(1).max(80),
+    householdName: z.string().trim().min(1).max(200),
+    locationLabel: z.string().trim().min(1).max(100),
+    addressLine: z.string().trim().min(1).max(500),
+    ...scopedLocation,
+    areaCode: z.string().trim().min(1).max(80).optional(),
+    primaryPhone: z.string().trim().min(3).max(40).optional(),
+  })
+  .strict();
+const billingBody = z
+  .object({ periodStart: z.iso.date(), periodEnd: z.iso.date() })
+  .strict()
+  .refine((body) => body.periodEnd > body.periodStart, 'Billing period end must follow its start.');
+const officePaymentBody = z
+  .object({
+    subscriberId: uuid,
+    financePaymentId: uuid,
+    ...scopedLocation,
+    receiptNumber: z.string().trim().min(1).max(120),
+    amountMinor: z.number().int().positive().safe(),
+    currency: z.enum(['USD', 'LBP']),
+  })
+  .strict();
+const correctionBody = z
+  .object({
+    paymentRequestId: uuid,
+    financeAllocationId: uuid.optional(),
+    previousCorrectionId: uuid.optional(),
+    correctionKind: z.enum(['allocation', 'reversal', 'note']),
+    reason: z.string().trim().min(8).max(1000),
+  })
+  .strict()
+  .superRefine((body, context) => {
+    if ((body.correctionKind === 'note') === (body.financeAllocationId !== undefined)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['financeAllocationId'],
+        message:
+          'Notes omit finance allocation evidence; allocation and reversal corrections require it.',
+      });
+    }
+  });
+const planVersionBody = z
+  .object({
+    planId: uuid.optional(),
+    branchId: uuid.optional(),
+    code: z.string().trim().min(1).max(80),
+    nameEn: z.string().trim().min(1).max(200),
+    nameAr: z.string().trim().min(1).max(200),
+    version: z.number().int().positive(),
+    recurringAmountMinor: z.number().int().positive().safe(),
+    currency: z.enum(['USD', 'LBP']),
+    billingIntervalMonths: z.number().int().min(1).max(24),
+    effectiveFrom: z.iso.date(),
+    effectiveTo: z.iso.date().optional(),
+  })
+  .strict()
+  .refine(
+    (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
+    'Plan version end must follow its start.',
+  );
+const serviceInstallationBody = z
+  .object({
+    subscriberId: uuid,
+    locationId: uuid,
+    planId: uuid,
+    serviceNumber: z.string().trim().min(1).max(80),
+    billingAnchorDay: z.number().int().min(1).max(28),
+    ...scopedLocation,
+    scheduledFor: z.string().datetime({ offset: true }).optional(),
+    installerUserId: uuid.optional(),
+  })
+  .strict()
+  .refine(
+    (body) => (body.scheduledFor === undefined) === (body.installerUserId === undefined),
+    'A schedule and installer must be supplied together.',
+  );
+const billingPolicyBody = z
+  .object({
+    branchId: uuid.optional(),
+    version: z.number().int().positive(),
+    vatRateBasisPoints: z.number().int().min(0).max(10_000),
+    roundingMode: z.enum(['half_up', 'down', 'up']),
+    effectiveFrom: z.iso.date(),
+    effectiveTo: z.iso.date().optional(),
+  })
+  .strict()
+  .refine(
+    (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
+    'Billing policy end must follow its start.',
+  );
+const assignmentBody = z
+  .object({
+    collectorUserId: uuid,
+    subscriberId: uuid,
+    routeId: uuid,
+    financeInvoiceId: uuid,
+    dueOn: z.iso.date(),
+  })
+  .strict();
+const collectorEvidenceBody = z.object({ assignmentId: uuid, financePaymentId: uuid }).strict();
+const reconciliationBody = z
+  .object({
+    collectorUserId: uuid,
+    routeId: uuid,
+    businessDate: z.iso.date(),
+    currency: z.enum(['USD', 'LBP']),
+    previousReconciliationId: uuid.optional(),
+    reason: z.string().trim().min(8).max(1000).optional(),
+  })
+  .strict();
+const installationTransitionBase = {
+  installationId: uuid,
+  expectedVersion: z.number().int().positive(),
+} as const;
+const installationCompletionEvidence = z
+  .object({
+    signalTest: z.string().trim().min(1).max(500),
+    equipmentSerial: z.string().trim().min(1).max(200),
+    completedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+const installationBody = z.discriminatedUnion('toStatus', [
+  z
+    .object({
+      ...installationTransitionBase,
+      toStatus: z.literal('scheduled'),
+      note: z.string().trim().min(1).max(2000).optional(),
+      evidence: z
+        .object({
+          scheduledFor: z.string().datetime({ offset: true }),
+          installerUserId: uuid,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...installationTransitionBase,
+      toStatus: z.literal('blocked'),
+      note: z.string().trim().min(8).max(2000),
+      evidence: z.object({}).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...installationTransitionBase,
+      toStatus: z.enum(['ready_for_activation', 'completed']),
+      note: z.string().trim().min(1).max(2000).optional(),
+      evidence: installationCompletionEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      ...installationTransitionBase,
+      toStatus: z.enum(['in_progress', 'cancelled']),
+      note: z.string().trim().min(1).max(2000).optional(),
+      evidence: z.object({}).strict(),
+    })
+    .strict(),
+]);
+const issueBody = z
+  .object({
+    issueNumber: z.string().trim().min(1).max(80),
+    subject: z.string().trim().min(1).max(300),
+    description: z.string().trim().min(1).max(5000),
+    priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
+    subscriberId: uuid.optional(),
+    serviceId: uuid.optional(),
+    ...scopedLocation,
+  })
+  .strict()
+  .refine(
+    (value) => value.subscriberId || value.serviceId,
+    'An issue must identify a subscriber or service.',
+  );
+const issueTransitionBase = {
+  issueId: uuid,
+  expectedVersion: z.number().int().positive(),
+  note: z.string().trim().min(1).max(2000).optional(),
+} as const;
+const issueTransitionBody = z.discriminatedUnion('toStatus', [
+  z
+    .object({
+      ...issueTransitionBase,
+      toStatus: z.enum(['resolved', 'closed']),
+      evidence: z.object({ resolutionCode: z.string().trim().min(1).max(120) }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...issueTransitionBase,
+      toStatus: z.enum(['triaged', 'in_progress', 'waiting']),
+      evidence: z.object({}).strict(),
+    })
+    .strict(),
+]);
+const exportBody = z
+  .object({
+    reportKey: z.string().trim().min(1).max(120),
+    filters: z.record(z.string(), z.unknown()).default({}),
+    format: z.enum(['csv', 'xlsx', 'pdf']),
+  })
+  .strict();
+const configurationBody = z
+  .object({
+    key: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .regex(/^(?!.*(?:secret|password|credential|token|private[_-]?key))/i),
+    value: z.record(z.string(), z.unknown()),
+    branchId: uuid.optional(),
+    expectedVersion: z.number().int().positive().optional(),
+  })
+  .strict()
+  .refine(
+    (body) => !containsSecretKey(body.value),
+    'Configuration must contain secret-store references only.',
+  );
+const networkBody = z.discriminatedUnion('action', [
+  z
+    .object({
+      serviceId: uuid,
+      action: z.enum(['activate', 'restore']),
+      payload: z.object({}).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      serviceId: uuid,
+      action: z.literal('change_profile'),
+      payload: z
+        .object({
+          profileReference: z.string().trim().min(1).max(200),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      serviceId: uuid,
+      action: z.enum(['suspend', 'terminate']),
+      payload: z
+        .object({
+          reasonCode: z.string().trim().min(1).max(120),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+
+export const operationsRequestSchemas = {
+  subscriberBody,
+  billingBody,
+  officePaymentBody,
+  correctionBody,
+  planVersionBody,
+  billingPolicyBody,
+  serviceInstallationBody,
+  assignmentBody,
+  collectorEvidenceBody,
+  reconciliationBody,
+  installationBody,
+  issueBody,
+  issueTransitionBody,
+  exportBody,
+  configurationBody,
+  networkBody,
+} as const;
+
+interface RouteSpec extends OperationsDefinition {
+  readonly schema: z.ZodType;
+  readonly execute: (
+    writer: OperationsWriter,
+    tenantId: VerifiedTenantId,
+    input: Record<string, unknown>,
+  ) => Promise<unknown>;
+}
+export interface TenantOperationsRouteOptions {
+  readonly audit: AuditWriter;
+  readonly securityAudit: SecurityAuditWriter;
+  readonly writer: OperationsWriter;
+  readonly now: () => Date;
+}
+
+export function registerTenantOperationsRoutes(
+  app: FastifyInstance,
+  options: TenantOperationsRouteOptions,
+): void {
+  const routes: readonly RouteSpec[] = [
+    operation(
+      '/subscribers',
+      'createOperationsSubscriber',
+      'tenant.subscriber.create',
+      'tenant.subscriber.create',
+      'subscriber',
+      subscriberBody,
+      (w, id, v) => w.createSubscriber(id, v as never),
+    ),
+    operation(
+      '/billing-runs',
+      'prepareOperationsBillingRun',
+      'tenant.invoice.create',
+      'tenant.billing.prepare',
+      'billing_run',
+      billingBody,
+      (w, id, v) => w.prepareBilling(id, v as never),
+    ),
+    operation(
+      '/office-payments',
+      'recordOperationsOfficePayment',
+      'tenant.payment.post',
+      'tenant.payment.office.record',
+      'office_payment',
+      officePaymentBody,
+      (w, id, v) => w.recordOfficePayment(id, v as never),
+    ),
+    operation(
+      '/payment-corrections',
+      'correctOperationsPayment',
+      'tenant.payment.reverse',
+      'tenant.payment.correct',
+      'payment_correction',
+      correctionBody,
+      (w, id, v) => w.recordPaymentCorrection(id, v as never),
+    ),
+    operation(
+      '/plan-versions',
+      'createOperationsPlanVersion',
+      'tenant.invoice.create',
+      'tenant.plan.version.create',
+      'plan_version',
+      planVersionBody,
+      (w, id, v) => w.createPlanVersion(id, v as never),
+    ),
+    operation(
+      '/billing-policy-versions',
+      'createOperationsBillingPolicyVersion',
+      'tenant.invoice.create',
+      'tenant.billing.policy.version.create',
+      'billing_policy',
+      billingPolicyBody,
+      (w, id, v) => w.createBillingPolicyVersion(id, v as never),
+    ),
+    operation(
+      '/service-installations',
+      'createOperationsServiceInstallation',
+      'tenant.installation.manage',
+      'tenant.service.installation.create',
+      'service_installation',
+      serviceInstallationBody,
+      (w, id, v) => w.createServiceInstallation(id, v as never),
+    ),
+    operation(
+      '/collector-assignments',
+      'assignOperationsCollector',
+      'tenant.collection.reconcile',
+      'tenant.collection.assign',
+      'collector_assignment',
+      assignmentBody,
+      (w, id, v) => w.assignCollector(id, v as never),
+    ),
+    operation(
+      '/collector-evidence',
+      'recordOperationsCollectorEvidence',
+      'tenant.payment.post',
+      'tenant.collection.evidence.record',
+      'collector_evidence',
+      collectorEvidenceBody,
+      (w, id, v) => w.recordCollectorEvidence(id, v as never),
+    ),
+    operation(
+      '/collector-reconciliations',
+      'reconcileOperationsCollector',
+      'tenant.collection.reconcile',
+      'tenant.collection.reconcile',
+      'collector_reconciliation',
+      reconciliationBody,
+      (w, id, v) => w.reconcileCollector(id, v as never),
+    ),
+    operation(
+      '/installations/transitions',
+      'transitionOperationsInstallation',
+      'tenant.installation.manage',
+      'tenant.installation.transition',
+      'installation',
+      installationBody,
+      (w, id, v) => w.transitionInstallation(id, v as never),
+    ),
+    operation(
+      '/issues',
+      'createOperationsIssue',
+      'tenant.subscriber.edit',
+      'tenant.issue.create',
+      'support_issue',
+      issueBody,
+      (w, id, v) => w.createIssue(id, v as never),
+    ),
+    operation(
+      '/issues/transitions',
+      'transitionOperationsIssue',
+      'tenant.subscriber.edit',
+      'tenant.issue.transition',
+      'support_issue',
+      issueTransitionBody,
+      (w, id, v) => w.transitionIssue(id, v as never),
+    ),
+    operation(
+      '/exports',
+      'requestOperationsExport',
+      'tenant.report.export',
+      'tenant.report.export',
+      'export_job',
+      exportBody,
+      (w, id, v) => w.requestExport(id, v as never),
+    ),
+    operation(
+      '/configuration',
+      'configureOperations',
+      'tenant.user.administer',
+      'tenant.operations.configure',
+      'configuration',
+      configurationBody,
+      (w, id, v) => w.configure(id, v as never),
+    ),
+    operation(
+      '/network-actions',
+      'enqueueOperationsNetworkAction',
+      'tenant.network.job.create',
+      'tenant.network.job.create',
+      'network_action',
+      networkBody,
+      (w, id, v) => w.enqueueNetworkAction(id, v as never),
+    ),
+  ];
+  for (const spec of routes) registerMutation(app, options, spec);
+}
+
+function operation(
+  path: string,
+  operationId: string,
+  permission: Permission,
+  action: string,
+  resourceType: string,
+  schema: z.ZodType,
+  execute: RouteSpec['execute'],
+): RouteSpec {
+  return {
+    path: `/v1/tenants/:tenantId/operations${path}`,
+    operationId,
+    permission,
+    action,
+    resourceType,
+    schema,
+    execute,
+  };
+}
+
+function registerMutation(
+  app: FastifyInstance,
+  options: TenantOperationsRouteOptions,
+  spec: RouteSpec,
+): void {
+  app.post(
+    spec.path,
+    {
+      onRequest: [(request, reply) => app.authenticate(request, reply)],
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      schema: {
+        operationId: spec.operationId,
+        tags: ['Tenant operations'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['tenantId'],
+          properties: { tenantId: { type: 'string', format: 'uuid' } },
+        },
+        headers: {
+          type: 'object',
+          required: ['idempotency-key'],
+          properties: { 'idempotency-key': { type: 'string', minLength: 8, maxLength: 200 } },
+        },
+        response: {
+          200: { type: 'object', additionalProperties: true },
+          201: { type: 'object', additionalProperties: true },
+          400: errorResponseJsonSchema,
+          401: errorResponseJsonSchema,
+          403: errorResponseJsonSchema,
+          409: errorResponseJsonSchema,
+          500: errorResponseJsonSchema,
+        },
+      },
+    },
+    async (request, reply) => executeMutation(request, reply, options, spec),
+  );
+}
+
+async function executeMutation(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: TenantOperationsRouteOptions,
+  spec: RouteSpec,
+) {
+  const { tenantId: requestedTenantId } = tenantParams.parse(request.params);
+  const idempotencyKey = headers.parse(request.headers)['idempotency-key'];
+  const body = spec.schema.parse(request.body) as Record<string, unknown>;
+  let context: ReturnType<typeof assertTenantContext>;
+  try {
+    context = assertTenantContext(request.auth, requestedTenantId, options.now());
+    if (request.auth.supportGrant) {
+      throw new AuthorizationDeniedError(
+        'Operations support access requires canonical branch, area, route, and record grant scopes.',
+      );
+    }
+    assertPermission(request.auth, spec.permission);
+    assertBodyWithinClaimScope(request, body);
+  } catch (error) {
+    await auditDenial(request, options, spec, requestedTenantId, idempotencyKey, error);
+    throw error;
+  }
+  const auditAction = spec.action;
+  const result = await spec.execute(options.writer, context.tenantId, {
+    ...body,
+    actorId: request.auth.sub,
+    sessionId: request.auth.sessionId,
+    idempotencyKey,
+    requestId: request.id,
+    ipAddress: request.ip,
+    ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+    permission: spec.permission,
+    auditAction,
+    reason: typeof body.reason === 'string' ? body.reason : 'authorized operations mutation',
+    ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
+    ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
+    ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),
+    ...(request.auth.recordIds !== undefined ? { recordIds: request.auth.recordIds } : {}),
+  });
+  // Allowed evidence is emitted by the repository transaction itself. Appending here would make
+  // an audit failure occur after a committed mutation and would not be atomic.
+  return reply.code(201).header('cache-control', 'private, no-store').send(result);
+}
+
+function assertBodyWithinClaimScope(request: FastifyRequest, body: Record<string, unknown>): void {
+  assertDimension(request.auth.branchIds, body.branchId, 'branch');
+  assertDimension(request.auth.areaIds, body.areaId, 'area');
+  assertDimension(request.auth.routeIds, body.routeId, 'route');
+}
+function assertDimension(
+  allowed: readonly string[] | undefined,
+  selected: unknown,
+  label: string,
+): void {
+  if (
+    allowed !== undefined &&
+    selected !== undefined &&
+    (typeof selected !== 'string' || !allowed.includes(selected))
+  ) {
+    throw new AuthorizationDeniedError(`The selected ${label} is outside the session scope.`);
+  }
+}
+
+async function auditDenial(
+  request: FastifyRequest,
+  options: TenantOperationsRouteOptions,
+  spec: RouteSpec,
+  requestedTenantId: string,
+  idempotencyKey: string,
+  originalError: unknown,
+): Promise<void> {
+  const auditTenantId = request.auth.tenantId ?? request.auth.supportGrant?.tenantId;
+  if (auditTenantId) {
+    try {
+      const auditContext = assertTenantContext(request.auth, auditTenantId, options.now());
+      await options.audit.append({
+        tenantId: auditContext.tenantId,
+        actorId: request.auth.sub,
+        sessionId: request.auth.sessionId,
+        ...(request.auth.supportGrant ? { supportGrantId: request.auth.supportGrant.grantId } : {}),
+        action: request.auth.supportGrant ? `support.${spec.action}` : spec.action,
+        resourceType: spec.resourceType,
+        resourceId: requestedTenantId,
+        requestId: request.id,
+        ipAddress: request.ip,
+        ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+        result: 'denied',
+        metadata: {
+          permission: spec.permission,
+          idempotencyKey,
+          reason: originalError instanceof Error ? originalError.message : 'authorization denied',
+        },
+        occurredAt: options.now().toISOString(),
+      });
+      return;
+    } catch {
+      /* Fall through to the platform security stream. */
+    }
+  }
+  await options.securityAudit.append({
+    actorId: request.auth.sub,
+    sessionId: request.auth.sessionId,
+    claimedTenantId: requestedTenantId,
+    ...(request.auth.supportGrant?.grantId
+      ? { supportGrantId: request.auth.supportGrant.grantId }
+      : {}),
+    action: `support.${spec.action}`,
+    reason: 'missing_or_expired_scoped_grant',
+    requestId: request.id,
+    ipAddress: request.ip,
+    metadata: { permission: spec.permission },
+    occurredAt: options.now().toISOString(),
+  });
+}
+
+function containsSecretKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsSecretKey);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(
+    ([key, item]) =>
+      /secret|password|credential|token|private[_-]?key/i.test(key) || containsSecretKey(item),
+  );
+}

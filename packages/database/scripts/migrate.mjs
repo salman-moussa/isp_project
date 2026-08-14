@@ -6,8 +6,40 @@ import postgres from 'postgres';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const migrationsDirectory = resolve(scriptDirectory, '../migrations');
+const migrationScopesPath = resolve(scriptDirectory, '../migration-scopes.json');
+const validScopes = new Set(['all', 'both', 'control', 'tenant']);
 
-export async function migrate(databaseUrl = process.env.DATABASE_MIGRATION_URL) {
+export async function loadMigrationPlan(databaseScope = 'all') {
+  if (!validScopes.has(databaseScope) || databaseScope === 'both') {
+    throw new Error(`Invalid migration database scope: ${databaseScope}`);
+  }
+  const migrationNames = (await readdir(migrationsDirectory))
+    .filter((name) => name.endsWith('.sql'))
+    .sort((left, right) => left.localeCompare(right));
+  const migrationScopes = JSON.parse(await readFile(migrationScopesPath, 'utf8'));
+  for (const name of migrationNames) {
+    const scope = migrationScopes[name];
+    if (!validScopes.has(scope) || scope === 'all') {
+      throw new Error(`Migration ${name} has no valid database-plane scope`);
+    }
+  }
+  for (const name of Object.keys(migrationScopes)) {
+    if (!migrationNames.includes(name)) {
+      throw new Error(`Migration scope manifest references missing migration ${name}`);
+    }
+  }
+  return migrationNames.filter(
+    (name) =>
+      databaseScope === 'all' ||
+      migrationScopes[name] === 'both' ||
+      migrationScopes[name] === databaseScope,
+  );
+}
+
+export async function migrate(
+  databaseUrl = process.env.DATABASE_MIGRATION_URL,
+  { databaseScope = process.env.MIGRATION_DATABASE_SCOPE ?? 'all' } = {},
+) {
   if (!databaseUrl) {
     throw new Error('DATABASE_MIGRATION_URL is required; no privileged fallback DSN is allowed');
   }
@@ -20,9 +52,7 @@ export async function migrate(databaseUrl = process.env.DATABASE_MIGRATION_URL) 
   });
 
   try {
-    const migrationNames = (await readdir(migrationsDirectory))
-      .filter((name) => name.endsWith('.sql'))
-      .sort((left, right) => left.localeCompare(right));
+    const migrationNames = await loadMigrationPlan(databaseScope);
 
     for (const name of migrationNames) {
       const contents = await readFile(resolve(migrationsDirectory, name), 'utf8');
@@ -54,7 +84,7 @@ export async function migrate(databaseUrl = process.env.DATABASE_MIGRATION_URL) 
           INSERT INTO public._orvex_migrations (name, checksum) VALUES (${name}, ${checksum})
         `;
       });
-      console.log(`Database migration ready: ${name}`);
+      console.log(`Database migration ready (${databaseScope}): ${name}`);
     }
   } finally {
     await client.end({ timeout: 5 });
@@ -62,6 +92,13 @@ export async function migrate(databaseUrl = process.env.DATABASE_MIGRATION_URL) 
 }
 
 export async function migrateConfiguredDatabases(environment = process.env) {
+  const targets = resolveConfiguredMigrationTargets(environment);
+  for (const target of targets) {
+    await migrate(target.databaseUrl, { databaseScope: target.databaseScope });
+  }
+}
+
+export function resolveConfiguredMigrationTargets(environment = process.env) {
   const controlUrl = environment.CONTROL_DATABASE_MIGRATION_URL;
   const tenantUrl = environment.TENANT_DATABASE_MIGRATION_URL;
   if (controlUrl || tenantUrl) {
@@ -70,11 +107,20 @@ export async function migrateConfiguredDatabases(environment = process.env) {
         'CONTROL_DATABASE_MIGRATION_URL and TENANT_DATABASE_MIGRATION_URL must be configured together',
       );
     }
-    await migrate(controlUrl);
-    if (tenantUrl !== controlUrl) await migrate(tenantUrl);
-    return;
+    if (controlUrl === tenantUrl) {
+      throw new Error(
+        'Control and tenant migration URLs must target separate databases; shared-plane migration is not allowed',
+      );
+    }
+    return [
+      { databaseUrl: controlUrl, databaseScope: 'control' },
+      { databaseUrl: tenantUrl, databaseScope: 'tenant' },
+    ];
   }
-  await migrate(environment.DATABASE_MIGRATION_URL);
+  if (!environment.DATABASE_MIGRATION_URL) {
+    throw new Error('DATABASE_MIGRATION_URL is required; no privileged fallback DSN is allowed');
+  }
+  return [{ databaseUrl: environment.DATABASE_MIGRATION_URL, databaseScope: 'all' }];
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;

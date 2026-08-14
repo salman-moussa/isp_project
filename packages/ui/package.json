@@ -15,16 +15,24 @@
     "react-dom": ">=19.0.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.2.0",
+    "@testing-library/user-event": "14.6.0",
     "@types/react": "19.0.0",
     "@types/react-dom": "19.0.0",
+    "axe-core": "4.10.0",
+    "jsdom": "26.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "5.9.2",
+    "vite": "6.4.3",
     "vitest": "3.2.7"
   },
   "scripts": {
+    "build:catalog": "vite build --configLoader runner --config src/catalog/vite.build.config.ts",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:catalog": "vitest run --configLoader runner --root src/catalog --config vitest.config.ts"
   }
 }

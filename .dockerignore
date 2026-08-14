@@ -1,0 +1,16 @@
+.git
+.agents
+.codex
+.terraform
+node_modules
+**/node_modules
+**/dist
+**/coverage
+tmp
+outputs
+*.log
+*.tfstate
+*.tfstate.*
+.env
+.env.*
+!.env.example

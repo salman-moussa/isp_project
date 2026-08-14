@@ -1,10 +1,9 @@
 import type { TenantSummary, VerifiedTenantId } from '@isp/contracts';
-import { and, desc, eq, gt, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database } from './client.js';
 import {
   auditEvents,
   securityEvents,
-  sessions,
   supportGrants,
   tenantDashboardSnapshots,
   tenantMemberships,
@@ -17,19 +16,17 @@ export async function isSessionActive(
   userId: string,
   now: Date,
 ): Promise<boolean> {
-  const rows = await database
-    .select({ id: sessions.id })
-    .from(sessions)
-    .where(
-      and(
-        eq(sessions.id, sessionId),
-        eq(sessions.userId, userId),
-        isNull(sessions.revokedAt),
-        gt(sessions.expiresAt, now),
-      ),
-    )
-    .limit(1);
-  return rows.length === 1;
+  return database.transaction(async (transaction) => {
+    await transaction.execute(sql.raw('SET LOCAL ROLE orvex_control_runtime'));
+    const rows = await transaction.execute<{ readonly active: boolean }>(sql`
+      SELECT is_auth_session_active(
+        ${sessionId}::uuid,
+        ${userId}::uuid,
+        ${now.toISOString()}::text::timestamptz
+      ) AS active
+    `);
+    return rows[0]?.active === true;
+  });
 }
 
 export interface ActiveTenantMembership {
@@ -37,6 +34,10 @@ export interface ActiveTenantMembership {
   readonly userId: string;
   readonly permissions: readonly string[];
   readonly authorizationVersion: number;
+  readonly branchIds?: readonly string[];
+  readonly areaIds?: readonly string[];
+  readonly routeIds?: readonly string[];
+  readonly recordIds?: readonly string[];
 }
 
 /** Canonical tenant authorization used to reject stale or narrowed session claims. */
@@ -45,13 +46,14 @@ export async function readActiveTenantMembership(
   tenantId: VerifiedTenantId,
   userId: string,
 ): Promise<ActiveTenantMembership | null> {
-  return inTenantTransaction(database, tenantId, async (transaction) => {
+  return inControlTenantTransaction(database, tenantId, async (transaction) => {
     const [membership] = await transaction
       .select({
         tenantId: tenantMemberships.tenantId,
         userId: tenantMemberships.userId,
         permissions: tenantMemberships.permissions,
         authorizationVersion: tenantMemberships.authorizationVersion,
+        scope: tenantMemberships.scope,
       })
       .from(tenantMemberships)
       .where(
@@ -64,12 +66,36 @@ export async function readActiveTenantMembership(
       .limit(1);
 
     if (!membership) return null;
+    const scope = readAuthorizationScope(membership.scope);
     return {
       ...membership,
+      scope: undefined,
       permissions: [...membership.permissions],
       authorizationVersion: safeInteger(membership.authorizationVersion, 'authorizationVersion'),
+      ...scope,
     };
   });
+}
+
+function readAuthorizationScope(value: unknown): {
+  branchIds?: readonly string[];
+  areaIds?: readonly string[];
+  routeIds?: readonly string[];
+  recordIds?: readonly string[];
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const scope = value as Record<string, unknown>;
+  const result: Record<string, readonly string[]> = {};
+  for (const key of ['branchIds', 'areaIds', 'routeIds', 'recordIds'] as const) {
+    const item = scope[key];
+    if (item !== undefined) {
+      if (!Array.isArray(item) || !item.every((entry) => typeof entry === 'string')) {
+        throw new Error(`Tenant membership ${key} scope is invalid.`);
+      }
+      result[key] = [...new Set(item)];
+    }
+  }
+  return result;
 }
 
 export async function isSupportGrantActive(
@@ -104,7 +130,7 @@ export async function readApprovedSupportGrant(
 ): Promise<ApprovedSupportGrant | null> {
   // This lookup bootstraps support authorization: the signed grant/user tuple and canonical row
   // must match before the API can issue a general VerifiedTenantId capability.
-  return inTenantTransaction(database, tenantId as VerifiedTenantId, async (transaction) => {
+  return inControlTenantTransaction(database, tenantId as VerifiedTenantId, async (transaction) => {
     const [grant] = await transaction
       .select({
         id: supportGrants.id,
@@ -139,6 +165,18 @@ export async function readApprovedSupportGrant(
       expiresAt: grant.expiresAt.toISOString(),
       authorizationVersion: safeInteger(grant.authorizationVersion, 'authorizationVersion'),
     };
+  });
+}
+
+async function inControlTenantTransaction<T>(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  work: (transaction: Parameters<Parameters<Database['transaction']>[0]>[0]) => Promise<T>,
+): Promise<T> {
+  return database.transaction(async (transaction) => {
+    await transaction.execute(sql.raw('SET LOCAL ROLE orvex_control_runtime'));
+    await transaction.execute(sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
+    return work(transaction);
   });
 }
 
@@ -203,7 +241,7 @@ export interface AuditRecord {
 }
 
 export async function appendAuditEvent(database: Database, event: AuditRecord): Promise<void> {
-  await inTenantTransaction(database, event.tenantId, async (transaction) => {
+  await inControlTenantTransaction(database, event.tenantId, async (transaction) => {
     await transaction.insert(auditEvents).values({
       tenantId: event.tenantId,
       actorId: event.actorId,
@@ -240,17 +278,20 @@ export async function appendSecurityEvent(
   database: Database,
   event: SecurityAuditRecord,
 ): Promise<void> {
-  await database.insert(securityEvents).values({
-    ...(event.actorId ? { actorId: event.actorId } : {}),
-    ...(event.sessionId ? { sessionId: event.sessionId } : {}),
-    ...(event.claimedTenantId ? { claimedTenantId: event.claimedTenantId } : {}),
-    ...(event.supportGrantId ? { supportGrantId: event.supportGrantId } : {}),
-    action: event.action,
-    reason: event.reason,
-    requestId: event.requestId,
-    ipAddress: event.ipAddress,
-    ...(event.userAgent ? { userAgent: event.userAgent } : {}),
-    metadata: event.metadata,
-    occurredAt: new Date(event.occurredAt),
+  await database.transaction(async (transaction) => {
+    await transaction.execute(sql.raw('SET LOCAL ROLE orvex_control_runtime'));
+    await transaction.insert(securityEvents).values({
+      ...(event.actorId ? { actorId: event.actorId } : {}),
+      ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+      ...(event.claimedTenantId ? { claimedTenantId: event.claimedTenantId } : {}),
+      ...(event.supportGrantId ? { supportGrantId: event.supportGrantId } : {}),
+      action: event.action,
+      reason: event.reason,
+      requestId: event.requestId,
+      ipAddress: event.ipAddress,
+      ...(event.userAgent ? { userAgent: event.userAgent } : {}),
+      metadata: event.metadata,
+      occurredAt: new Date(event.occurredAt),
+    });
   });
 }

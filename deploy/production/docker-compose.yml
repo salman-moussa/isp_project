@@ -1,0 +1,195 @@
+name: orvex-isp-prod
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orvex_bootstrap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: orvex_control
+      ORVEX_TENANT_DATABASE: orvex_tenant
+      ORVEX_RUNTIME_DB_PASSWORD: ${ORVEX_RUNTIME_DB_PASSWORD:?ORVEX_RUNTIME_DB_PASSWORD is required}
+      ORVEX_CONTROL_API_DB_PASSWORD:
+        ${ORVEX_CONTROL_API_DB_PASSWORD:?ORVEX_CONTROL_API_DB_PASSWORD is required}
+      ORVEX_MIGRATOR_DB_PASSWORD:
+        ${ORVEX_MIGRATOR_DB_PASSWORD:?ORVEX_MIGRATOR_DB_PASSWORD is required}
+      ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:
+        ${ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD:?ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD is required}
+      ORVEX_NETWORK_WORKER_DB_PASSWORD:
+        ${ORVEX_NETWORK_WORKER_DB_PASSWORD:?ORVEX_NETWORK_WORKER_DB_PASSWORD is required}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ../../infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U orvex_bootstrap -d orvex_control]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [data]
+    security_opt: [no-new-privileges:true]
+    logging: &logging
+      options: { max-size: 10m, max-file: '3' }
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    restart: 'no'
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      CONTROL_DATABASE_MIGRATION_URL: postgresql://orvex_migrator:${ORVEX_MIGRATOR_DB_PASSWORD}@postgres:5432/orvex_control
+      TENANT_DATABASE_MIGRATION_URL: postgresql://orvex_migrator:${ORVEX_MIGRATOR_DB_PASSWORD}@postgres:5432/orvex_tenant
+    command: [node, packages/database/scripts/migrate.mjs]
+    networks: [data]
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  provision-context:
+    image: postgres:18.4-alpine
+    restart: 'no'
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_BOOTSTRAP_URL: postgresql://orvex_bootstrap:${POSTGRES_PASSWORD}@postgres:5432/orvex_control
+      TENANT_DATABASE_BOOTSTRAP_URL: postgresql://orvex_bootstrap:${POSTGRES_PASSWORD}@postgres:5432/orvex_tenant
+      CONTROL_CONTEXT_KEY_ID: ${CONTROL_CONTEXT_KEY_ID:?CONTROL_CONTEXT_KEY_ID is required}
+      CONTROL_CONTEXT_SECRET_BASE64:
+        ${CONTROL_CONTEXT_SECRET_BASE64:?CONTROL_CONTEXT_SECRET_BASE64 is required}
+      OPERATIONS_CONTEXT_KEY_ID: ${OPERATIONS_CONTEXT_KEY_ID:?OPERATIONS_CONTEXT_KEY_ID is required}
+      OPERATIONS_CONTEXT_SECRET_BASE64:
+        ${OPERATIONS_CONTEXT_SECRET_BASE64:?OPERATIONS_CONTEXT_SECRET_BASE64 is required}
+    volumes:
+      - ../../infra/docker/postgres/admin:/admin:ro
+      - ../../packages/database/src/operations/provisioning.sql:/workspace/packages/database/src/operations/provisioning.sql:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        /admin/provision-control-center-context-key.sh
+        psql --set=ON_ERROR_STOP=1 \
+          --set=operations_context_key_id="$$OPERATIONS_CONTEXT_KEY_ID" \
+          --set=operations_context_key_base64="$$OPERATIONS_CONTEXT_SECRET_BASE64" \
+          --file=/workspace/packages/database/src/operations/provisioning.sql \
+          "$$TENANT_DATABASE_BOOTSTRAP_URL"
+    networks: [data]
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    depends_on:
+      provision-context: { condition: service_completed_successfully }
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      SUPPORT_TOKEN_ISSUER: https://isp.mosesgr.com
+      SUPPORT_TOKEN_AUDIENCE: orvex-isp
+      AUTH_CONTROL_DATABASE_URL: postgresql://orvex_control_api:${ORVEX_CONTROL_API_DB_PASSWORD}@postgres:5432/orvex_control
+      CONTROL_DATABASE_URL: postgresql://orvex_control_api:${ORVEX_CONTROL_API_DB_PASSWORD}@postgres:5432/orvex_control
+      CONTROL_CONTEXT_KEY_ID: ${CONTROL_CONTEXT_KEY_ID}
+      CONTROL_CONTEXT_SECRET_BASE64: ${CONTROL_CONTEXT_SECRET_BASE64}
+      TENANT_DATABASE_URL: postgresql://orvex_runtime:${ORVEX_RUNTIME_DB_PASSWORD}@postgres:5432/orvex_tenant
+      OPERATIONS_CONTEXT_KEY_ID: ${OPERATIONS_CONTEXT_KEY_ID}
+      OPERATIONS_CONTEXT_SECRET_BASE64: ${OPERATIONS_CONTEXT_SECRET_BASE64}
+      AUTH_TOKEN_DIGEST_SECRET_BASE64:
+        ${AUTH_TOKEN_DIGEST_SECRET_BASE64:?AUTH_TOKEN_DIGEST_SECRET_BASE64 is required}
+      AUTH_DELIVERY_BASE_URL: https://isp.mosesgr.com/_auth-delivery-not-configured/
+      AUTH_DELIVERY_TOKEN: ${AUTH_DELIVERY_TOKEN:?AUTH_DELIVERY_TOKEN is required}
+      CORS_ORIGINS: https://isp.mosesgr.com
+    networks:
+      application:
+        aliases: [orvex-isp-api]
+      data:
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  finance-audit-relay:
+    build:
+      context: ../..
+      dockerfile: workers/finance-audit-relay/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    depends_on:
+      provision-context: { condition: service_completed_successfully }
+    environment:
+      FINANCE_AUDIT_CONTROL_DATABASE_URL: postgresql://orvex_finance_audit_relay:${ORVEX_FINANCE_AUDIT_RELAY_DB_PASSWORD}@postgres:5432/orvex_control
+      FINANCE_AUDIT_TENANTS_JSON:
+        ${FINANCE_AUDIT_TENANTS_JSON:?FINANCE_AUDIT_TENANTS_JSON is required}
+      FINANCE_AUDIT_HEALTH_HOST: 0.0.0.0
+      FINANCE_AUDIT_HEALTH_PORT: '9464'
+      FINANCE_AUDIT_READINESS_MAX_BACKLOG_COUNT: '500'
+      FINANCE_AUDIT_READINESS_MAX_BACKLOG_AGE_MS: '120000'
+    networks: [application, data]
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/production/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [application, coolify]
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=16m
+      - /var/run:rw,noexec,nosuid,size=1m
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: coolify
+      traefik.http.middlewares.orvex-isp-gzip.compress: 'true'
+      traefik.http.middlewares.orvex-isp-https.redirectscheme.scheme: https
+      traefik.http.middlewares.orvex-isp-https.redirectscheme.permanent: 'true'
+      traefik.http.middlewares.orvex-isp-security.headers.contentTypeNosniff: 'true'
+      traefik.http.middlewares.orvex-isp-security.headers.frameDeny: 'true'
+      traefik.http.middlewares.orvex-isp-security.headers.referrerPolicy: strict-origin-when-cross-origin
+      traefik.http.middlewares.orvex-isp-security.headers.stsSeconds: '31536000'
+      traefik.http.routers.orvex-isp-http.entrypoints: http
+      traefik.http.routers.orvex-isp-http.middlewares: orvex-isp-https
+      traefik.http.routers.orvex-isp-http.rule: Host(`isp.mosesgr.com`)
+      traefik.http.routers.orvex-isp-http.service: orvex-isp
+      traefik.http.routers.orvex-isp.entrypoints: https
+      traefik.http.routers.orvex-isp.middlewares: orvex-isp-gzip,orvex-isp-security
+      traefik.http.routers.orvex-isp.rule: Host(`isp.mosesgr.com`)
+      traefik.http.routers.orvex-isp.service: orvex-isp
+      traefik.http.routers.orvex-isp.tls: 'true'
+      traefik.http.routers.orvex-isp.tls.certresolver: letsencrypt
+      traefik.http.services.orvex-isp.loadbalancer.server.port: '8080'
+    logging: *logging
+
+networks:
+  application:
+  data:
+    internal: true
+  coolify:
+    external: true
+
+volumes:
+  postgres_data:

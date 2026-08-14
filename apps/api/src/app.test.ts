@@ -13,8 +13,13 @@ const config = {
   JWT_SECRET: 'test-only-secret-that-is-at-least-thirty-two-characters',
   SUPPORT_TOKEN_ISSUER: 'orvex-isp-test',
   SUPPORT_TOKEN_AUDIENCE: 'orvex-isp-api-test',
-  CONTROL_DATABASE_URL: 'postgres://test:test@localhost:5432/control_test',
+  AUTH_CONTROL_DATABASE_URL: 'postgres://test:test@localhost:5432/control_test',
+  CONTROL_DATABASE_URL: 'postgres://test:test@localhost:5432/control_center_test',
+  CONTROL_CONTEXT_KEY_ID: 'test-key-v1',
+  CONTROL_CONTEXT_SECRET_BASE64: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
   TENANT_DATABASE_URL: 'postgres://test:test@localhost:5432/tenant_test',
+  OPERATIONS_CONTEXT_KEY_ID: 'test-operations-v1',
+  OPERATIONS_CONTEXT_SECRET_BASE64: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
   CORS_ORIGINS: 'http://localhost:5173',
 };
 
