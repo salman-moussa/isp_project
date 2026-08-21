@@ -16,11 +16,11 @@ Status values: `Pending`, `In progress`, `Blocked`, `Verified`.
 | B3   | Secure Control and Operations reference routes             | Web                             | A5, A6, B2        | Functional and independent UX review        | Verified    |
 | C    | Control Center reference domain and production composition | Control Center team             | Phase B           | Signed approval, billing, state-relay E2E   | Verified    |
 | D    | ISP Operations reference domain and production composition | Operations team                 | Phase B           | Signed scope, concurrency, audit-relay E2E  | Verified    |
-| E    | Orvex ISP Collect                                          | Mobile team                     | Phase D contracts | Offline-day fault matrix                    | In progress |
-| F    | Network Worker and provider adapters                       | Network/Integrations            | Phase D contracts | Simulator/provider contract matrix          | In progress |
-| G    | Scale, security, DR, and release candidate                 | SRE + QA + Security             | C–F               | Load, DAST, restore, rollback, final review | Pending     |
+| E    | Orvex ISP Collect                                          | Mobile team                     | Phase D contracts | Offline-day fault matrix                    | Verified    |
+| F    | Network Worker and provider adapters                       | Network/Integrations            | Phase D contracts | Simulator/provider contract matrix          | Verified    |
+| G    | Scale, security, DR, and release candidate                 | SRE + QA + Security             | C–F               | Load, DAST, restore, rollback, final review | In progress |
 
-## File ownership rules for active Gate A work
+## Historical file ownership rules
 
 - Brand/UX: web apps, shared UI, research/UX docs, brand ADR and scan.
 - Database: database package, PostgreSQL init, Compose, live-database evidence doc.
@@ -29,10 +29,31 @@ Status values: `Pending`, `In progress`, `Blocked`, `Verified`.
 
 ## Current external inputs
 
-- VAT/numbering/retention/rounding policy, commercial catalogue, production hosting/RPO/RTO/KMS,
-  live provider contracts, RouterOS lab scope, and printer policy remain owner decisions for later
-  gates. They do not invalidate the completed foundation safety gate, but production activation
-  cannot be accepted without them.
+- VAT/numbering/retention/rounding policy, commercial catalogue, accepted RPO/RTO and off-host
+  backup policy, live OMT/Whish and notification-provider contracts, RouterOS credentials/lab scope,
+  and printer policy remain owner decisions. Provider and network boundaries stay fail-closed until
+  those inputs are supplied and verified; they do not invalidate the completed product code.
+- The production composition is active at `isp.mosesgr.com`. Final Gate G acceptance still requires
+  recorded production-volume/load and DAST evidence, an isolated restore, a rollback rehearsal, and
+  owner acceptance of the residual risks.
+
+## Latest product and launch evidence
+
+- Orvex ISP Collect includes the offline queue, idempotent synchronization, device enrollment and
+  rotation, receipt handling, conflict recovery, bilingual/RTL presentation, and the backend API and
+  database vertical. Its focused security and offline-day invariant tests are included in the root
+  validation gate.
+- The Network Worker includes durable leases, retry and reconciliation behavior, RouterOS
+  simulation, provider contracts, safe secret boundaries, health reporting, and a production
+  composition. Live provider and router activation remains an external configuration step.
+- Control Center, Tenant Operations, authentication, finance, Collect, summaries, readiness, the
+  finance audit relay, and both web applications are composed by the production server and Compose
+  deployment.
+- On 2026-08-22 the public tenant route, Control Center route, and readiness endpoint each returned
+  HTTP 200 over a valid Let's Encrypt certificate. The certificate was valid through 2026-11-12.
+- Phase G's static release, observability, backup, restore and rollback kit is implemented and
+  validated. The environment-dependent exercises listed above remain intentionally open rather than
+  being represented as completed evidence.
 
 ## Latest foundation evidence
 

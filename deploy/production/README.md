@@ -18,3 +18,15 @@ Migrations and signing-key provisioning run as one-shot prerequisites. Authentic
 deliberately fail-closed until an approved HTTPS OTP/recovery provider replaces the placeholder URL.
 Bootstrap user credentials must be created through the DBA-controlled release procedure and must not
 be committed.
+
+## Live verification
+
+The `isp.mosesgr.com` production composition was verified on 2026-08-22 without changing host state:
+
+- tenant workspace: HTTP 200
+- Control Center: HTTP 200
+- readiness: HTTP 200 with JSON response
+- TLS: Let's Encrypt certificate for `isp.mosesgr.com`, valid through 2026-11-12
+
+Do not redeploy merely to repeat these checks. Redeploy only after a reviewed source change, and
+keep all host work scoped to this Compose project.

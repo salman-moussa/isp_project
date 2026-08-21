@@ -7,15 +7,22 @@ boundary, and a minimal single-document verifier. Subscribers do not have accoun
 
 ## Current delivery state
 
-The repository is being built in dependency-aware phases. The first executable slice establishes
-verified identity, server-resolved tenant context, permission checks, immutable audit records, and
-separate bilingual platform and tenant shells. The requirements traceability matrix distinguishes
-implemented evidence from planned work; this README does not imply final acceptance.
+The production product is implemented across Control Center, Tenant Operations, Collect, the Core
+API, finance and security audit relays, the Network Worker, provider boundaries, PostgreSQL
+migrations, and the release/deployment kit. The production composition is live at:
 
-The current web shells use clearly identified demonstration records. Their activity labels do not
-claim a live API connection or production deployment. See
-`docs/ux/product-identity-migration-checklist.md` for the temporary rename checklist and ADR-0011
-for intentionally retained internal identifiers.
+- `https://isp.mosesgr.com/` — tenant operations
+- `https://isp.mosesgr.com/control/` — Orvex Control Center
+- `https://isp.mosesgr.com/ready` — dependency readiness
+
+Authenticated production sessions use the composed Control Center, tenant summary, operations,
+finance, Collect, and authentication APIs. Development-only views may use records explicitly marked
+as demonstration data when no API session is supplied.
+
+External business activation remains deliberately fail-closed: live payment/provider contracts,
+RouterOS credentials and lab acceptance, notification delivery, tax/legal policy, and accepted
+backup/restore objectives must be supplied by their owners. Phase and acceptance evidence is tracked
+in `docs/task-plan-orvex.md`.
 
 ## Prerequisites
 
