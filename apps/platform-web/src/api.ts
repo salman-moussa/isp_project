@@ -31,6 +31,58 @@ export async function readControlClients(session: ApiSession): Promise<ControlCe
   }));
 }
 
+export interface CreateControlClientInput {
+  readonly tenantId: string;
+  readonly legalName: string;
+  readonly tradingName: string;
+  readonly registrationNumber?: string;
+  readonly accountOwnerId?: string;
+  readonly notes?: string;
+  readonly reason: string;
+}
+
+export async function createControlClient(
+  session: ApiSession,
+  input: CreateControlClientInput,
+  idempotencyKey: string,
+): Promise<void> {
+  const response = await fetch(`${session.apiBaseUrl}/v1/control-center/clients`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${session.accessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': idempotencyKey,
+    },
+    body: JSON.stringify(input),
+  });
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw new Error(await safeMessage(response));
+}
+
+export async function submitControlAction(
+  session: ApiSession,
+  method: 'POST' | 'PUT',
+  path: string,
+  payload: Readonly<Record<string, unknown>>,
+  idempotencyKey: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${session.apiBaseUrl}/v1/control-center/${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${session.accessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 401) session.logout();
+  const result = (await response.json()) as Record<string, unknown> & {
+    readonly error?: { readonly message?: string };
+  };
+  if (!response.ok) throw new Error(result.error?.message ?? `Action failed (${response.status}).`);
+  return result;
+}
+
 async function safeMessage(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { error?: { message?: string } };

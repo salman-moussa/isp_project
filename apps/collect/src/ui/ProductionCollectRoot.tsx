@@ -269,9 +269,17 @@ export function ProductionCollectRoot(): React.JSX.Element {
       accessState={accessState(current)}
       pendingCount={current.outbox.filter((operation) => operation.status === 'pending').length}
       conflictCount={current.conflicts.length}
+      reconciliationTotals={{
+        USD: current.payments
+          .filter((payment) => payment.currency === 'USD' && payment.syncStatus !== 'rejected')
+          .reduce((sum, payment) => sum + payment.amountMinor, 0),
+        LBP: current.payments
+          .filter((payment) => payment.currency === 'LBP' && payment.syncStatus !== 'rejected')
+          .reduce((sum, payment) => sum + payment.amountMinor, 0),
+      }}
       referenceMode={false}
       printingAvailable={false}
-      reconciliationAvailable={false}
+      reconciliationAvailable
       onQueuePayment={async (input) => {
         const assignment = current.assignments.find(
           (item) => item.assignmentId === input.assignmentId,
@@ -294,7 +302,25 @@ export function ProductionCollectRoot(): React.JSX.Element {
         return { receipt: payment.provisionalReceiptNumber };
       }}
       onPrint={async () => (lastPaymentId ? 'disconnected' : 'failed')}
-      onQueueReconciliation={async () => undefined}
+      onQueueReconciliation={async (input) => {
+        const collectService = requireValue(service.current, 'Collect service');
+        const reconciliationId = new ExpoUuidGenerator().next();
+        await collectService.saveReconciliationDraft({
+          reconciliationId,
+          businessDate: new Date().toISOString().slice(0, 10),
+          declared: [
+            { currency: 'USD', method: 'cash', declaredMinor: input.declaredUsdMinor },
+            { currency: 'LBP', method: 'cash', declaredMinor: input.declaredLbpMinor },
+          ],
+          ...(input.note ? { note: input.note } : {}),
+        });
+        await collectService.submitReconciliation(reconciliationId);
+        await refreshState();
+        if (connection === 'online') {
+          await requireValue(sync.current, 'Collect sync').sync();
+          await installOnlineBootstrap();
+        }
+      }}
       onRetrySync={async () => {
         await requireValue(sync.current, 'Collect sync').sync();
         await installOnlineBootstrap();

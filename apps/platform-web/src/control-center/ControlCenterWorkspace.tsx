@@ -29,6 +29,18 @@ export interface ControlCenterWorkspaceProps {
   readonly onApplyFilters: (filters: ControlCenterFilters) => void;
   readonly onOpenClient: (clientId: string) => void;
   readonly onAddClient: () => void;
+  readonly onCreateClient?: (
+    input: {
+      readonly tenantId: string;
+      readonly legalName: string;
+      readonly tradingName: string;
+      readonly registrationNumber?: string;
+      readonly accountOwnerId?: string;
+      readonly notes?: string;
+      readonly reason: string;
+    },
+    idempotencyKey: string,
+  ) => Promise<void>;
   readonly canAddClient?: boolean;
   readonly onRetry: () => void;
   readonly onOpenAudit: () => void;
@@ -44,6 +56,9 @@ const initialFilters: ControlCenterFilters = {
 export function ControlCenterWorkspace(props: ControlCenterWorkspaceProps) {
   const copy = controlCenterCopy[props.locale];
   const [filters, setFilters] = useState(initialFilters);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string>();
   const titleId = useId();
 
   const apply = (event: FormEvent) => {
@@ -54,6 +69,71 @@ export function ControlCenterWorkspace(props: ControlCenterWorkspaceProps) {
     setFilters(initialFilters);
     props.onApplyFilters(initialFilters);
   };
+  const createClient = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!props.onCreateClient) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const value = (name: string) => {
+      const entry = data.get(name);
+      return typeof entry === 'string' ? entry.trim() : '';
+    };
+    setCreating(true);
+    setCreateError(undefined);
+    try {
+      await props.onCreateClient(
+        {
+          tenantId: value('tenantId'),
+          legalName: value('legalName'),
+          tradingName: value('tradingName'),
+          ...(value('registrationNumber')
+            ? { registrationNumber: value('registrationNumber') }
+            : {}),
+          ...(value('accountOwnerId') ? { accountOwnerId: value('accountOwnerId') } : {}),
+          ...(value('notes') ? { notes: value('notes') } : {}),
+          reason: value('reason'),
+        },
+        `web-client-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+      );
+      form.reset();
+      setShowCreate(false);
+    } catch (caught) {
+      setCreateError(caught instanceof Error ? caught.message : 'The client could not be created.');
+    } finally {
+      setCreating(false);
+    }
+  };
+  const createLabels =
+    props.locale === 'en'
+      ? {
+          title: 'Add ISP client',
+          description:
+            'Create the isolated client identity before contacts, package assignment and deployment.',
+          tenantId: 'Tenant ID',
+          legalName: 'Legal name',
+          tradingName: 'Trading name',
+          registration: 'Registration number (optional)',
+          owner: 'Account owner ID (optional)',
+          notes: 'Internal notes (optional)',
+          reason: 'Business reason',
+          cancel: 'Cancel',
+          save: 'Create client',
+          saving: 'Creating…',
+        }
+      : {
+          title: 'إضافة عميل مزوّد إنترنت',
+          description: 'أنشئ هوية العميل المعزولة قبل جهات الاتصال وتعيين الباقة والنشر.',
+          tenantId: 'معرّف مساحة العمل',
+          legalName: 'الاسم القانوني',
+          tradingName: 'الاسم التجاري',
+          registration: 'رقم التسجيل (اختياري)',
+          owner: 'معرّف مسؤول الحساب (اختياري)',
+          notes: 'ملاحظات داخلية (اختياري)',
+          reason: 'سبب الإجراء',
+          cancel: 'إلغاء',
+          save: 'إنشاء العميل',
+          saving: 'جارٍ الإنشاء…',
+        };
 
   return (
     <section
@@ -71,12 +151,72 @@ export function ControlCenterWorkspace(props: ControlCenterWorkspaceProps) {
           <button
             className="cc-button cc-button--primary"
             type="button"
-            onClick={props.onAddClient}
+            onClick={() => {
+              if (props.onCreateClient) setShowCreate((current) => !current);
+              else props.onAddClient();
+            }}
           >
             {copy.add}
           </button>
         )}
       </header>
+
+      {showCreate ? (
+        <form className="cc-create" onSubmit={(event) => void createClient(event)}>
+          <div className="cc-create__heading">
+            <div>
+              <h2>{createLabels.title}</h2>
+              <p>{createLabels.description}</p>
+            </div>
+            <button className="cc-link" type="button" onClick={() => setShowCreate(false)}>
+              {createLabels.cancel}
+            </button>
+          </div>
+          <div className="cc-create__grid">
+            <label className="cc-field">
+              <span>{createLabels.tenantId}</span>
+              <input
+                name="tenantId"
+                required
+                pattern="[0-9a-fA-F-]{36}"
+                defaultValue={globalThis.crypto?.randomUUID?.() ?? ''}
+              />
+            </label>
+            <label className="cc-field">
+              <span>{createLabels.legalName}</span>
+              <input name="legalName" required minLength={2} maxLength={200} />
+            </label>
+            <label className="cc-field">
+              <span>{createLabels.tradingName}</span>
+              <input name="tradingName" required minLength={2} maxLength={200} />
+            </label>
+            <label className="cc-field">
+              <span>{createLabels.registration}</span>
+              <input name="registrationNumber" maxLength={100} />
+            </label>
+            <label className="cc-field">
+              <span>{createLabels.owner}</span>
+              <input name="accountOwnerId" maxLength={128} />
+            </label>
+            <label className="cc-field cc-field--wide">
+              <span>{createLabels.notes}</span>
+              <textarea name="notes" rows={3} maxLength={2000} />
+            </label>
+            <label className="cc-field cc-field--wide">
+              <span>{createLabels.reason}</span>
+              <textarea name="reason" rows={2} required minLength={8} maxLength={500} />
+            </label>
+          </div>
+          {createError ? (
+            <p className="cc-create__error" role="alert">
+              {createError}
+            </p>
+          ) : null}
+          <button className="cc-button cc-button--primary" type="submit" disabled={creating}>
+            {creating ? createLabels.saving : createLabels.save}
+          </button>
+        </form>
+      ) : null}
 
       <form className="cc-filters" onSubmit={apply} aria-label={copy.table}>
         <label className="cc-field cc-field--search">

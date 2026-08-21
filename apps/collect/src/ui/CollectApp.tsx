@@ -20,6 +20,7 @@ export interface CollectAppProps {
   readonly accessState: 'ready' | 'loading' | 'revoked' | 'expired';
   readonly pendingCount: number;
   readonly conflictCount: number;
+  readonly reconciliationTotals?: Readonly<Record<Currency, number>>;
   readonly referenceMode: boolean;
   readonly printingAvailable?: boolean;
   readonly reconciliationAvailable?: boolean;
@@ -31,7 +32,11 @@ export interface CollectAppProps {
     allocationInvoiceId: string;
   }) => Promise<{ receipt: string }>;
   readonly onPrint: () => Promise<'printed' | 'failed' | 'disconnected'>;
-  readonly onQueueReconciliation: () => Promise<void>;
+  readonly onQueueReconciliation: (input: {
+    readonly declaredUsdMinor: number;
+    readonly declaredLbpMinor: number;
+    readonly note?: string;
+  }) => Promise<void>;
   readonly onRetrySync: () => Promise<void>;
 }
 
@@ -46,6 +51,9 @@ export function CollectApp(props: CollectAppProps): React.JSX.Element {
   const [amount, setAmount] = useState('');
   const [receipt, setReceipt] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [declaredUsd, setDeclaredUsd] = useState('');
+  const [declaredLbp, setDeclaredLbp] = useState('');
+  const [reconciliationNote, setReconciliationNote] = useState('');
   const text = t(locale);
   const rtl = locale === 'ar';
   const direction = { direction: rtl ? 'rtl' : 'ltr' } as const;
@@ -86,6 +94,29 @@ export function CollectApp(props: CollectAppProps): React.JSX.Element {
     const outcome = await props.onPrint();
     setNotice(outcome === 'printed' ? text('print') : text('printerFailure'));
   };
+  const queueReconciliation = async (): Promise<void> => {
+    const declaredUsdMinor = Number(declaredUsd || '0');
+    const declaredLbpMinor = Number(declaredLbp || '0');
+    if (
+      ![declaredUsdMinor, declaredLbpMinor].every(Number.isSafeInteger) ||
+      declaredUsdMinor < 0 ||
+      declaredLbpMinor < 0
+    ) {
+      setNotice(text('amount'));
+      return;
+    }
+    try {
+      await props.onQueueReconciliation({
+        declaredUsdMinor,
+        declaredLbpMinor,
+        ...(reconciliationNote.trim() ? { note: reconciliationNote.trim() } : {}),
+      });
+      setNotice(text('queued'));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : text('saveFailure'));
+    }
+  };
+  const expected = props.reconciliationTotals ?? { USD: 0, LBP: 0 };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -93,11 +124,27 @@ export function CollectApp(props: CollectAppProps): React.JSX.Element {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={[styles.header, direction]}>
           <View>
+            <Text style={styles.headerEyebrow}>ORVEX FIELD OPERATIONS</Text>
             <Text style={styles.brand}>{text('appName')}</Text>
-            <Text style={styles.status}>
-              {props.connection === 'online' ? text('online') : text('offline')} · {text('queue')}{' '}
-              {props.pendingCount} · {props.conflictCount} {text('conflicts')}
-            </Text>
+            <View style={[styles.statusRow, direction]}>
+              <View
+                style={[
+                  styles.connectionDot,
+                  props.connection === 'online'
+                    ? styles.connectionOnline
+                    : styles.connectionOffline,
+                ]}
+              />
+              <Text style={styles.status}>
+                {props.connection === 'online' ? text('online') : text('offline')}
+              </Text>
+              <Text style={styles.statusChip}>
+                {text('queue')} {props.pendingCount}
+              </Text>
+              <Text style={styles.statusChip}>
+                {props.conflictCount} {text('conflicts')}
+              </Text>
+            </View>
           </View>
           <Pressable
             accessibilityRole="button"
@@ -141,7 +188,7 @@ export function CollectApp(props: CollectAppProps): React.JSX.Element {
                   {rtl ? item.routeNameAr : item.routeNameEn} · {rtl ? item.areaAr : item.areaEn}
                 </Text>
                 <Text style={[styles.money, direction]}>
-                  {text('outstanding')}: {item.outstandingMinor} {item.currency}
+                  {text('outstanding')}: {formatMinor(item.outstandingMinor, item.currency)}
                 </Text>
               </Pressable>
             ))
@@ -221,16 +268,50 @@ export function CollectApp(props: CollectAppProps): React.JSX.Element {
         <View style={styles.card}>
           <Text style={[styles.heading, direction]}>{text('reconciliation')}</Text>
           <View style={[styles.reconHeader, direction]}>
-            <Text>{text('expected')}: USD 0 / LBP 0</Text>
-            <Text>{text('declared')}: USD 0 / LBP 0</Text>
+            <Text style={styles.reconTotal}>
+              {text('expected')}: {formatMinor(expected.USD, 'USD')} /{' '}
+              {formatMinor(expected.LBP, 'LBP')}
+            </Text>
           </View>
+          <View style={[styles.reconInputs, direction]}>
+            <View style={styles.reconInputGroup}>
+              <Text style={direction}>{text('declared')} USD</Text>
+              <TextInput
+                accessibilityLabel={`${text('declared')} USD`}
+                inputMode="numeric"
+                value={declaredUsd}
+                onChangeText={setDeclaredUsd}
+                placeholder="0"
+                style={[styles.input, direction]}
+              />
+            </View>
+            <View style={styles.reconInputGroup}>
+              <Text style={direction}>{text('declared')} LBP</Text>
+              <TextInput
+                accessibilityLabel={`${text('declared')} LBP`}
+                inputMode="numeric"
+                value={declaredLbp}
+                onChangeText={setDeclaredLbp}
+                placeholder="0"
+                style={[styles.input, direction]}
+              />
+            </View>
+          </View>
+          <TextInput
+            accessibilityLabel={text('manager')}
+            value={reconciliationNote}
+            onChangeText={setReconciliationNote}
+            placeholder={text('manager')}
+            multiline
+            style={[styles.input, styles.noteInput, direction]}
+          />
           <Text style={[styles.warning, direction]}>{text('manager')}</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ disabled: props.reconciliationAvailable === false }}
             disabled={props.reconciliationAvailable === false}
             style={[styles.secondary, props.reconciliationAvailable === false && styles.disabled]}
-            onPress={() => void props.onQueueReconciliation()}
+            onPress={() => void queueReconciliation()}
           >
             <Text>{text('submit')}</Text>
           </Pressable>
@@ -253,18 +334,37 @@ export function CollectApp(props: CollectAppProps): React.JSX.Element {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#07111f' },
-  page: { padding: 16, gap: 12 },
+  page: { padding: 16, gap: 14, paddingBottom: 28 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   header: {
-    backgroundColor: '#10243b',
-    borderRadius: 18,
-    padding: 18,
+    backgroundColor: '#102b47',
+    borderRadius: 22,
+    padding: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  brand: { color: '#ffffff', fontSize: 23, fontWeight: '800' },
-  status: { color: '#bad2e8', marginTop: 5 },
+  headerEyebrow: {
+    color: '#65d6c1',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 5,
+  },
+  brand: { color: '#ffffff', fontSize: 24, fontWeight: '800' },
+  statusRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 9 },
+  connectionDot: { width: 8, height: 8, borderRadius: 4 },
+  connectionOnline: { backgroundColor: '#65d6c1' },
+  connectionOffline: { backgroundColor: '#f9d66f' },
+  status: { color: '#dcecff', fontWeight: '700' },
+  statusChip: {
+    color: '#c7d9eb',
+    backgroundColor: '#173b5d',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    fontSize: 11,
+  },
   locale: { borderColor: '#65d6c1', borderWidth: 1, padding: 10, borderRadius: 12 },
   localeText: { color: '#ffffff', fontWeight: '700' },
   demo: {
@@ -276,10 +376,17 @@ const styles = StyleSheet.create({
   },
   danger: { backgroundColor: '#7f1d1d', color: '#ffffff', padding: 14, borderRadius: 12 },
   security: { color: '#c4d6e7', paddingHorizontal: 4 },
-  card: { backgroundColor: '#f5f8fb', padding: 16, borderRadius: 18, gap: 10 },
+  card: {
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 20,
+    gap: 11,
+    borderWidth: 1,
+    borderColor: '#dbe5ed',
+  },
   heading: { color: '#10243b', fontSize: 19, fontWeight: '800' },
   assignment: { padding: 12, borderWidth: 1, borderColor: '#cad5df', borderRadius: 12, gap: 3 },
-  selected: { borderColor: '#087b70', backgroundColor: '#e0f4f0' },
+  selected: { borderColor: '#087b70', backgroundColor: '#e0f4f0', borderWidth: 2 },
   subscriber: { fontSize: 17, fontWeight: '700' },
   money: { color: '#334b61', fontWeight: '600' },
   row: { flexDirection: 'row', gap: 8 },
@@ -312,7 +419,15 @@ const styles = StyleSheet.create({
   notice: { color: '#07584f', fontWeight: '700' },
   receipt: { borderTopWidth: 1, borderColor: '#cad5df', paddingTop: 10, gap: 8 },
   reconHeader: { gap: 4 },
+  reconTotal: { color: '#233f58', fontWeight: '700' },
+  reconInputs: { flexDirection: 'row', gap: 10 },
+  reconInputGroup: { flex: 1, gap: 5 },
+  noteInput: { minHeight: 72, textAlignVertical: 'top' },
   warning: { color: '#774f00' },
   retry: { backgroundColor: '#dbe8f2', padding: 13, borderRadius: 12, alignItems: 'center' },
   help: { color: '#bad2e8', textAlign: 'center', padding: 8 },
 });
+
+function formatMinor(amount: number, currency: Currency): string {
+  return `${currency} ${currency === 'LBP' ? Math.round(amount / 100).toLocaleString('en-US') : (amount / 100).toFixed(2)}`;
+}

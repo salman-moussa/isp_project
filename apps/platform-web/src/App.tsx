@@ -26,9 +26,18 @@ import {
   type ControlCenterClientRow,
   type ControlCenterFilters,
 } from './control-center/ControlCenterWorkspace';
-import { readControlClients } from './api';
+import {
+  ControlActionWorkspace,
+  type ControlActionTask,
+} from './control-center/ControlActionWorkspace';
+import { createControlClient, readControlClients } from './api';
 
 const platformNavigationIds = platformCopy.en.navigation.map((item) => item.id);
+const controlActionRoutes: Readonly<Record<string, ControlActionTask>> = {
+  packages: 'package',
+  subscriptions: 'assignment',
+  billing: 'invoice',
+};
 const demonstrationClients: readonly ControlCenterClientRow[] = [
   {
     id: 'northline-demo',
@@ -111,6 +120,101 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       (!controlFilters.supportStatus || client.supportStatus === controlFilters.supportStatus)
     );
   });
+  const activeClients = controlClients.filter((client) => client.state === 'active').length;
+  const attentionClients = controlClients.filter(
+    (client) => client.deploymentHealth === 'attention' || client.deploymentHealth === 'blocked',
+  ).length;
+  const openTickets = controlClients.reduce((sum, client) => sum + client.openTicketCount, 0);
+  const escalatedClients = controlClients.filter(
+    (client) => client.supportStatus === 'escalated',
+  ).length;
+  const portfolioKpis: typeof copy.kpis = session
+    ? [
+        {
+          id: 'active',
+          label: locale === 'en' ? 'Active ISP clients' : 'عملاء الإنترنت النشطون',
+          value: String(activeClients),
+          detail:
+            locale === 'en'
+              ? `${controlClients.length} authorized client records`
+              : `${controlClients.length} سجلاً مصرحاً للعميل`,
+          trend: '',
+          trendLabel: '',
+          tone: 'positive',
+        },
+        {
+          id: 'portfolio',
+          label: locale === 'en' ? 'Portfolio records' : 'سجلات المحفظة',
+          value: String(controlClients.length),
+          detail: locale === 'en' ? 'Read from Control Center API' : 'مقروءة من واجهة مركز التحكم',
+          trend: '',
+          trendLabel: '',
+          tone: 'primary',
+        },
+        {
+          id: 'tickets',
+          label: locale === 'en' ? 'Open support tickets' : 'تذاكر الدعم المفتوحة',
+          value: String(openTickets),
+          detail:
+            locale === 'en'
+              ? `${escalatedClients} escalated clients`
+              : `${escalatedClients} عملاء مصعّدون`,
+          trend: '',
+          trendLabel: '',
+          tone: openTickets ? 'warning' : 'positive',
+        },
+        {
+          id: 'health',
+          label: locale === 'en' ? 'Deployment attention' : 'عمليات نشر تحتاج متابعة',
+          value: String(attentionClients),
+          detail:
+            locale === 'en' ? 'Attention or blocked health state' : 'حالة تحتاج متابعة أو محظورة',
+          trend: '',
+          trendLabel: '',
+          tone: attentionClients ? 'critical' : 'positive',
+        },
+      ]
+    : copy.kpis;
+  const lifecycleRows: typeof copy.lifecycle = session
+    ? (['active', 'trial', 'grace', 'restricted'] as const).map((state, index) => {
+        const count = controlClients.filter((client) => client.state === state).length;
+        return {
+          label:
+            locale === 'en'
+              ? (
+                  {
+                    active: 'Active',
+                    trial: 'Trial',
+                    grace: 'Grace',
+                    restricted: 'Restricted',
+                  } as const
+                )[state]
+              : ({ active: 'نشط', trial: 'تجريبي', grace: 'مهلة', restricted: 'مقيّد' } as const)[
+                  state
+                ],
+          value: String(count),
+          width: `${controlClients.length ? Math.max(4, (count / controlClients.length) * 100) : 0}%`,
+          tone: (['positive', 'primary', 'warning', 'critical'] as const)[index],
+        };
+      })
+    : copy.lifecycle;
+  const liveActivities: typeof copy.activities = controlClients
+    .filter((client) => client.openTicketCount > 0 || client.deploymentHealth !== 'healthy')
+    .slice(0, 5)
+    .map((client) => ({
+      title: client.tradingName,
+      detail:
+        locale === 'en'
+          ? `${client.openTicketCount} open tickets · deployment ${client.deploymentHealth}`
+          : `${client.openTicketCount} تذاكر مفتوحة · النشر ${client.deploymentHealth}`,
+      time: locale === 'en' ? 'Current' : 'حالي',
+      tone:
+        client.deploymentHealth === 'blocked'
+          ? 'critical'
+          : client.openTicketCount
+            ? 'warning'
+            : 'positive',
+    }));
 
   const navigate = (id: string) => {
     navigateRoute(id);
@@ -129,11 +233,27 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       navigation={copy.navigation}
       activeNavigationId={activeNavigationId}
       onNavigate={navigate}
-      context={{ eyebrow: copy.contextEyebrow, title: copy.contextTitle, meta: copy.contextMeta }}
+      context={
+        session
+          ? {
+              eyebrow: locale === 'en' ? 'Production control plane' : 'منصة التحكم الإنتاجية',
+              title: locale === 'en' ? 'Lebanon client portfolio' : 'محفظة العملاء في لبنان',
+              meta:
+                locale === 'en'
+                  ? 'Authenticated API · Asia/Beirut'
+                  : 'واجهة مصرح بها · توقيت بيروت',
+            }
+          : { eyebrow: copy.contextEyebrow, title: copy.contextTitle, meta: copy.contextMeta }
+      }
       contextAction={<StatusBadge tone="positive">{copy.operatorStatus}</StatusBadge>}
       toolbar={
         <>
-          <button type="button" className="header-icon-button" aria-label={copy.searchLabel}>
+          <button
+            type="button"
+            className="header-icon-button"
+            aria-label={copy.searchLabel}
+            onClick={() => navigate('clients')}
+          >
             ⌕
           </button>
           <LocaleSwitcher
@@ -146,10 +266,10 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           <button
             type="button"
             className="user-chip"
-            aria-label={copy.userLabel}
+            aria-label={session ? (locale === 'en' ? 'Sign out' : 'تسجيل الخروج') : copy.userLabel}
             onClick={session?.logout}
           >
-            <span aria-hidden="true">MH</span>
+            <span aria-hidden="true">OX</span>
           </button>
         </>
       }
@@ -177,17 +297,17 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
             description={copy.sectionPortfolioDescription}
           />
           <div className="kpi-grid">
-            {copy.kpis.map((kpi) => (
+            {portfolioKpis.map((kpi) => (
               <KpiCard
                 key={kpi.id}
                 {...kpi}
                 targetLabel={copy.drilldownTarget}
-                onOpen={() => setDrilldownId(kpi.id)}
+                onOpen={() => (session ? navigate('clients') : setDrilldownId(kpi.id))}
               />
             ))}
           </div>
 
-          {drilldown && (
+          {!session && drilldown && (
             <DrilldownPanel
               title={drilldown.title}
               filterLabel={copy.filteredBy}
@@ -204,10 +324,10 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
                   <h2>{copy.financeTitle}</h2>
                   <p>{copy.financeDescription}</p>
                 </div>
-                <StatusBadge tone="neutral">91</StatusBadge>
+                <StatusBadge tone="neutral">{session ? controlClients.length : 91}</StatusBadge>
               </div>
               <div className="lifecycle-bars">
-                {copy.lifecycle.map((item) => (
+                {lifecycleRows.map((item) => (
                   <div className="lifecycle-row" key={item.label}>
                     <span>{item.label}</span>
                     <div className={`lifecycle-track lifecycle-track--${item.tone}`}>
@@ -239,32 +359,66 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
                 <h2>{copy.operationsTitle}</h2>
                 <p>{copy.operationsDescription}</p>
               </div>
-              <StatusBadge tone="neutral">{copy.environment}</StatusBadge>
+              <StatusBadge tone={session ? 'positive' : 'neutral'}>
+                {session ? (locale === 'en' ? 'Live API' : 'واجهة مباشرة') : copy.environment}
+              </StatusBadge>
             </div>
-            <ActivityList items={copy.activities} />
+            {session && controlState !== 'ready' ? (
+              <StatePanel
+                variant={
+                  controlState === 'loading'
+                    ? 'loading'
+                    : controlState === 'error'
+                      ? 'error'
+                      : 'empty'
+                }
+                title={locale === 'en' ? 'Portfolio data' : 'بيانات المحفظة'}
+                description={
+                  locale === 'en'
+                    ? 'The authorized client portfolio is being resolved.'
+                    : 'جارٍ تحميل محفظة العملاء المصرح بها.'
+                }
+              />
+            ) : liveActivities.length || !session ? (
+              <ActivityList items={session ? liveActivities : copy.activities} />
+            ) : (
+              <StatePanel
+                variant="empty"
+                title={locale === 'en' ? 'No operational alerts' : 'لا توجد تنبيهات تشغيلية'}
+                description={
+                  locale === 'en'
+                    ? 'All current client records are clear.'
+                    : 'كل سجلات العملاء الحالية سليمة.'
+                }
+              />
+            )}
           </Surface>
 
-          <SectionHeading title={copy.statesTitle} description={copy.statesDescription} />
-          <div className="state-showcase">
-            <StatePanel
-              variant={stateVariant}
-              title={copy.states[stateVariant].title}
-              description={copy.states[stateVariant].description}
-              actionLabel={
-                stateVariant === 'loading' ? undefined : copy.states[stateVariant].action
-              }
-              onAction={() => setStateVariant('loading')}
-            />
-            <SegmentedControl
-              label={copy.statesLabel}
-              value={stateVariant}
-              onChange={(value) => setStateVariant(value as StateVariant)}
-              options={(Object.keys(copy.states) as StateVariant[]).map((value) => ({
-                value,
-                label: copy.states[value].label,
-              }))}
-            />
-          </div>
+          {!session ? (
+            <>
+              <SectionHeading title={copy.statesTitle} description={copy.statesDescription} />
+              <div className="state-showcase">
+                <StatePanel
+                  variant={stateVariant}
+                  title={copy.states[stateVariant].title}
+                  description={copy.states[stateVariant].description}
+                  actionLabel={
+                    stateVariant === 'loading' ? undefined : copy.states[stateVariant].action
+                  }
+                  onAction={() => setStateVariant('loading')}
+                />
+                <SegmentedControl
+                  label={copy.statesLabel}
+                  value={stateVariant}
+                  onChange={(value) => setStateVariant(value as StateVariant)}
+                  options={(Object.keys(copy.states) as StateVariant[]).map((value) => ({
+                    value,
+                    label: copy.states[value].label,
+                  }))}
+                />
+              </div>
+            </>
+          ) : null}
         </>
       ) : activeNavigationId === 'clients' ? (
         <ControlCenterWorkspace
@@ -276,7 +430,17 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           onApplyFilters={setControlFilters}
           onOpenClient={() => navigate('subscriptions')}
           onAddClient={() => navigate('sales')}
-          canAddClient={false}
+          canAddClient={Boolean(session)}
+          onCreateClient={
+            session
+              ? async (input, idempotencyKey) => {
+                  await createControlClient(session, input, idempotencyKey);
+                  const clients = await readControlClients(session);
+                  setControlClients(clients);
+                  setControlState(clients.length ? 'ready' : 'empty');
+                }
+              : undefined
+          }
           onRetry={() => {
             setControlFilters({ query: '', state: '', deploymentHealth: '', supportStatus: '' });
             if (session) {
@@ -291,10 +455,22 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           }}
           onOpenAudit={() => navigate('administration')}
         />
+      ) : session && controlActionRoutes[activeNavigationId] ? (
+        <ControlActionWorkspace
+          session={session}
+          locale={locale}
+          initialTask={controlActionRoutes[activeNavigationId]}
+        />
       ) : (
         <TaskRouteView
           route={platformRoutes[locale][activeNavigationId]}
-          dataSourceLabel={copy.environment}
+          dataSourceLabel={
+            session
+              ? locale === 'en'
+                ? 'Guided workflow · connected actions remain permission scoped'
+                : 'مسار إرشادي · الإجراءات المتصلة مقيّدة بالصلاحيات'
+              : copy.environment
+          }
           onNavigate={navigate}
         />
       )}

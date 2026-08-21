@@ -22,9 +22,13 @@ import {
   type StateVariant,
 } from '@isp/ui';
 import { tenantCopy } from './copy';
-import { OperationsWorkspace, type OperationsTask } from './operations/OperationsWorkspace';
+import {
+  operationPath,
+  OperationsWorkspace,
+  type OperationsTask,
+} from './operations/OperationsWorkspace';
 import { tenantRoutes } from './routes';
-import { readTenantSummary, type TenantSummary } from './api';
+import { readTenantSummary, submitTenantOperation, type TenantSummary } from './api';
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -33,6 +37,7 @@ export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
   payments: 'office-payment',
   collectors: 'collectors',
   installations: 'installation',
+  network: 'network',
   support: 'support',
   reports: 'reports',
   configuration: 'configuration',
@@ -73,10 +78,12 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           return {
             ...kpi,
             value: {
-              usd: summary ? `${summary.collections.USD} minor` : '—',
-              lbp: summary ? `${summary.collections.LBP} minor` : '—',
+              usd: summary ? formatMinor(summary.collections.USD, 'USD', locale) : '—',
+              lbp: summary ? formatMinor(summary.collections.LBP, 'LBP', locale) : '—',
             },
-            detail: summary ? `As of ${new Date(summary.asOf).toLocaleString(locale)}` : '—',
+            detail: summary
+              ? `${locale === 'en' ? 'As of' : 'حتى'} ${new Date(summary.asOf).toLocaleString(locale === 'en' ? 'en-LB' : 'ar-LB')}`
+              : '—',
             trend: '',
             trendLabel: '',
           };
@@ -85,17 +92,21 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           return {
             ...kpi,
             value: summary ? String(summary.onlineSubscribers) : '—',
-            detail: summary ? `${summary.activeSubscribers} active subscribers` : '—',
+            detail: summary
+              ? locale === 'en'
+                ? `${summary.activeSubscribers} active subscribers`
+                : `${summary.activeSubscribers} مشتركاً نشطاً`
+              : '—',
             trend: summary?.activeSubscribers
               ? `${((summary.onlineSubscribers / summary.activeSubscribers) * 100).toFixed(1)}%`
               : '—',
-            trendLabel: 'currently online',
+            trendLabel: locale === 'en' ? 'currently online' : 'متصلون حالياً',
           };
         }
         return {
           ...kpi,
           value: '—',
-          detail: 'Projection not available',
+          detail: locale === 'en' ? 'Projection not available' : 'لا تتوفر قراءة حالية',
           trend: '',
           trendLabel: '',
         };
@@ -121,13 +132,24 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       onNavigate={navigate}
       context={{
         eyebrow: session ? 'ISP workspace · Authenticated' : copy.contextEyebrow,
-        title: session?.tenantId ?? copy.contextTitle,
-        meta: session ? 'Permission-scoped API data · Asia/Beirut' : copy.contextMeta,
+        title: session
+          ? locale === 'en'
+            ? 'Authenticated ISP workspace'
+            : 'مساحة عمل مزوّد الإنترنت'
+          : copy.contextTitle,
+        meta: session
+          ? `${locale === 'en' ? 'Workspace' : 'مساحة'} …${session.tenantId?.slice(-8) ?? ''} · Asia/Beirut`
+          : copy.contextMeta,
       }}
       contextAction={<StatusBadge tone="positive">{copy.branchStatus}</StatusBadge>}
       toolbar={
         <>
-          <button type="button" className="header-icon-button" aria-label={copy.searchLabel}>
+          <button
+            type="button"
+            className="header-icon-button"
+            aria-label={copy.searchLabel}
+            onClick={() => navigate('subscribers')}
+          >
             ⌕
           </button>
           <LocaleSwitcher
@@ -140,10 +162,10 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           <button
             type="button"
             className="user-chip"
-            aria-label={copy.userLabel}
+            aria-label={session ? (locale === 'en' ? 'Sign out' : 'تسجيل الخروج') : copy.userLabel}
             onClick={session?.logout}
           >
-            <span aria-hidden="true">RK</span>
+            <span aria-hidden="true">ISP</span>
           </button>
         </>
       }
@@ -207,11 +229,23 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           {session && summaryState !== 'ready' ? (
             <StatePanel
               variant={summaryState === 'loading' ? 'loading' : 'error'}
-              title={summaryState === 'loading' ? 'Loading authorized data' : 'Data unavailable'}
+              title={
+                summaryState === 'loading'
+                  ? locale === 'en'
+                    ? 'Loading authorized data'
+                    : 'جارٍ تحميل البيانات المصرح بها'
+                  : locale === 'en'
+                    ? 'Data unavailable'
+                    : 'البيانات غير متاحة'
+              }
               description={
                 summaryState === 'loading'
-                  ? 'The tenant summary is being read from the API.'
-                  : 'The authenticated tenant summary could not be loaded.'
+                  ? locale === 'en'
+                    ? 'The tenant summary is being read from the API.'
+                    : 'جارٍ قراءة ملخص مساحة العمل من الواجهة.'
+                  : locale === 'en'
+                    ? 'The authenticated tenant summary could not be loaded.'
+                    : 'تعذّر تحميل ملخص مساحة العمل المصرح به.'
               }
               actionLabel={summaryState === 'error' ? 'Retry' : undefined}
               onAction={() => {
@@ -225,6 +259,57 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
                   .catch(() => setSummaryState('error'));
               }}
             />
+          ) : null}
+
+          {session && summaryState === 'ready' && summary ? (
+            <div className="content-grid dashboard-block">
+              <Surface className="live-summary">
+                <div className="surface__header">
+                  <div>
+                    <h2>{locale === 'en' ? 'Live workspace pulse' : 'نبض مساحة العمل المباشر'}</h2>
+                    <p>
+                      {locale === 'en'
+                        ? 'Current permission-scoped API snapshot'
+                        : 'لقطة حالية مقيّدة بالصلاحيات'}
+                    </p>
+                  </div>
+                  <StatusBadge tone="positive">
+                    {locale === 'en' ? 'Connected' : 'متصل'}
+                  </StatusBadge>
+                </div>
+                <dl className="live-summary__facts">
+                  <div>
+                    <dt>{locale === 'en' ? 'Active subscribers' : 'المشتركون النشطون'}</dt>
+                    <dd>{summary.activeSubscribers}</dd>
+                  </div>
+                  <div>
+                    <dt>{locale === 'en' ? 'Online now' : 'متصلون الآن'}</dt>
+                    <dd>{summary.onlineSubscribers}</dd>
+                  </div>
+                  <div>
+                    <dt>{locale === 'en' ? 'Last snapshot' : 'آخر لقطة'}</dt>
+                    <dd>
+                      {new Date(summary.asOf).toLocaleTimeString(
+                        locale === 'en' ? 'en-LB' : 'ar-LB',
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              </Surface>
+              <Surface>
+                <div className="surface__header">
+                  <div>
+                    <h2>{copy.actionsTitle}</h2>
+                    <p>{copy.actionsDescription}</p>
+                  </div>
+                </div>
+                <div className="quick-actions">
+                  {copy.quickActions.map((action) => (
+                    <QuickAction key={action.id} {...action} onClick={() => navigate(action.id)} />
+                  ))}
+                </div>
+              </Surface>
+            </div>
           ) : null}
 
           {!session ? (
@@ -312,6 +397,12 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           locale={locale}
           initialTask={tenantOperationsTasks[activeNavigationId]}
           state="empty"
+          onSubmit={
+            session
+              ? (task, payload, idempotencyKey) =>
+                  submitTenantOperation(session, operationPath(task), payload, idempotencyKey)
+              : undefined
+          }
         />
       ) : (
         <TaskRouteView
@@ -322,4 +413,12 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       )}
     </AppShell>
   );
+}
+
+function formatMinor(amount: number, currency: 'USD' | 'LBP', locale: Locale): string {
+  return new Intl.NumberFormat(locale === 'en' ? 'en-LB' : 'ar-LB', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: currency === 'LBP' ? 0 : 2,
+  }).format(amount / 100);
 }
