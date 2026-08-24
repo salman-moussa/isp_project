@@ -5,7 +5,11 @@ import {
   decodeControlContextSecret,
   PostgresControlCenterService,
 } from './control-center-service.js';
-import { assertControlDatabaseReady, assertTenantDatabaseReady } from './readiness.js';
+import {
+  assertControlDatabaseReady,
+  assertHttpDependencyReady,
+  assertTenantDatabaseReady,
+} from './readiness.js';
 import { decodeOperationsContextSecret, PostgresOperationsService } from './operations-service.js';
 import { CollectApiService, PostgresCollectBackendRepository } from './collect-service.js';
 import { AuthService } from './auth-service.js';
@@ -76,6 +80,12 @@ const app = await buildApp(config, {
     await Promise.all([
       assertControlDatabaseReady(controlDatabase.client),
       assertTenantDatabaseReady(tenantDatabase.client),
+      assertHttpDependencyReady(
+        required(config.FINANCE_AUDIT_READINESS_URL, 'FINANCE_AUDIT_READINESS_URL'),
+      ),
+      assertHttpDependencyReady(
+        required(config.NETWORK_WORKER_READINESS_URL, 'NETWORK_WORKER_READINESS_URL'),
+      ),
     ]);
   },
 });

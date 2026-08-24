@@ -2,6 +2,26 @@ import type { createDatabase } from '@isp/database';
 
 type DatabaseClient = ReturnType<typeof createDatabase>['client'];
 
+export async function assertHttpDependencyReady(
+  url: string,
+  request: typeof fetch = fetch,
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
+  try {
+    const response = await request(url, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error('Required background service is not ready.');
+  } catch {
+    throw new Error('Required background service is not ready.');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function assertControlDatabaseReady(client: DatabaseClient): Promise<void> {
   const state = await client.begin(async (transaction) => {
     await transaction.unsafe('SET LOCAL ROLE orvex_control_runtime');
@@ -49,6 +69,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608112300_tenant_collect_sync.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608112500_tenant_network_worker.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5

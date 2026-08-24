@@ -120,6 +120,7 @@ export function AppShell({
   onNavigate,
   context,
   contextAction,
+  commandLabel,
   toolbar,
   supportBanner,
   children,
@@ -136,6 +137,7 @@ export function AppShell({
   onNavigate: (id: string) => void;
   context: ShellContext;
   contextAction?: ReactNode;
+  commandLabel?: string;
   toolbar?: ReactNode;
   supportBanner?: ReactNode;
   children: ReactNode;
@@ -143,9 +145,13 @@ export function AppShell({
   useDocumentLocale(locale);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [commandIndex, setCommandIndex] = useState(0);
   const mainRef = useRef<HTMLElement>(null);
   const navigationRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const commandInputRef = useRef<HTMLInputElement>(null);
   const firstRender = useRef(true);
   const wasMobileOpen = useRef(false);
 
@@ -204,6 +210,54 @@ export function AppShell({
     mainRef.current?.focus({ preventScroll: true });
   }, [activeNavigationId]);
 
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+      if (event.key === 'Escape') setCommandOpen(false);
+    };
+    document.addEventListener('keydown', handleShortcut);
+    return () => document.removeEventListener('keydown', handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (!commandOpen) return;
+    setCommandQuery('');
+    setCommandIndex(0);
+    requestAnimationFrame(() => commandInputRef.current?.focus());
+  }, [commandOpen]);
+
+  const normalizedQuery = commandQuery.trim().toLocaleLowerCase(locale);
+  const commandResults = navigation.filter((item) =>
+    item.label.toLocaleLowerCase(locale).includes(normalizedQuery),
+  );
+  const openCommand = (id: string) => {
+    onNavigate(id);
+    setCommandOpen(false);
+  };
+  const commandCopy =
+    locale === 'ar'
+      ? {
+          title: 'انتقل إلى أي مساحة',
+          placeholder: 'ابحث في الوحدات والمهام…',
+          empty: 'لا توجد مساحة مطابقة. جرّب عبارة أقصر.',
+          current: 'الحالية',
+          open: 'فتح',
+          close: 'إغلاق البحث السريع',
+          hint: 'للتنقّل',
+        }
+      : {
+          title: 'Go anywhere',
+          placeholder: 'Search modules and workspaces…',
+          empty: 'No matching workspace. Try a shorter phrase.',
+          current: 'Current',
+          open: 'Open',
+          close: 'Close quick search',
+          hint: 'to navigate',
+        };
+
   return (
     <>
       <a
@@ -218,7 +272,11 @@ export function AppShell({
       >
         {skipLabel}
       </a>
-      <div className="app-shell">
+      <div
+        className="app-shell"
+        inert={commandOpen ? true : undefined}
+        aria-hidden={commandOpen ? true : undefined}
+      >
         <aside
           className={cn('side-navigation', mobileOpen && 'is-open')}
           id="primary-navigation"
@@ -295,7 +353,20 @@ export function AppShell({
               </div>
               <span className="context-header__meta">{context.meta}</span>
             </div>
-            <div className="context-header__toolbar">{toolbar}</div>
+            <div className="context-header__toolbar">
+              {commandLabel && (
+                <button
+                  type="button"
+                  className="command-trigger"
+                  aria-label={commandLabel}
+                  onClick={() => setCommandOpen(true)}
+                >
+                  <span aria-hidden="true">⌕</span>
+                  <kbd aria-hidden="true">Ctrl K</kbd>
+                </button>
+              )}
+              {toolbar}
+            </div>
           </header>
           {supportBanner}
           <main id="main-content" className="workspace" tabIndex={-1} ref={mainRef}>
@@ -303,6 +374,105 @@ export function AppShell({
           </main>
         </div>
       </div>
+      {commandOpen && (
+        <div
+          className="command-layer"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setCommandOpen(false);
+          }}
+        >
+          <section
+            className="command-palette"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="command-palette-title"
+          >
+            <header className="command-palette__header">
+              <span className="command-palette__mark" aria-hidden="true">
+                ⌕
+              </span>
+              <div>
+                <h2 id="command-palette-title">{commandCopy.title}</h2>
+                <p>{productName}</p>
+              </div>
+              <button
+                type="button"
+                className="command-palette__close"
+                aria-label={commandCopy.close}
+                onClick={() => setCommandOpen(false)}
+              >
+                Esc
+              </button>
+            </header>
+            <input
+              ref={commandInputRef}
+              type="search"
+              className="command-palette__input"
+              aria-label={commandLabel}
+              placeholder={commandCopy.placeholder}
+              value={commandQuery}
+              onChange={(event) => {
+                setCommandQuery(event.target.value);
+                setCommandIndex(0);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setCommandIndex((value) =>
+                    commandResults.length ? (value + 1) % commandResults.length : 0,
+                  );
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setCommandIndex((value) =>
+                    commandResults.length
+                      ? (value - 1 + commandResults.length) % commandResults.length
+                      : 0,
+                  );
+                } else if (event.key === 'Enter' && commandResults[commandIndex]) {
+                  event.preventDefault();
+                  openCommand(commandResults[commandIndex].id);
+                }
+              }}
+            />
+            <div className="command-palette__results" role="listbox" aria-label={commandCopy.title}>
+              {commandResults.map((item, index) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={index === commandIndex}
+                  className={cn(index === commandIndex && 'is-active')}
+                  key={item.id}
+                  onMouseEnter={() => setCommandIndex(index)}
+                  onClick={() => openCommand(item.id)}
+                >
+                  <span className="command-palette__route-index" aria-hidden="true">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>
+                      {item.id === activeNavigationId ? commandCopy.current : commandCopy.open}
+                    </small>
+                  </span>
+                  <span aria-hidden="true">↗</span>
+                </button>
+              ))}
+              {!commandResults.length && (
+                <p className="command-palette__empty">{commandCopy.empty}</p>
+              )}
+            </div>
+            <footer className="command-palette__footer">
+              <span>
+                <kbd>↑</kbd>
+                <kbd>↓</kbd> {commandCopy.hint}
+              </span>
+              <span>
+                <kbd>↵</kbd> {commandCopy.open}
+              </span>
+            </footer>
+          </section>
+        </div>
+      )}
     </>
   );
 }

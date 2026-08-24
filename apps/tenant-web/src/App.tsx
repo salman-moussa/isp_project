@@ -142,16 +142,9 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           : copy.contextMeta,
       }}
       contextAction={<StatusBadge tone="positive">{copy.branchStatus}</StatusBadge>}
+      commandLabel={copy.searchLabel}
       toolbar={
         <>
-          <button
-            type="button"
-            className="header-icon-button"
-            aria-label={copy.searchLabel}
-            onClick={() => navigate('subscribers')}
-          >
-            ⌕
-          </button>
           <LocaleSwitcher
             locale={locale}
             onChange={setLocale}

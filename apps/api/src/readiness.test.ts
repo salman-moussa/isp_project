@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { assertControlDatabaseReady, assertTenantDatabaseReady } from './readiness.js';
+import {
+  assertControlDatabaseReady,
+  assertHttpDependencyReady,
+  assertTenantDatabaseReady,
+} from './readiness.js';
 
 type ControlClient = Parameters<typeof assertControlDatabaseReady>[0];
 type TenantClient = Parameters<typeof assertTenantDatabaseReady>[0];
@@ -28,8 +32,30 @@ describe('database readiness', () => {
     expect(query).toContain('list_finance_audit_relay_tenants');
     expect(query).toContain('202608112200_tenant_operations_core.sql');
     expect(query).toContain('202608112300_tenant_collect_sync.sql');
+    expect(query).toContain('202608112500_tenant_network_worker.sql');
     expect(query).toContain('collect_devices');
     expect(query).toContain('operations_readiness');
+  });
+
+  it('requires each background service readiness endpoint to succeed', async () => {
+    let observed: { readonly input: RequestInfo | URL; readonly init?: RequestInit } | undefined;
+    const ready: typeof fetch = async (input, init) => {
+      observed = { input, ...(init ? { init } : {}) };
+      return new Response('{"status":"ready"}', { status: 200 });
+    };
+    await expect(
+      assertHttpDependencyReady('http://worker.internal/ready', ready),
+    ).resolves.toBeUndefined();
+    expect(observed?.input).toBe('http://worker.internal/ready');
+    expect(observed?.init).toMatchObject({ method: 'GET' });
+    expect(observed?.init?.signal).toBeInstanceOf(AbortSignal);
+
+    await expect(
+      assertHttpDependencyReady(
+        'http://worker.internal/ready',
+        vi.fn(async () => new Response('{"status":"degraded"}', { status: 503 })),
+      ),
+    ).rejects.toThrow('background service');
   });
 
   it('fails closed when the finance guard invariant is absent', async () => {

@@ -246,16 +246,9 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           : { eyebrow: copy.contextEyebrow, title: copy.contextTitle, meta: copy.contextMeta }
       }
       contextAction={<StatusBadge tone="positive">{copy.operatorStatus}</StatusBadge>}
+      commandLabel={copy.searchLabel}
       toolbar={
         <>
-          <button
-            type="button"
-            className="header-icon-button"
-            aria-label={copy.searchLabel}
-            onClick={() => navigate('clients')}
-          >
-            ⌕
-          </button>
           <LocaleSwitcher
             locale={locale}
             onChange={setLocale}

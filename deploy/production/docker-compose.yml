@@ -111,6 +111,8 @@ services:
         ${AUTH_TOKEN_DIGEST_SECRET_BASE64:?AUTH_TOKEN_DIGEST_SECRET_BASE64 is required}
       AUTH_DELIVERY_BASE_URL: https://isp.mosesgr.com/_auth-delivery-not-configured/
       AUTH_DELIVERY_TOKEN: ${AUTH_DELIVERY_TOKEN:?AUTH_DELIVERY_TOKEN is required}
+      FINANCE_AUDIT_READINESS_URL: http://finance-audit-relay:9464/ready
+      NETWORK_WORKER_READINESS_URL: http://network-worker:8092/ready
       CORS_ORIGINS: https://isp.mosesgr.com
     networks:
       application:
@@ -139,6 +141,29 @@ services:
       FINANCE_AUDIT_HEALTH_PORT: '9464'
       FINANCE_AUDIT_READINESS_MAX_BACKLOG_COUNT: '500'
       FINANCE_AUDIT_READINESS_MAX_BACKLOG_AGE_MS: '120000'
+    networks: [application, data]
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+
+  network-worker:
+    build:
+      context: ../..
+      dockerfile: workers/network-worker/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    depends_on:
+      provision-context: { condition: service_completed_successfully }
+    environment:
+      NETWORK_WORKER_MODE: configured
+      NETWORK_WORKER_PORT: '8092'
+      NETWORK_WORKER_ID: orvex-network-worker-production-1
+      NETWORK_DATABASE_URL: postgresql://orvex_network_worker:${ORVEX_NETWORK_WORKER_DB_PASSWORD}@postgres:5432/orvex_tenant
+      NETWORK_ROUTER_ALLOWED_ORIGINS: ${NETWORK_ROUTER_ALLOWED_ORIGINS:-https://router-activation-required.invalid}
+      NETWORK_SECRET_FILES_JSON: ${NETWORK_SECRET_FILES_JSON:-{}}
     networks: [application, data]
     read_only: true
     tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']

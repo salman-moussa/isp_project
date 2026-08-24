@@ -7,9 +7,9 @@ health/polling process with
 `NETWORK_WORKER_MODE=simulator npm run start --workspace=@isp/network-worker`. Build the container
 from the repository root with `docker build -f workers/network-worker/Dockerfile .`. The runtime
 image uses the unprivileged `node` user and writes no local state, so it is compatible with a
-read-only root filesystem. `configured` mode intentionally refuses to start from the standalone
-entrypoint: the application composition root must inject the production durable store and official
-RouterOS adapter. This prevents an accidental production fallback to in-memory jobs or a simulator.
+read-only root filesystem. Production Compose runs `configured` mode against the durable tenant
+PostgreSQL queue. It accepts only registered HTTPS router origins and resolves credentials from
+explicit files below `/run/secrets`; absent activation inputs remain fail-closed.
 
 The Network Worker is the only component allowed to communicate with configured RouterOS endpoints.
 Core API integration must implement the `DurableNetworkStore` boundary with a transactional durable
@@ -43,19 +43,23 @@ success, slow response, timeout/uncertainty, authentication failure, offline rou
 result, rate limit, inconsistent observed state, and reconnect. The adapter is an in-process
 behavior simulator; it does not imitate an undocumented RouterOS endpoint.
 
-## Integration hooks for the composition owner
+## Integration and activation
 
-1. Add `@isp/network-worker` to the root worker build and validation scripts.
-2. Implement `DurableNetworkStore` on the tenant PostgreSQL network-job tables with atomic claim
-   semantics (`FOR UPDATE SKIP LOCKED` or equivalent), unique `(tenant_id, idempotency_key)`,
-   append- only attempts, and an observable dead-letter queue.
-3. Resolve router registrations and secret references tenant-locally; the worker must never accept a
-   caller-supplied endpoint not present in the registry.
-4. Expose only tenant-authorized enqueue/status/cancel/manual-retry commands from Core API. Use the
+The root build, tenant migrations, production container, durable PostgreSQL store, operations-event
+bridge, and aggregate readiness probe are composed. To activate a real RouterOS connection:
+
+1. Register the router and subscriber-service binding through the privileged DBA provisioning path.
+2. Mount each referenced credential file below `/run/secrets` and map only its `secret://` reference
+   in `NETWORK_SECRET_FILES_JSON`.
+3. Add the exact HTTPS router or secure site-connector origin to `NETWORK_ROUTER_ALLOWED_ORIGINS`;
+   the worker must never accept a caller-supplied endpoint not present in the registry.
+4. Exercise authentication, read-back reconciliation, timeout, and rollback behavior in the approved
+   RouterOS lab before production activation.
+5. Expose only tenant-authorized enqueue/status/cancel/manual-retry commands from Core API. Use the
    immutable bulk preview/approval model for bulk work.
-5. Run worker queues separately from authentication, payments, billing, exports, and provider
+6. Run worker queues separately from authentication, payments, billing, exports, and provider
    webhooks so router slowness cannot starve other workloads.
-6. Add deployment egress rules and a least-privilege RouterOS account. Validate connection and
+7. Add deployment egress rules and a least-privilege RouterOS account. Validate connection and
    health before activation.
 
 ## Operations

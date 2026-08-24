@@ -130,6 +130,22 @@ describe('Orvex ISP Operations shell', () => {
     expect(results.violations).toEqual([]);
   });
 
+  it('opens the bilingual command center from the keyboard and navigates directly', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+    expect(screen.getByRole('dialog', { name: 'Go anywhere' })).toBeVisible();
+    const search = screen.getByRole('searchbox', {
+      name: 'Search subscribers, invoices, or receipts',
+    });
+    await user.type(search, 'payments');
+    await user.click(screen.getByRole('option', { name: /Payments & cashier/ }));
+
+    expect(window.location.hash).toBe('#/payments');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('loads a deep link and follows browser back and forward history events', async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, '', '#/payments');

@@ -14,10 +14,13 @@ Create `.env` from `.env.example` with generated secrets, then run:
 docker compose --env-file .env -f deploy/production/docker-compose.yml up -d --build
 ```
 
-Migrations and signing-key provisioning run as one-shot prerequisites. Authentication delivery is
-deliberately fail-closed until an approved HTTPS OTP/recovery provider replaces the placeholder URL.
-Bootstrap user credentials must be created through the DBA-controlled release procedure and must not
-be committed.
+Migrations and signing-key provisioning run as one-shot prerequisites. Public readiness covers the
+API databases, finance audit relay, and durable Network Worker. The worker starts fail-closed with
+no RouterOS credential mapping; activate a router only after mounting secret files below
+`/run/secrets`, setting its allowed HTTPS origin, and completing the RouterOS acceptance checklist.
+Authentication delivery is deliberately fail-closed until an approved HTTPS OTP/recovery provider
+replaces the placeholder URL. Bootstrap user credentials must be created through the DBA-controlled
+release procedure and must not be committed.
 
 ## Live verification
 
