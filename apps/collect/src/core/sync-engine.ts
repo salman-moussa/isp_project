@@ -1,6 +1,6 @@
-import type { Clock, CollectSyncEndpoint, SyncOutcome } from './adapters.js';
-import { CollectAccessError, type CollectState, type OutboxOperation } from './model.js';
-import type { CollectStore } from './storage.js';
+import type { Clock, CollectSyncEndpoint, SyncOutcome } from './adapters';
+import { CollectAccessError, type CollectState, type OutboxOperation } from './model';
+import type { CollectStore } from './storage';
 
 function readyOperations(state: CollectState, batchSize: number): OutboxOperation[] {
   const completed = new Set(

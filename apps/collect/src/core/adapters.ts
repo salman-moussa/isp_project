@@ -1,4 +1,4 @@
-import type { OutboxOperation } from './model.js';
+import type { OutboxOperation } from './model';
 
 export interface Clock {
   now(): Date;

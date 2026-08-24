@@ -84,9 +84,9 @@ vi.mock('expo-file-system', () => {
   return { File: TestFile, Paths: { document: 'document:' } };
 });
 
-import { createEmptyState } from '../src/core/model.js';
-import { ExpoAesGcmStateDriver, ExpoSecureDeviceKeyVault } from '../src/core/production-storage.js';
-import { EncryptedCollectStore } from '../src/core/storage.js';
+import { createEmptyState } from '../src/core/model';
+import { ExpoAesGcmStateDriver, ExpoSecureDeviceKeyVault } from '../src/core/production-storage';
+import { EncryptedCollectStore } from '../src/core/storage';
 
 describe('Collect production encrypted storage', () => {
   beforeEach(() => {

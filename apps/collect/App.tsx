@@ -1,3 +1,3 @@
-import { ProductionCollectRoot } from './src/ui/ProductionCollectRoot.js';
+import { ProductionCollectRoot } from './src/ui/ProductionCollectRoot';
 
 export default ProductionCollectRoot;

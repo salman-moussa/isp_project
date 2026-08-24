@@ -8,8 +8,8 @@ import {
 import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 
-import type { CollectState } from './model.js';
-import type { DeviceKeyVault, StateDatabaseDriver } from './storage.js';
+import type { CollectState } from './model';
+import type { DeviceKeyVault, StateDatabaseDriver } from './storage';
 
 const KEY_NAME = 'orvex.collect.state-key.v1';
 const STATE_FILE = 'orvex-collect-state-v1.bin';

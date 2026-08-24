@@ -5,23 +5,23 @@ import type {
   CollectorSession,
   DeviceRegistration,
   PaymentInput,
-} from '../src/core/model.js';
-import { CollectAccessError, CollectValidationError } from '../src/core/model.js';
-import { CollectService } from '../src/core/collect-service.js';
+} from '../src/core/model';
+import { CollectAccessError, CollectValidationError } from '../src/core/model';
+import { CollectService } from '../src/core/collect-service';
 import {
   FakeClock,
   FakePrinter,
   FakeSyncEndpoint,
   SequenceIds,
   StableTestHasher,
-} from '../src/core/fakes.js';
+} from '../src/core/fakes';
 import {
   EncryptedCollectStore,
   DurableMemoryDriver,
   MemoryKeyVault,
   type StateDatabaseDriver,
-} from '../src/core/storage.js';
-import { CollectSyncEngine } from '../src/core/sync-engine.js';
+} from '../src/core/storage';
+import { CollectSyncEngine } from '../src/core/sync-engine';
 
 const clock = new FakeClock();
 const device: DeviceRegistration = {

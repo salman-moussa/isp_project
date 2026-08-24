@@ -9,17 +9,17 @@ import {
   View,
 } from 'react-native';
 
-import { CollectService } from '../core/collect-service.js';
-import type { CollectState } from '../core/model.js';
+import { CollectService } from '../core/collect-service';
+import type { CollectState } from '../core/model';
 import {
   ProductionCollectApi,
   ExpoPayloadHasher,
   ExpoUuidGenerator,
-} from '../core/production-api.js';
-import { ExpoAesGcmStateDriver, ExpoSecureDeviceKeyVault } from '../core/production-storage.js';
-import { EncryptedCollectStore } from '../core/storage.js';
-import { CollectSyncEngine } from '../core/sync-engine.js';
-import { CollectApp } from './CollectApp.js';
+} from '../core/production-api';
+import { ExpoAesGcmStateDriver, ExpoSecureDeviceKeyVault } from '../core/production-storage';
+import { EncryptedCollectStore } from '../core/storage';
+import { CollectSyncEngine } from '../core/sync-engine';
+import { CollectApp } from './CollectApp';
 
 declare const process: { readonly env: { readonly EXPO_PUBLIC_API_BASE_URL?: string } };
 

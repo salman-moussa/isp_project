@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import type { CollectSyncEndpoint, PayloadHasher, SyncResponse } from './adapters.js';
-import type { Assignment, OutboxOperation } from './model.js';
+import type { CollectSyncEndpoint, PayloadHasher, SyncResponse } from './adapters';
+import type { Assignment, OutboxOperation } from './model';
 
 const TOKENS_KEY = 'orvex.collect.tokens.v1';
 const DEVICE_KEY = 'orvex.collect.device-thumbprint.v1';

@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator, PayloadHasher, ReceiptPrinter } from './adapters.js';
+import type { Clock, IdGenerator, PayloadHasher, ReceiptPrinter } from './adapters';
 import {
   CollectAccessError,
   CollectValidationError,
@@ -13,8 +13,8 @@ import {
   type PaymentMethod,
   type ReconciliationDraft,
   type ReconciliationLine,
-} from './model.js';
-import type { CollectStore } from './storage.js';
+} from './model';
+import type { CollectStore } from './storage';
 
 const CLOCK_SKEW_EVIDENCE_MS = 5 * 60 * 1000;
 

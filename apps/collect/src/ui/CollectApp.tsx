@@ -11,8 +11,8 @@ import {
   View,
 } from 'react-native';
 
-import type { Assignment, Currency, PaymentMethod } from '../core/model.js';
-import { t, type Locale } from './copy.js';
+import type { Assignment, Currency, PaymentMethod } from '../core/model';
+import { t, type Locale } from './copy';
 
 export interface CollectAppProps {
   readonly assignments: readonly Assignment[];

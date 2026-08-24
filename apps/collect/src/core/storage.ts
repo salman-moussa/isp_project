@@ -1,4 +1,4 @@
-import { createEmptyState, type CollectState } from './model.js';
+import { createEmptyState, type CollectState } from './model';
 
 export interface DeviceKeyVault {
   getOrCreateDatabaseKey(): Promise<Uint8Array>;

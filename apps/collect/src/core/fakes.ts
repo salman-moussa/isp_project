@@ -6,8 +6,8 @@ import type {
   PrintReceiptRequest,
   ReceiptPrinter,
   SyncResponse,
-} from './adapters.js';
-import type { OutboxOperation } from './model.js';
+} from './adapters';
+import type { OutboxOperation } from './model';
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
