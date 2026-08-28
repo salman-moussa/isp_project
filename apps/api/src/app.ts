@@ -51,6 +51,8 @@ import { registerCollectRoutes } from './routes/collect/index.js';
 import type { CollectApiService } from './collect-service.js';
 import type { AuthService } from './auth-service.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerTenantStaffRoute } from './routes/tenant-staff.js';
+import type { TenantStaffReader } from './staff.js';
 
 export interface AppDependencies {
   readonly audit?: AuditWriter;
@@ -66,6 +68,7 @@ export interface AppDependencies {
   readonly operations?: OperationsWriter;
   readonly collect?: CollectApiService;
   readonly auth?: AuthService | ((app: FastifyInstance) => AuthService);
+  readonly staff?: TenantStaffReader;
 }
 
 export async function buildApp(
@@ -186,6 +189,13 @@ export async function buildApp(
     securityAudit,
     now,
   });
+  if (dependencies.staff) {
+    registerTenantStaffRoute(app, {
+      audit: dependencies.audit ?? new MemoryAuditWriter(),
+      staff: dependencies.staff,
+      now,
+    });
+  }
   registerTenantFinanceRoutes(app, {
     audit: dependencies.audit ?? new MemoryAuditWriter(),
     finance: dependencies.finance ?? new UnconfiguredFinanceWriter(),

@@ -5,6 +5,7 @@ import {
   isSessionActive,
   readApprovedSupportGrant,
   readTenantSummary,
+  readTenantStaff,
   postInvoice,
   postPayment,
   readActiveTenantMembership,
@@ -29,6 +30,7 @@ import type {
 } from './authentication.js';
 import type { TenantSummaryReader } from './summary.js';
 import type { SecurityAuditEvent, SecurityAuditWriter } from './security-audit.js';
+import type { TenantStaffReader } from './staff.js';
 import type {
   FinanceAllocationReversal,
   FinanceAllocationWrite,
@@ -118,6 +120,14 @@ export class PostgresTenantSummaryReader implements TenantSummaryReader {
 
   public async read(tenantId: VerifiedTenantId, at: Date) {
     return readTenantSummary(this.database, tenantId, at);
+  }
+}
+
+export class PostgresTenantStaffReader implements TenantStaffReader {
+  public constructor(private readonly database: Database) {}
+
+  public read(tenantId: VerifiedTenantId) {
+    return readTenantStaff(this.database, tenantId);
   }
 }
 

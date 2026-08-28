@@ -29,6 +29,7 @@ import {
 } from './operations/OperationsWorkspace';
 import { tenantRoutes } from './routes';
 import { readTenantSummary, submitTenantOperation, type TenantSummary } from './api';
+import { StaffWorkspace } from './staff/StaffWorkspace';
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -385,6 +386,8 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
             </>
           ) : null}
         </>
+      ) : activeNavigationId === 'staff' && session ? (
+        <StaffWorkspace locale={locale} session={session} />
       ) : tenantOperationsTasks[activeNavigationId] ? (
         <OperationsWorkspace
           locale={locale}

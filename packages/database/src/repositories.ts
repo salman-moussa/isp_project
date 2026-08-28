@@ -7,6 +7,7 @@ import {
   supportGrants,
   tenantDashboardSnapshots,
   tenantMemberships,
+  users,
 } from './schema.js';
 import { inTenantTransaction } from './tenant-transaction.js';
 
@@ -38,6 +39,66 @@ export interface ActiveTenantMembership {
   readonly areaIds?: readonly string[];
   readonly routeIds?: readonly string[];
   readonly recordIds?: readonly string[];
+}
+
+export interface TenantStaffMember {
+  readonly id: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly roleKey: string;
+  readonly permissions: readonly string[];
+  readonly active: boolean;
+  readonly mfaRequired: boolean;
+  readonly disabled: boolean;
+  readonly authorizationVersion: number;
+  readonly scope: {
+    readonly branchIds?: readonly string[];
+    readonly areaIds?: readonly string[];
+    readonly routeIds?: readonly string[];
+    readonly recordIds?: readonly string[];
+  };
+  readonly createdAt: string;
+}
+
+/** Permission-scoped tenant staff directory; password material is never selected. */
+export async function readTenantStaff(
+  database: Database,
+  tenantId: VerifiedTenantId,
+): Promise<readonly TenantStaffMember[]> {
+  return inControlTenantTransaction(database, tenantId, async (transaction) => {
+    const rows = await transaction
+      .select({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        roleKey: tenantMemberships.roleKey,
+        permissions: tenantMemberships.permissions,
+        active: tenantMemberships.active,
+        mfaRequired: users.mfaRequired,
+        disabledAt: users.disabledAt,
+        authorizationVersion: tenantMemberships.authorizationVersion,
+        scope: tenantMemberships.scope,
+        createdAt: tenantMemberships.createdAt,
+      })
+      .from(tenantMemberships)
+      .innerJoin(users, eq(users.id, tenantMemberships.userId))
+      .where(eq(tenantMemberships.tenantId, tenantId))
+      .orderBy(users.displayName, users.email);
+
+    return rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      displayName: row.displayName,
+      roleKey: row.roleKey,
+      permissions: [...row.permissions],
+      active: row.active,
+      mfaRequired: row.mfaRequired,
+      disabled: row.disabledAt !== null,
+      authorizationVersion: safeInteger(row.authorizationVersion, 'authorizationVersion'),
+      scope: readAuthorizationScope(row.scope),
+      createdAt: row.createdAt.toISOString(),
+    }));
+  });
 }
 
 /** Canonical tenant authorization used to reject stale or narrowed session claims. */

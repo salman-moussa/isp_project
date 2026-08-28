@@ -22,6 +22,7 @@ import {
   PostgresSupportGrantStatusReader,
   PostgresTenantMembershipStatusReader,
   PostgresTenantSummaryReader,
+  PostgresTenantStaffReader,
 } from './postgres-adapters.js';
 
 const config = readConfig(process.env);
@@ -44,6 +45,7 @@ const app = await buildApp(config, {
   tenantMemberships: new PostgresTenantMembershipStatusReader(authControlDatabase.db),
   supportGrants: new PostgresSupportGrantStatusReader(authControlDatabase.db),
   summaries: new PostgresTenantSummaryReader(tenantDatabase.db),
+  staff: new PostgresTenantStaffReader(authControlDatabase.db),
   controlCenter: new PostgresControlCenterService(controlDatabase.db, {
     keyId: config.CONTROL_CONTEXT_KEY_ID,
     secret: decodeControlContextSecret(config.CONTROL_CONTEXT_SECRET_BASE64),

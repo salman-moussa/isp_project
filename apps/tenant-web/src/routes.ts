@@ -240,6 +240,32 @@ const english = buildRoutes(
         ['Open collectors', 'Review field-team assignments', 'collectors'],
       ],
     ],
+    staff: [
+      'Identity & access',
+      'Staff & access center',
+      'Authenticated administrators see the real tenant directory, role assignments, MFA policy, account state, and authorization scope.',
+      [
+        [
+          'Credential exposure',
+          'None',
+          'Passwords and secrets are never returned',
+          'Protected',
+          'positive',
+        ],
+        ['Required permission', 'User admin', 'tenant.user.administer', 'Enforced', 'primary'],
+        [
+          'Read evidence',
+          'Audited',
+          'Every directory read is attributable',
+          'Recorded',
+          'positive',
+        ],
+      ],
+      'Protected directory',
+      'Sign in with tenant-user administration permission to load production identities.',
+      [['Staff identities', 'Protected', 'No demonstration accounts are shown', 'primary']],
+      [['Open configuration', 'Continue tenant governance', 'configuration']],
+    ],
   },
   {
     queue: 'Work queue',
@@ -438,6 +464,20 @@ const arabic = buildRoutes(
         ['فتح التقارير', 'مراجعة دليل الحوكمة والتدقيق', 'reports'],
         ['فتح الجباة', 'مراجعة تعيينات الفريق الميداني', 'collectors'],
       ],
+    ],
+    staff: [
+      'الهوية والوصول',
+      'مركز الفريق والصلاحيات',
+      'يرى المسؤولون المصرحون دليل المستأجر الحقيقي والأدوار وسياسة التحقق وحالة الحساب ونطاق الصلاحيات.',
+      [
+        ['كشف بيانات الاعتماد', 'لا يوجد', 'لا تُعرض كلمات المرور أو الأسرار', 'محمي', 'positive'],
+        ['الصلاحية المطلوبة', 'إدارة المستخدمين', 'tenant.user.administer', 'مطبّقة', 'primary'],
+        ['دليل القراءة', 'مدقق', 'كل قراءة منسوبة لصاحبها', 'مسجل', 'positive'],
+      ],
+      'الدليل المحمي',
+      'سجّل الدخول بصلاحية إدارة المستخدمين لتحميل الهويات الفعلية.',
+      [['هويات الفريق', 'محمية', 'لا يتم عرض حسابات تجريبية', 'primary']],
+      [['فتح الإعدادات', 'متابعة حوكمة المستأجر', 'configuration']],
     ],
   },
   {

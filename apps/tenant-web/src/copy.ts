@@ -129,6 +129,7 @@ const english: TenantCopy = {
     { id: 'installations', label: 'Installations' },
     { id: 'support', label: 'Internal support' },
     { id: 'reports', label: 'Reports' },
+    { id: 'staff', label: 'Staff & access' },
     { id: 'configuration', label: 'Configuration' },
   ],
   kpis: [
@@ -403,6 +404,7 @@ const arabic: TenantCopy = {
     { id: 'installations', label: 'التركيبات' },
     { id: 'support', label: 'الدعم الداخلي' },
     { id: 'reports', label: 'التقارير' },
+    { id: 'staff', label: 'الفريق والصلاحيات' },
     { id: 'configuration', label: 'الإعدادات' },
   ],
   kpis: [

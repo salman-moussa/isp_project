@@ -50,6 +50,11 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
+- H1 has started with a real tenant Staff & Access Center: the authenticated API reads tenant-scoped
+  identity and membership metadata from the control plane, requires `tenant.user.administer`, omits
+  all credential material, records allowed/denied evidence, and drives a bilingual responsive UI
+  with search, role filtering, MFA/account posture, scope, and collector counts. Invitation,
+  lifecycle mutation, session revocation, and recovery remain the next H1 sub-tranche.
 - Orvex ISP Collect includes the offline queue, idempotent synchronization, device enrollment and
   rotation, receipt handling, conflict recovery, bilingual/RTL presentation, and the backend API and
   database vertical. Its focused security and offline-day invariant tests are included in the root
