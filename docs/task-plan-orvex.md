@@ -2,23 +2,34 @@
 
 Status values: `Pending`, `In progress`, `Blocked`, `Verified`.
 
-| Gate | Work                                                       | Owner                           | Dependencies      | Evidence required                           | Status      |
-| ---- | ---------------------------------------------------------- | ------------------------------- | ----------------- | ------------------------------------------- | ----------- |
-| A0   | Capture pre-remediation baseline and audit                 | Lead + independent audit agents | None              | Commit, commands, audit report              | Verified    |
-| A1   | Controlled Orvex product identity migration                | Brand/UX                        | A0                | Scan, focused tests/build, ADR              | Verified    |
-| A2   | Runnable compiled API artifact                             | Lead                            | A0                | Ordered build and health smoke              | Verified    |
-| A3   | Restricted database roles and migration hardening          | Database                        | A0                | Static checks plus live role proof          | Verified    |
-| A4   | Verified tenant capability and denial-audit repair         | Lead + Database                 | A3                | API and live pool/isolation tests           | Verified    |
-| A5   | Canonical sessions, permissions, and support grants        | Identity/API                    | A3, A4            | Revocation/narrowing/approval matrix        | Verified    |
-| A6   | API contracts, OpenAPI, readiness, redaction               | API                             | A4, A5            | Contract and dependency-failure tests       | Verified    |
-| B1   | Official-source competitive/no-copy research               | UX research                     | A0                | Reviewed research document                  | Verified    |
-| B2   | Orvex tokens and component catalogue                       | Design system                   | A1, B1            | EN/AR, a11y/RTL/catalog build evidence      | Verified    |
-| B3   | Secure Control and Operations reference routes             | Web                             | A5, A6, B2        | Functional and independent UX review        | Verified    |
-| C    | Control Center reference domain and production composition | Control Center team             | Phase B           | Signed approval, billing, state-relay E2E   | Verified    |
-| D    | ISP Operations reference domain and production composition | Operations team                 | Phase B           | Signed scope, concurrency, audit-relay E2E  | Verified    |
-| E    | Orvex ISP Collect                                          | Mobile team                     | Phase D contracts | Offline-day fault matrix                    | Verified    |
-| F    | Network Worker and provider adapters                       | Network/Integrations            | Phase D contracts | Simulator/provider contract matrix          | Verified    |
-| G    | Scale, security, DR, and release candidate                 | SRE + QA + Security             | C–F               | Load, DAST, restore, rollback, final review | In progress |
+| Gate | Work                                                        | Owner                           | Dependencies      | Evidence required                            | Status      |
+| ---- | ----------------------------------------------------------- | ------------------------------- | ----------------- | -------------------------------------------- | ----------- |
+| A0   | Capture pre-remediation baseline and audit                  | Lead + independent audit agents | None              | Commit, commands, audit report               | Verified    |
+| A1   | Controlled Orvex product identity migration                 | Brand/UX                        | A0                | Scan, focused tests/build, ADR               | Verified    |
+| A2   | Runnable compiled API artifact                              | Lead                            | A0                | Ordered build and health smoke               | Verified    |
+| A3   | Restricted database roles and migration hardening           | Database                        | A0                | Static checks plus live role proof           | Verified    |
+| A4   | Verified tenant capability and denial-audit repair          | Lead + Database                 | A3                | API and live pool/isolation tests            | Verified    |
+| A5   | Canonical sessions, permissions, and support grants         | Identity/API                    | A3, A4            | Revocation/narrowing/approval matrix         | Verified    |
+| A6   | API contracts, OpenAPI, readiness, redaction                | API                             | A4, A5            | Contract and dependency-failure tests        | Verified    |
+| B1   | Official-source competitive/no-copy research                | UX research                     | A0                | Reviewed research document                   | Verified    |
+| B2   | Orvex tokens and component catalogue                        | Design system                   | A1, B1            | EN/AR, a11y/RTL/catalog build evidence       | Verified    |
+| B3   | Secure Control and Operations reference routes              | Web                             | A5, A6, B2        | Functional and independent UX review         | Verified    |
+| C    | Control Center reference domain and production composition  | Control Center team             | Phase B           | Signed approval, billing, state-relay E2E    | Verified    |
+| D    | ISP Operations reference domain and production composition  | Operations team                 | Phase B           | Signed scope, concurrency, audit-relay E2E   | Verified    |
+| E    | Orvex ISP Collect                                           | Mobile team                     | Phase D contracts | Offline-day fault matrix                     | Verified    |
+| F    | Network Worker and provider adapters                        | Network/Integrations            | Phase D contracts | Simulator/provider contract matrix           | Verified    |
+| G    | Scale, security, DR, and release candidate                  | SRE + QA + Security             | C–F               | Load, DAST, restore, rollback, final review  | In progress |
+| H1   | Enterprise capability truth and tenant staff administration | Product + Identity + Web        | A5, D, E          | Capability map, staff/role/MFA/collector E2E | In progress |
+| H2   | CRM, catalogue, qualification, and service orders           | Sales + Operations              | H1                | Lead-to-activated-service E2E                | Pending     |
+| H3   | Resource inventory, warehouse, field service, AAA and IPAM  | Network + Field + Inventory     | H2                | Order-to-resource-to-network E2E             | Pending     |
+| H4   | NOC, assurance, capacity, CPE, QoS and regulatory reporting | NOC + Compliance                | H3                | Alarm-to-impact-to-restoration E2E           | Pending     |
+| H5   | Rating, accounting, revenue assurance, channels and dealers | Finance + Revenue               | H2, H3            | Usage-to-ledger-to-settlement E2E            | Pending     |
+| H6   | Enterprise care, documents, people operations and analytics | Care + Administration           | H1–H5             | Complaint-to-close plus management close E2E | Pending     |
+| H7   | Enterprise production acceptance                            | QA + Security + Owners          | H1–H6             | Scale, DAST, DR, hardware and owner approval | Pending     |
+
+The H-series expansion is controlled by `docs/product/enterprise-capability-map.md`. Earlier
+verified gates remain valid foundation evidence; they do not imply that the newly expanded
+enterprise capabilities are complete.
 
 ## Historical file ownership rules
 
