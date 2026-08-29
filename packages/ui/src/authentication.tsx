@@ -6,6 +6,8 @@ export interface ApiSession {
   readonly tenantId?: string;
   readonly apiBaseUrl: string;
   readonly logout: () => void;
+  readonly startMfaStepUp?: () => Promise<MfaChallenge>;
+  readonly completeMfaStepUp?: (challengeId: string, code: string) => Promise<void>;
 }
 
 interface SessionTokens {
@@ -20,6 +22,7 @@ interface SessionTokens {
 interface MfaChallenge {
   readonly status: 'mfa_required';
   readonly challengeId: string;
+  readonly expiresAt?: string;
 }
 
 export function AuthenticationGate(props: {
@@ -78,12 +81,46 @@ export function AuthenticationGate(props: {
     return () => window.clearTimeout(timer);
   }, [props.apiBaseUrl, storageKey, stored]);
   if (stored) {
+    const startMfaStepUp = async (): Promise<MfaChallenge> => {
+      const response = await fetch(`${props.apiBaseUrl}/v1/auth/mfa/step-up`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${stored.accessToken}` },
+      });
+      const payload = (await response.json()) as MfaChallenge & {
+        readonly error?: { readonly message?: string };
+      };
+      if (!response.ok || payload.status !== 'mfa_required') {
+        throw new Error(payload.error?.message ?? 'MFA step-up could not be started.');
+      }
+      return payload;
+    };
+    const completeMfaStepUp = async (stepUpChallengeId: string, stepUpCode: string) => {
+      const response = await fetch(`${props.apiBaseUrl}/v1/auth/mfa/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          challengeId: stepUpChallengeId,
+          code: stepUpCode,
+          deviceLabel: 'Web browser · step-up',
+        }),
+      });
+      const payload = (await response.json()) as SessionTokens & {
+        readonly error?: { readonly message?: string };
+      };
+      if (!response.ok || payload.status !== 'authenticated') {
+        throw new Error(payload.error?.message ?? 'MFA verification failed.');
+      }
+      sessionStorage.setItem(storageKey, JSON.stringify(payload));
+      setStored(payload);
+    };
     return props.children({
       accessToken: stored.accessToken,
       refreshToken: stored.refreshToken,
       ...(props.audience === 'tenant' ? { tenantId } : {}),
       apiBaseUrl: props.apiBaseUrl,
       logout,
+      startMfaStepUp,
+      completeMfaStepUp,
     });
   }
 

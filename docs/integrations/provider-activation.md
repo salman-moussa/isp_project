@@ -63,6 +63,23 @@ The HMAC framing in the shared fake is a test contract, not a claim about any pr
 scheme. A live adapter must implement and test the official scheme without weakening timestamp or
 replay protection.
 
+## Staff invitation delivery contract
+
+Production authentication delivery must expose `POST /v1/staff-invitations/messages` behind the
+configured `AUTH_DELIVERY_BASE_URL`. Orvex authenticates with the configured bearer token and sends
+`invitationId`, `tenantId`, `email`, `displayName`, the opaque one-time `token`, and `expiresAt`.
+The provider must construct the browser link as `https://isp.mosesgr.com/#/staff-invitation/{token}`
+(or the approved deployment origin), deliver it only to the supplied staff address, and return a
+successful 2xx response only after durable provider acceptance.
+
+The token is credential material: never place it in query parameters, logs, analytics, exception
+messages, delivery receipts, or support tooling. Provider request/response logging must redact the
+token and authorization header. Enforce HTTPS, expiry, bounded retry, idempotency by `invitationId`,
+and delivery-status observability that contains no token. Live delivery remains
+`activation_required` until the provider contract, credentials, templates, sandbox receipt, failure
+handling, and production acceptance are supplied. Development delivery is deliberately inert and
+does not print tokens.
+
 ## Adapter-specific activation checks
 
 - POS/online: tokenization boundary, supported currencies, settlement, charge/refund lifecycle,

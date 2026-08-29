@@ -22,13 +22,19 @@ import {
   PostgresSupportGrantStatusReader,
   PostgresTenantMembershipStatusReader,
   PostgresTenantSummaryReader,
-  PostgresTenantStaffReader,
+  PostgresTenantStaffRepository,
 } from './postgres-adapters.js';
+import { TenantStaffService } from './staff.js';
+import { PostgresTenantStaffScopeService } from './staff-scope-service.js';
 
 const config = readConfig(process.env);
 const authControlDatabase = createDatabase(config.AUTH_CONTROL_DATABASE_URL);
 const controlDatabase = createDatabase(config.CONTROL_DATABASE_URL);
 const tenantDatabase = createDatabase(config.TENANT_DATABASE_URL);
+const operationsAuthority = {
+  keyId: config.OPERATIONS_CONTEXT_KEY_ID,
+  secret: decodeOperationsContextSecret(config.OPERATIONS_CONTEXT_SECRET_BASE64),
+};
 const sessionStatus = new PostgresSessionStatusReader(authControlDatabase.db);
 const authDelivery =
   config.NODE_ENV === 'production'
@@ -45,21 +51,26 @@ const app = await buildApp(config, {
   tenantMemberships: new PostgresTenantMembershipStatusReader(authControlDatabase.db),
   supportGrants: new PostgresSupportGrantStatusReader(authControlDatabase.db),
   summaries: new PostgresTenantSummaryReader(tenantDatabase.db),
-  staff: new PostgresTenantStaffReader(authControlDatabase.db),
+  staff: new TenantStaffService(
+    new PostgresTenantStaffRepository(authControlDatabase.db),
+    authDelivery,
+    decodeSecret(
+      required(config.AUTH_TOKEN_DIGEST_SECRET_BASE64, 'AUTH_TOKEN_DIGEST_SECRET_BASE64'),
+      'AUTH_TOKEN_DIGEST_SECRET_BASE64',
+    ),
+  ),
+  staffScopes: new PostgresTenantStaffScopeService(tenantDatabase.db, operationsAuthority),
   controlCenter: new PostgresControlCenterService(controlDatabase.db, {
     keyId: config.CONTROL_CONTEXT_KEY_ID,
     secret: decodeControlContextSecret(config.CONTROL_CONTEXT_SECRET_BASE64),
   }),
-  operations: new PostgresOperationsService(tenantDatabase.db, {
-    keyId: config.OPERATIONS_CONTEXT_KEY_ID,
-    secret: decodeOperationsContextSecret(config.OPERATIONS_CONTEXT_SECRET_BASE64),
-  }),
+  operations: new PostgresOperationsService(tenantDatabase.db, operationsAuthority),
   collect: new CollectApiService(
     new PostgresCollectBackendRepository(tenantDatabase.db),
     sessionStatus,
     {
-      operationsKeyId: config.OPERATIONS_CONTEXT_KEY_ID,
-      operationsSecret: decodeOperationsContextSecret(config.OPERATIONS_CONTEXT_SECRET_BASE64),
+      operationsKeyId: operationsAuthority.keyId,
+      operationsSecret: operationsAuthority.secret,
     },
   ),
   auth: (instance) =>

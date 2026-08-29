@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { moneySchema, sessionClaimsSchema } from './index.js';
+import {
+  moneySchema,
+  permissions,
+  sessionClaimsSchema,
+  tenantRolePresets,
+  tenantRoles,
+} from './index.js';
 
 describe('shared security and money contracts', () => {
   it('rejects a tenant session without a tenant context', () => {
@@ -40,5 +46,18 @@ describe('shared security and money contracts', () => {
       currency: 'LBP',
     });
     expect(moneySchema.safeParse({ amountMinor: 100, currency: 'EUR' }).success).toBe(false);
+  });
+
+  it('defines a safe canonical preset for every tenant role', () => {
+    expect(Object.keys(tenantRolePresets).sort()).toEqual([...tenantRoles].sort());
+    for (const [key, preset] of Object.entries(tenantRolePresets)) {
+      expect(preset.key).toBe(key);
+      expect(preset.permissions.length).toBeGreaterThan(0);
+      expect(new Set(preset.permissions).size).toBe(preset.permissions.length);
+      expect(preset.permissions.every((permission) => permissions.includes(permission))).toBe(true);
+    }
+    expect(tenantRolePresets.collector.permissions).not.toContain('tenant.user.administer');
+    expect(tenantRolePresets.tenant_auditor.permissions).not.toContain('tenant.payment.post');
+    expect(tenantRolePresets.isp_owner.requiresMfa).toBe(true);
   });
 });

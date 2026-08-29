@@ -27,7 +27,10 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
     await transaction.unsafe('SET LOCAL ROLE orvex_control_runtime');
     const [result] = await transaction.unsafe('SELECT * FROM public.control_center_readiness()');
     const [auth] = await transaction.unsafe('SELECT * FROM public.auth_readiness()');
-    return { result, auth };
+    const [staff] = await transaction.unsafe(
+      'SELECT * FROM public.tenant_staff_lifecycle_readiness()',
+    );
+    return { result, auth, staff };
   });
   if (
     !state.result?.relations_ready ||
@@ -37,7 +40,10 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
     !state.result.privileges_ready ||
     !state.auth?.relations_ready ||
     !state.auth.migration_ready ||
-    !state.auth.functions_ready
+    !state.auth.functions_ready ||
+    !state.staff?.relations_ready ||
+    !state.staff.migration_ready ||
+    !state.staff.functions_ready
   ) {
     throw new Error('Control database schema is not ready.');
   }

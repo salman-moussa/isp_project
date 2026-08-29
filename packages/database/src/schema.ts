@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -79,6 +80,49 @@ export const tenantMemberships = pgTable(
     unique('tenant_memberships_tenant_id_user_id_key').on(table.tenantId, table.userId),
     index('tenant_memberships_tenant_idx').on(table.tenantId),
     check('tenant_memberships_authorization_version_check', sql`${table.authorizationVersion} > 0`),
+  ],
+);
+
+export const tenantStaffInvitations = pgTable(
+  'tenant_staff_invitations',
+  {
+    id: uuid('id').primaryKey(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    email: text('email').notNull(),
+    displayName: text('display_name').notNull(),
+    roleKey: text('role_key').notNull(),
+    permissions: text('permissions').array().notNull(),
+    scope: jsonb('scope').notNull().default({}),
+    tokenDigest: text('token_digest').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    invitedBy: uuid('invited_by')
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedBy: uuid('accepted_by').references(() => users.id),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokeReason: text('revoke_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('tenant_staff_invitations_token_digest_key').on(table.tokenDigest),
+    unique('tenant_staff_invitations_tenant_id_idempotency_key_key').on(
+      table.tenantId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex('tenant_staff_invitations_active_email_key')
+      .on(table.tenantId, table.email)
+      .where(sql`${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL`),
+    index('tenant_staff_invitations_tenant_status_idx').on(
+      table.tenantId,
+      table.acceptedAt,
+      table.revokedAt,
+      table.createdAt,
+    ),
   ],
 );
 

@@ -85,6 +85,9 @@ describe('database readiness', () => {
       if (statement.includes('auth_readiness')) {
         return [{ relations_ready: true, migration_ready: true, functions_ready: true }];
       }
+      if (statement.includes('tenant_staff_lifecycle_readiness')) {
+        return [{ relations_ready: true, migration_ready: true, functions_ready: true }];
+      }
       return [
         {
           relations_ready: true,
@@ -99,6 +102,7 @@ describe('database readiness', () => {
     expect(query).toContain('SET LOCAL ROLE orvex_control_runtime');
     expect(query).toContain('control_center_readiness');
     expect(query).toContain('auth_readiness');
+    expect(query).toContain('tenant_staff_lifecycle_readiness');
   });
 
   it('fails control readiness closed when no active signing key is installed', async () => {
@@ -110,6 +114,9 @@ describe('database readiness', () => {
     async function unsafe(statement: string) {
       if (statement.startsWith('SET LOCAL')) return [];
       if (statement.includes('auth_readiness')) {
+        return [{ relations_ready: true, migration_ready: true, functions_ready: true }];
+      }
+      if (statement.includes('tenant_staff_lifecycle_readiness')) {
         return [{ relations_ready: true, migration_ready: true, functions_ready: true }];
       }
       return [

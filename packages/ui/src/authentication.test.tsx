@@ -51,4 +51,67 @@ describe('AuthenticationGate', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(sessionStorage.getItem('orvex.session.platform')).not.toContain('correct horse');
   });
+
+  it('replaces the web session after an authenticated MFA step-up', async () => {
+    sessionStorage.setItem(
+      'orvex.session.tenant',
+      JSON.stringify({
+        status: 'authenticated',
+        accessToken: 'old-access',
+        refreshToken: 'old-refresh',
+      }),
+    );
+    sessionStorage.setItem('orvex.session.tenant.tenant', '00000000-0000-4000-8000-00000000000a');
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'mfa_required',
+            challengeId: '10000000-0000-4000-8000-000000000001',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'authenticated',
+            accessToken: 'step-up-access',
+            refreshToken: 'step-up-refresh',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(
+      <AuthenticationGate audience="tenant" apiBaseUrl="https://api.orvex.invalid">
+        {(session) => (
+          <div>
+            <p>{session.accessToken}</p>
+            <button
+              onClick={() => {
+                void session
+                  .startMfaStepUp?.()
+                  .then((challenge) =>
+                    session.completeMfaStepUp?.(challenge.challengeId, '123456'),
+                  );
+              }}
+            >
+              Step up
+            </button>
+          </div>
+        )}
+      </AuthenticationGate>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Step up' }));
+    expect(await screen.findByText('step-up-access')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.orvex.invalid/v1/auth/mfa/step-up',
+      expect.objectContaining({ headers: { authorization: 'Bearer old-access' } }),
+    );
+  });
 });

@@ -28,6 +28,7 @@ describe('tenant staff directory route', () => {
   let app: FastifyInstance;
   let audit: MemoryAuditWriter;
   let claims: SessionClaims;
+  const now = new Date('2026-08-29T08:00:00.000Z');
 
   beforeEach(async () => {
     audit = new MemoryAuditWriter();
@@ -41,6 +42,7 @@ describe('tenant staff directory route', () => {
     };
     app = await buildApp(config, {
       audit,
+      now: () => now,
       sessions: { isActive: async () => true },
       tenantMemberships: {
         readActive: async () => ({
@@ -66,6 +68,31 @@ describe('tenant staff directory route', () => {
             createdAt: '2026-08-28T08:00:00.000Z',
           },
         ],
+        readInvitations: async () => [],
+        invite: async () => ({
+          invitationId: '00000000-0000-4000-8000-000000000099',
+          status: 'pending',
+          expiresAt: '2026-08-30T08:00:00.000Z',
+          replayed: false,
+        }),
+        accept: async () => ({ outcome: 'created', tenantId, userId: memberId }),
+        updateMembership: async () => 3,
+        revokeInvitation: async () => true,
+      },
+      staffScopes: {
+        read: async () => ({
+          branches: [],
+          areas: [],
+          routes: [
+            {
+              id: '00000000-0000-4000-8000-000000000099',
+              code: 'R-01',
+              nameEn: 'Route 01',
+              nameAr: 'المسار 01',
+            },
+          ],
+        }),
+        assertValid: async () => undefined,
       },
     });
     await app.ready();
@@ -84,6 +111,7 @@ describe('tenant staff directory route', () => {
     expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.json()).toEqual({
       tenantId,
+      invitations: [],
       members: [
         expect.objectContaining({
           id: memberId,
@@ -112,5 +140,68 @@ describe('tenant staff directory route', () => {
 
     expect(response.statusCode).toBe(403);
     expect(audit.events[0]).toMatchObject({ action: 'tenant.staff.read', result: 'denied' });
+  });
+
+  it('requires recent MFA before creating an invitation', async () => {
+    const denied = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/staff/invitations`,
+      headers: {
+        authorization: `Bearer ${app.jwt.sign(claims)}`,
+        'idempotency-key': 'invite-collector-1',
+      },
+      payload: {
+        email: 'collector@example.com',
+        displayName: 'Field Collector',
+        roleKey: 'isp_administrator',
+        scope: {},
+        reason: 'Approved operations administrator onboarding',
+      },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(audit.events[0]).toMatchObject({
+      action: 'tenant.staff.invitation.create',
+      result: 'denied',
+    });
+
+    claims = { ...claims, mfaVerifiedAt: now.toISOString() };
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/staff/invitations`,
+      headers: {
+        authorization: `Bearer ${app.jwt.sign(claims)}`,
+        'idempotency-key': 'invite-collector-2',
+      },
+      payload: {
+        email: 'admin2@example.com',
+        displayName: 'Second Administrator',
+        roleKey: 'isp_administrator',
+        scope: {},
+        reason: 'Approved operations administrator onboarding',
+      },
+    });
+    expect(allowed.statusCode).toBe(201);
+    expect(allowed.json()).toMatchObject({ status: 'pending', replayed: false });
+  });
+
+  it('reads governed scopes and revokes a pending invitation after recent MFA', async () => {
+    claims = { ...claims, mfaVerifiedAt: now.toISOString() };
+    const authorization = `Bearer ${app.jwt.sign(claims)}`;
+    const scopes = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/staff/scopes`,
+      headers: { authorization },
+    });
+    expect(scopes.statusCode).toBe(200);
+    expect(scopes.json().routes[0]).toMatchObject({ code: 'R-01' });
+
+    const revoked = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/staff/invitations/00000000-0000-4000-8000-000000000099/revoke`,
+      headers: { authorization },
+      payload: { reason: 'Invitation was sent to the wrong address' },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toEqual({ revoked: true });
   });
 });

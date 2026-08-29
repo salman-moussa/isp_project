@@ -81,6 +81,31 @@ export function registerAuthRoutes(app: FastifyInstance, service: AuthService): 
   );
 
   app.post(
+    '/v1/auth/mfa/step-up',
+    {
+      onRequest: [(request, reply) => app.authenticate(request, reply)],
+      config: { rateLimit: { max: 5, timeWindow: '10 minutes' } },
+      schema: {
+        operationId: 'startMfaStepUp',
+        tags: ['Authentication'],
+        security: [{ bearerAuth: [] }],
+        response: errors,
+      },
+    },
+    async (request, reply) => {
+      const result = await service.startMfaStepUp(
+        {
+          userId: request.auth.sub,
+          audience: request.auth.audience,
+          ...(request.auth.tenantId ? { tenantId: request.auth.tenantId } : {}),
+        },
+        evidence(request),
+      );
+      return reply.header('cache-control', 'no-store').send(result);
+    },
+  );
+
+  app.post(
     '/v1/auth/refresh',
     {
       config: { rateLimit: { max: 20, timeWindow: '10 minutes' } },

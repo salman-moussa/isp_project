@@ -6,6 +6,11 @@ import {
   readApprovedSupportGrant,
   readTenantSummary,
   readTenantStaff,
+  readTenantStaffInvitations,
+  revokeTenantStaffInvitation,
+  createTenantStaffInvitation,
+  acceptTenantStaffInvitation,
+  updateTenantStaffMembership,
   postInvoice,
   postPayment,
   readActiveTenantMembership,
@@ -30,7 +35,7 @@ import type {
 } from './authentication.js';
 import type { TenantSummaryReader } from './summary.js';
 import type { SecurityAuditEvent, SecurityAuditWriter } from './security-audit.js';
-import type { TenantStaffReader } from './staff.js';
+import type { TenantStaffRepository } from './staff.js';
 import type {
   FinanceAllocationReversal,
   FinanceAllocationWrite,
@@ -123,11 +128,31 @@ export class PostgresTenantSummaryReader implements TenantSummaryReader {
   }
 }
 
-export class PostgresTenantStaffReader implements TenantStaffReader {
+export class PostgresTenantStaffRepository implements TenantStaffRepository {
   public constructor(private readonly database: Database) {}
 
   public read(tenantId: VerifiedTenantId) {
     return readTenantStaff(this.database, tenantId);
+  }
+
+  public readInvitations(tenantId: VerifiedTenantId, now: Date) {
+    return readTenantStaffInvitations(this.database, tenantId, now);
+  }
+
+  public createInvitation(input: Parameters<TenantStaffRepository['createInvitation']>[0]) {
+    return createTenantStaffInvitation(this.database, input);
+  }
+
+  public acceptInvitation(input: Parameters<TenantStaffRepository['acceptInvitation']>[0]) {
+    return acceptTenantStaffInvitation(this.database, input);
+  }
+
+  public updateMembership(input: Parameters<TenantStaffRepository['updateMembership']>[0]) {
+    return updateTenantStaffMembership(this.database, input);
+  }
+
+  public revokeInvitation(input: Parameters<TenantStaffRepository['revokeInvitation']>[0]) {
+    return revokeTenantStaffInvitation(this.database, input);
   }
 }
 

@@ -7,6 +7,7 @@ import {
   supportGrants,
   tenantDashboardSnapshots,
   tenantMemberships,
+  tenantStaffInvitations,
   users,
 } from './schema.js';
 import { inTenantTransaction } from './tenant-transaction.js';
@@ -99,6 +100,212 @@ export async function readTenantStaff(
       createdAt: row.createdAt.toISOString(),
     }));
   });
+}
+
+export class TenantStaffAuthorizationError extends Error {
+  public readonly code = 'TENANT_STAFF_AUTHORIZATION_DENIED';
+}
+export class TenantStaffValidationError extends Error {
+  public readonly code = 'TENANT_STAFF_VALIDATION_FAILED';
+}
+export class TenantStaffConflictError extends Error {
+  public readonly code = 'TENANT_STAFF_CONFLICT';
+}
+export class TenantStaffNotFoundError extends Error {
+  public readonly code = 'TENANT_STAFF_NOT_FOUND';
+}
+
+export interface TenantStaffInvitation {
+  readonly id: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly roleKey: string;
+  readonly scope: TenantStaffMember['scope'];
+  readonly status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  readonly expiresAt: string;
+  readonly createdAt: string;
+}
+
+export async function readTenantStaffInvitations(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  now: Date,
+): Promise<readonly TenantStaffInvitation[]> {
+  return inControlTenantTransaction(database, tenantId, async (transaction) => {
+    const rows = await transaction
+      .select({
+        id: tenantStaffInvitations.id,
+        email: tenantStaffInvitations.email,
+        displayName: tenantStaffInvitations.displayName,
+        roleKey: tenantStaffInvitations.roleKey,
+        scope: tenantStaffInvitations.scope,
+        expiresAt: tenantStaffInvitations.expiresAt,
+        acceptedAt: tenantStaffInvitations.acceptedAt,
+        revokedAt: tenantStaffInvitations.revokedAt,
+        createdAt: tenantStaffInvitations.createdAt,
+      })
+      .from(tenantStaffInvitations)
+      .where(eq(tenantStaffInvitations.tenantId, tenantId))
+      .orderBy(desc(tenantStaffInvitations.createdAt));
+    return rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      displayName: row.displayName,
+      roleKey: row.roleKey,
+      scope: readAuthorizationScope(row.scope),
+      status: row.acceptedAt
+        ? 'accepted'
+        : row.revokedAt
+          ? 'revoked'
+          : row.expiresAt <= now
+            ? 'expired'
+            : 'pending',
+      expiresAt: row.expiresAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+    }));
+  });
+}
+
+export interface TenantStaffActorEvidence {
+  readonly tenantId: VerifiedTenantId;
+  readonly actorId: string;
+  readonly sessionId: string;
+  readonly requestId: string;
+  readonly ipAddress?: string;
+  readonly userAgent?: string;
+  readonly reason: string;
+  readonly now: Date;
+}
+
+export async function createTenantStaffInvitation(
+  database: Database,
+  input: TenantStaffActorEvidence & {
+    readonly invitationId: string;
+    readonly email: string;
+    readonly displayName: string;
+    readonly roleKey: string;
+    readonly scope: TenantStaffMember['scope'];
+    readonly tokenDigest: string;
+    readonly idempotencyKey: string;
+    readonly expiresAt: Date;
+  },
+): Promise<{ readonly invitationId: string; readonly replayed: boolean }> {
+  try {
+    return await inControlTenantTransaction(database, input.tenantId, async (transaction) => {
+      const [row] = await transaction.execute<
+        { readonly invitation_id: string; readonly replayed: boolean } & Record<string, unknown>
+      >(sql`SELECT * FROM create_tenant_staff_invitation(
+        ${input.invitationId}::uuid,${input.tenantId}::uuid,${input.actorId}::uuid,
+        ${input.sessionId}::uuid,${input.email},${input.displayName},${input.roleKey},
+        ${JSON.stringify(input.scope)}::jsonb,${input.tokenDigest},${input.idempotencyKey},
+        ${input.expiresAt.toISOString()}::text::timestamptz,${input.requestId},
+        ${input.ipAddress ?? null},${input.userAgent ?? null},${input.reason},
+        ${input.now.toISOString()}::text::timestamptz)`);
+      if (!row) throw new Error('Tenant staff invitation function returned no result.');
+      return { invitationId: row.invitation_id, replayed: row.replayed };
+    });
+  } catch (error) {
+    throw mapTenantStaffDatabaseError(error);
+  }
+}
+
+export async function acceptTenantStaffInvitation(
+  database: Database,
+  input: {
+    readonly tokenDigest: string;
+    readonly passwordHash: string;
+    readonly requestId: string;
+    readonly ipAddress?: string;
+    readonly userAgent?: string;
+    readonly now: Date;
+  },
+): Promise<
+  | { readonly outcome: 'invalid' }
+  | {
+      readonly outcome: 'created' | 'existing_account';
+      readonly tenantId: string;
+      readonly userId: string;
+    }
+> {
+  try {
+    return await database.transaction(async (transaction) => {
+      await transaction.execute(sql.raw('SET LOCAL ROLE orvex_control_runtime'));
+      const [row] = await transaction.execute<
+        {
+          readonly outcome: 'invalid' | 'created' | 'existing_account';
+          readonly tenant_id: string | null;
+          readonly user_id: string | null;
+        } & Record<string, unknown>
+      >(sql`SELECT * FROM accept_tenant_staff_invitation(
+        ${input.tokenDigest},${input.passwordHash},${input.requestId},${input.ipAddress ?? null},
+        ${input.userAgent ?? null},${input.now.toISOString()}::text::timestamptz)`);
+      if (!row || row.outcome === 'invalid' || !row.tenant_id || !row.user_id) {
+        return { outcome: 'invalid' };
+      }
+      return { outcome: row.outcome, tenantId: row.tenant_id, userId: row.user_id };
+    });
+  } catch (error) {
+    throw mapTenantStaffDatabaseError(error);
+  }
+}
+
+export async function updateTenantStaffMembership(
+  database: Database,
+  input: TenantStaffActorEvidence & {
+    readonly targetUserId: string;
+    readonly roleKey: string;
+    readonly scope: TenantStaffMember['scope'];
+    readonly active: boolean;
+  },
+): Promise<number> {
+  try {
+    return await inControlTenantTransaction(database, input.tenantId, async (transaction) => {
+      const [row] = await transaction.execute<
+        { readonly update_tenant_staff_membership: string | number } & Record<string, unknown>
+      >(sql`SELECT update_tenant_staff_membership(
+        ${input.tenantId}::uuid,${input.actorId}::uuid,${input.sessionId}::uuid,
+        ${input.targetUserId}::uuid,${input.roleKey},${JSON.stringify(input.scope)}::jsonb,
+        ${input.active},${input.requestId},${input.ipAddress ?? null},${input.userAgent ?? null},
+        ${input.reason},${input.now.toISOString()}::text::timestamptz)`);
+      if (!row) throw new Error('Tenant staff membership function returned no result.');
+      return safeInteger(BigInt(row.update_tenant_staff_membership), 'authorizationVersion');
+    });
+  } catch (error) {
+    throw mapTenantStaffDatabaseError(error);
+  }
+}
+
+export async function revokeTenantStaffInvitation(
+  database: Database,
+  input: TenantStaffActorEvidence & { readonly invitationId: string },
+): Promise<boolean> {
+  try {
+    return await inControlTenantTransaction(database, input.tenantId, async (transaction) => {
+      const [row] = await transaction.execute<
+        { readonly revoke_tenant_staff_invitation: boolean } & Record<string, unknown>
+      >(sql`SELECT revoke_tenant_staff_invitation(
+        ${input.tenantId}::uuid,${input.actorId}::uuid,${input.sessionId}::uuid,
+        ${input.invitationId}::uuid,${input.requestId},${input.ipAddress ?? null},
+        ${input.userAgent ?? null},${input.reason},${input.now.toISOString()}::text::timestamptz)`);
+      if (!row) throw new Error('Tenant staff invitation revocation returned no result.');
+      return row.revoke_tenant_staff_invitation;
+    });
+  } catch (error) {
+    throw mapTenantStaffDatabaseError(error);
+  }
+}
+
+function mapTenantStaffDatabaseError(error: unknown): Error {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : '';
+  if (code === '42501') return new TenantStaffAuthorizationError('Tenant staff operation denied.');
+  if (code === '22023') return new TenantStaffValidationError('Tenant staff input is invalid.');
+  if (code === '23505') return new TenantStaffConflictError('Tenant staff request conflicts.');
+  if (code === 'P0002')
+    return new TenantStaffNotFoundError('Tenant staff membership was not found.');
+  return error instanceof Error ? error : new Error('Tenant staff database operation failed.');
 }
 
 /** Canonical tenant authorization used to reject stale or narrowed session claims. */

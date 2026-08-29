@@ -20,6 +20,10 @@ import {
   OperationsConflictError,
   OperationsIdempotencyConflictError,
   OperationsValidationError,
+  TenantStaffAuthorizationError,
+  TenantStaffConflictError,
+  TenantStaffNotFoundError,
+  TenantStaffValidationError,
 } from '@isp/database';
 import { AuthorizationDeniedError, ControlCenterRuleError } from '@isp/domain';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -52,7 +56,8 @@ import type { CollectApiService } from './collect-service.js';
 import type { AuthService } from './auth-service.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerTenantStaffRoute } from './routes/tenant-staff.js';
-import type { TenantStaffReader } from './staff.js';
+import { StaffInvitationDeliveryError, type TenantStaffApiService } from './staff.js';
+import type { TenantStaffScopeService } from './staff-scope-service.js';
 
 export interface AppDependencies {
   readonly audit?: AuditWriter;
@@ -68,7 +73,8 @@ export interface AppDependencies {
   readonly operations?: OperationsWriter;
   readonly collect?: CollectApiService;
   readonly auth?: AuthService | ((app: FastifyInstance) => AuthService);
-  readonly staff?: TenantStaffReader;
+  readonly staff?: TenantStaffApiService;
+  readonly staffScopes?: TenantStaffScopeService;
 }
 
 export async function buildApp(
@@ -193,6 +199,7 @@ export async function buildApp(
     registerTenantStaffRoute(app, {
       audit: dependencies.audit ?? new MemoryAuditWriter(),
       staff: dependencies.staff,
+      ...(dependencies.staffScopes ? { scopes: dependencies.staffScopes } : {}),
       now,
     });
   }
@@ -223,7 +230,8 @@ export async function buildApp(
       error instanceof AuthorizationDeniedError ||
       error instanceof ControlCenterAuthorizationError ||
       error instanceof OperationsAuthorizationError ||
-      error instanceof CollectAuthorizationError
+      error instanceof CollectAuthorizationError ||
+      error instanceof TenantStaffAuthorizationError
     ) {
       return reply.code(403).send({
         error: { code: error.code, message: error.message, requestId },
@@ -236,7 +244,8 @@ export async function buildApp(
       error instanceof ControlCenterConflictError ||
       error instanceof OperationsConflictError ||
       error instanceof OperationsIdempotencyConflictError ||
-      error instanceof CollectConflictError
+      error instanceof CollectConflictError ||
+      error instanceof TenantStaffConflictError
     ) {
       return reply.code(409).send({
         error: { code: error.code, message: error.message, requestId },
@@ -252,12 +261,21 @@ export async function buildApp(
         .code(404)
         .send({ error: { code: error.code, message: error.message, requestId } });
     }
+    if (error instanceof TenantStaffNotFoundError) {
+      return reply
+        .code(404)
+        .send({ error: { code: error.code, message: error.message, requestId } });
+    }
     if (error instanceof ControlCenterValidationError || error instanceof ControlCenterRuleError) {
       return reply
         .code(400)
         .send({ error: { code: error.code, message: error.message, requestId } });
     }
-    if (error instanceof OperationsValidationError || error instanceof CollectValidationError) {
+    if (
+      error instanceof OperationsValidationError ||
+      error instanceof CollectValidationError ||
+      error instanceof TenantStaffValidationError
+    ) {
       return reply
         .code(400)
         .send({ error: { code: error.code, message: error.message, requestId } });
@@ -304,6 +322,16 @@ export async function buildApp(
         error: {
           code: 'VALIDATION_FAILED',
           message: error instanceof Error ? error.message : 'The request was invalid.',
+          requestId,
+        },
+      });
+    }
+    if (error instanceof StaffInvitationDeliveryError || frameworkStatus === 503) {
+      return reply.code(503).send({
+        error: {
+          code: 'EXTERNAL_DEPENDENCY_UNAVAILABLE',
+          message:
+            error instanceof Error ? error.message : 'An external dependency is unavailable.',
           requestId,
         },
       });

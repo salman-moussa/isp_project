@@ -50,11 +50,14 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
-- H1 has started with a real tenant Staff & Access Center: the authenticated API reads tenant-scoped
-  identity and membership metadata from the control plane, requires `tenant.user.administer`, omits
-  all credential material, records allowed/denied evidence, and drives a bilingual responsive UI
-  with search, role filtering, MFA/account posture, scope, and collector counts. Invitation,
-  lifecycle mutation, session revocation, and recovery remain the next H1 sub-tranche.
+- H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
+  lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
+  editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused
+  API/UI evidence and a clean PostgreSQL 18 migration/lifecycle run pass, including MFA denial,
+  one-time acceptance/replay denial, explicit revocation, scope/version mutation, session
+  invalidation, self/last-owner protection, readiness and tenant RLS. Staff session/device and
+  administrator-triggered recovery are the next H1 sub-tranche. Production message delivery remains
+  activation-required until provider credentials and acceptance evidence exist.
 - Orvex ISP Collect includes the offline queue, idempotent synchronization, device enrollment and
   rotation, receipt handling, conflict recovery, bilingual/RTL presentation, and the backend API and
   database vertical. Its focused security and offline-day invariant tests are included in the root

@@ -45,15 +45,43 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('StaffWorkspace', () => {
   it('loads, filters, and presents the real access posture accessibly', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ members }) }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ members, invitations: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          roles: [
+            {
+              key: 'collector',
+              permissions: ['tenant.collection.view'],
+              requiresMfa: true,
+              scopeMode: 'branch_area_route',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          branches: [],
+          areas: [],
+          routes: [{ id: 'route-a', code: 'R-A', nameEn: 'Route A', nameAr: 'المسار أ' }],
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
     const { container } = render(<StaffWorkspace locale="en" session={session} />);
 
     expect(await screen.findByText('Nour Collector')).toBeVisible();
     expect(screen.getAllByText('1', { selector: '.access-metric strong' })).toHaveLength(2);
+    expect(screen.getByText('0', { selector: '.access-metric strong' })).toBeVisible();
     await user.type(screen.getByRole('searchbox', { name: 'Search staff' }), 'Salman');
     expect(screen.queryByText('Nour Collector')).not.toBeInTheDocument();
     expect(screen.getByText('Salman Admin')).toBeVisible();

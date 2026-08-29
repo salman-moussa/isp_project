@@ -296,6 +296,53 @@ export class AuthService {
     return this.createSession(challenge.userId, authorization, now, input.deviceLabel, evidence);
   }
 
+  public async startMfaStepUp(
+    input: {
+      readonly userId: string;
+      readonly audience: AuthAudience;
+      readonly tenantId?: string;
+    },
+    evidence: RequestEvidence,
+  ): Promise<{
+    readonly status: 'mfa_required';
+    readonly challengeId: string;
+    readonly expiresAt: string;
+  }> {
+    const authorization = await this.repository.readAuthorization(
+      input.userId,
+      input.audience,
+      input.tenantId,
+    );
+    if (!authorization) {
+      await this.audit(evidence, {
+        actorId: input.userId,
+        action: 'auth.mfa.step_up',
+        result: 'denied',
+        reasonCode: 'authorization_changed',
+      });
+      throw new InvalidSessionError();
+    }
+    const now = this.now();
+    const challengeId = randomUUID();
+    const expiresAt = new Date(now.getTime() + this.mfaTtlMs);
+    const started = await this.otp.start({ userId: input.userId, challengeId, expiresAt });
+    await this.repository.createMfaChallenge({
+      id: challengeId,
+      userId: input.userId,
+      audience: authorization.audience,
+      ...(authorization.tenantId ? { tenantId: authorization.tenantId } : {}),
+      adapterReference: started.adapterReference,
+      expiresAt,
+    });
+    await this.audit(evidence, {
+      actorId: input.userId,
+      action: 'auth.mfa.step_up',
+      result: 'allowed',
+      reasonCode: 'challenge_created',
+    });
+    return { status: 'mfa_required', challengeId, expiresAt: expiresAt.toISOString() };
+  }
+
   public async refresh(refreshToken: string, evidence: RequestEvidence): Promise<SessionTokens> {
     const now = this.now();
     const replacement = randomToken();

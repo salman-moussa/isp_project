@@ -1,6 +1,9 @@
 import type { OtpAdapter, RecoveryDeliveryAdapter } from './auth-service.js';
+import type { StaffInvitationDeliveryAdapter } from './staff.js';
 
-export class RemoteAuthDeliveryAdapter implements OtpAdapter, RecoveryDeliveryAdapter {
+export class RemoteAuthDeliveryAdapter
+  implements OtpAdapter, RecoveryDeliveryAdapter, StaffInvitationDeliveryAdapter
+{
   public constructor(
     private readonly baseUrl: URL,
     private readonly bearerToken: string,
@@ -37,6 +40,20 @@ export class RemoteAuthDeliveryAdapter implements OtpAdapter, RecoveryDeliveryAd
     });
   }
 
+  public async deliverInvitation(input: {
+    invitationId: string;
+    tenantId: string;
+    email: string;
+    displayName: string;
+    token: string;
+    expiresAt: Date;
+  }) {
+    await this.post('/v1/staff-invitations/messages', {
+      ...input,
+      expiresAt: input.expiresAt.toISOString(),
+    });
+  }
+
   private async post(path: string, body: unknown): Promise<Record<string, unknown>> {
     const response = await fetch(new URL(path, this.baseUrl), {
       method: 'POST',
@@ -57,7 +74,9 @@ export class RemoteAuthDeliveryAdapter implements OtpAdapter, RecoveryDeliveryAd
 }
 
 /** Explicit local-only adapter. It is never selected when NODE_ENV=production. */
-export class DevelopmentAuthDeliveryAdapter implements OtpAdapter, RecoveryDeliveryAdapter {
+export class DevelopmentAuthDeliveryAdapter
+  implements OtpAdapter, RecoveryDeliveryAdapter, StaffInvitationDeliveryAdapter
+{
   readonly #challenges = new Map<string, string>();
 
   public async start(input: { challengeId: string }) {
@@ -73,5 +92,9 @@ export class DevelopmentAuthDeliveryAdapter implements OtpAdapter, RecoveryDeliv
 
   public async deliver(): Promise<void> {
     // Local recovery delivery is intentionally inert; tests inject their own capturing adapter.
+  }
+
+  public async deliverInvitation(): Promise<void> {
+    // Explicitly inert outside tests; invitation tokens are never printed to process logs.
   }
 }
