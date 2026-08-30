@@ -23,8 +23,8 @@ export function InvitationAcceptance({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const password = String(data.get('password') ?? '');
-    const confirmation = String(data.get('confirmation') ?? '');
+    const password = formText(data, 'password');
+    const confirmation = formText(data, 'confirmation');
     if (password !== confirmation) {
       setState('error');
       setMessage(
@@ -143,4 +143,9 @@ export function InvitationAcceptance({
       </section>
     </main>
   );
+}
+
+function formText(data: FormData, field: string): string {
+  const value = data.get(field);
+  return typeof value === 'string' ? value : '';
 }

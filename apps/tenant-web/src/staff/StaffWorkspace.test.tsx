@@ -74,6 +74,24 @@ describe('StaffWorkspace', () => {
           areas: [],
           routes: [{ id: 'route-a', code: 'R-A', nameEn: 'Route A', nameAr: 'المسار أ' }],
         }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sessions: [
+            {
+              id: '00000000-0000-4000-8000-000000000088',
+              deviceLabel: 'Collector phone',
+              ipAddress: '192.0.2.10',
+              lastSeenAt: '2026-08-29T08:00:00.000Z',
+              idleExpiresAt: '2026-08-29T09:00:00.000Z',
+              absoluteExpiresAt: '2026-08-30T08:00:00.000Z',
+              createdAt: '2026-08-28T08:00:00.000Z',
+              current: false,
+            },
+          ],
+        }),
       });
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
@@ -82,6 +100,8 @@ describe('StaffWorkspace', () => {
     expect(await screen.findByText('Nour Collector')).toBeVisible();
     expect(screen.getAllByText('1', { selector: '.access-metric strong' })).toHaveLength(2);
     expect(screen.getByText('0', { selector: '.access-metric strong' })).toBeVisible();
+    await user.click(screen.getAllByRole('button', { name: 'Sessions' })[0]);
+    expect(await screen.findByText('Collector phone')).toBeVisible();
     await user.type(screen.getByRole('searchbox', { name: 'Search staff' }), 'Salman');
     expect(screen.queryByText('Nour Collector')).not.toBeInTheDocument();
     expect(screen.getByText('Salman Admin')).toBeVisible();

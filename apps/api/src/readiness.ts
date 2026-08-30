@@ -30,7 +30,10 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
     const [staff] = await transaction.unsafe(
       'SELECT * FROM public.tenant_staff_lifecycle_readiness()',
     );
-    return { result, auth, staff };
+    const [staffSessions] = await transaction.unsafe(
+      'SELECT * FROM public.tenant_staff_sessions_readiness()',
+    );
+    return { result, auth, staff, staffSessions };
   });
   if (
     !state.result?.relations_ready ||
@@ -43,7 +46,9 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
     !state.auth.functions_ready ||
     !state.staff?.relations_ready ||
     !state.staff.migration_ready ||
-    !state.staff.functions_ready
+    !state.staff.functions_ready ||
+    !state.staffSessions?.migration_ready ||
+    !state.staffSessions.functions_ready
   ) {
     throw new Error('Control database schema is not ready.');
   }

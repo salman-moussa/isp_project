@@ -38,6 +38,21 @@ export interface TenantStaffInvitation {
   readonly createdAt: string;
 }
 
+export interface TenantStaffSession {
+  readonly id: string;
+  readonly deviceLabel?: string;
+  readonly ipAddress?: string;
+  readonly userAgent?: string;
+  readonly mfaVerifiedAt?: string;
+  readonly lastSeenAt: string;
+  readonly idleExpiresAt: string;
+  readonly absoluteExpiresAt: string;
+  readonly revokedAt?: string;
+  readonly revokeReason?: string;
+  readonly createdAt: string;
+  readonly current: boolean;
+}
+
 export interface TenantStaffRole {
   readonly key: string;
   readonly permissions: readonly string[];
@@ -130,6 +145,44 @@ export async function revokeTenantStaffInvitation(
   });
 }
 
+export async function readTenantStaffSessions(
+  session: ApiSession,
+  userId: string,
+): Promise<readonly TenantStaffSession[]> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/staff/${encodeURIComponent(userId)}/sessions`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Session request');
+  const body = (await response.json()) as { readonly sessions: readonly TenantStaffSession[] };
+  return body.sessions;
+}
+
+export async function revokeTenantStaffSession(
+  session: ApiSession,
+  userId: string,
+  sessionId: string,
+): Promise<void> {
+  await staffMutation(
+    session,
+    `/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}/revoke`,
+    'POST',
+    { reason: 'Administrator revoked staff device session' },
+  );
+}
+
+export async function startTenantStaffRecovery(session: ApiSession, userId: string): Promise<void> {
+  await staffMutation(
+    session,
+    `/${encodeURIComponent(userId)}/recovery`,
+    'POST',
+    { reason: 'Administrator requested secure staff account recovery' },
+    crypto.randomUUID(),
+  );
+}
+
 export async function acceptTenantStaffInvitation(
   apiBaseUrl: string,
   token: string,
@@ -173,11 +226,15 @@ async function staffMutation(
   );
   if (response.status === 401) session.logout();
   if (!response.ok) {
-    const result = (await response.json().catch(() => ({}))) as {
-      readonly error?: { readonly message?: string };
-    };
-    throw new Error(result.error?.message ?? `Staff operation failed (${response.status}).`);
+    throw await staffError(response, 'Staff operation');
   }
+}
+
+async function staffError(response: Response, label: string): Promise<Error> {
+  const result = (await response.json().catch(() => ({}))) as {
+    readonly error?: { readonly message?: string };
+  };
+  return new Error(result.error?.message ?? `${label} failed (${response.status}).`);
 }
 
 function authorizationHeaders(session: ApiSession) {

@@ -55,9 +55,16 @@ enterprise capabilities are complete.
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused
   API/UI evidence and a clean PostgreSQL 18 migration/lifecycle run pass, including MFA denial,
   one-time acceptance/replay denial, explicit revocation, scope/version mutation, session
-  invalidation, self/last-owner protection, readiness and tenant RLS. Staff session/device and
-  administrator-triggered recovery are the next H1 sub-tranche. Production message delivery remains
+  invalidation, self/last-owner protection, readiness and tenant RLS. The staff-session sub-tranche
+  now adds administrator device visibility, targeted revocation, current-session protection and a
+  readiness-gated migration, with the proof repeated against a freshly recreated PostgreSQL 18
+  database. Administrator-triggered recovery is composed through the existing opaque recovery
+  service and bilingual UI. Production OTP, invitation and recovery delivery remains
   activation-required until provider credentials and acceptance evidence exist.
+- The 2026-08-30 H1 focused gate passed database/API/tenant-web strict types, production builds,
+  lint, targeted migration/readiness/service/route/UI tests, accessibility assertions, static
+  migration scope checks, and the live tenant-staff lifecycle script on both existing and freshly
+  recreated PostgreSQL 18 databases.
 - Orvex ISP Collect includes the offline queue, idempotent synchronization, device enrollment and
   rotation, receipt handling, conflict recovery, bilingual/RTL presentation, and the backend API and
   database vertical. Its focused security and offline-day invariant tests are included in the root

@@ -32,6 +32,21 @@ export interface TenantStaffInvitation {
   readonly createdAt: string;
 }
 
+export interface TenantStaffSession {
+  readonly id: string;
+  readonly deviceLabel?: string;
+  readonly ipAddress?: string;
+  readonly userAgent?: string;
+  readonly mfaVerifiedAt?: string;
+  readonly lastSeenAt: string;
+  readonly idleExpiresAt: string;
+  readonly absoluteExpiresAt: string;
+  readonly revokedAt?: string;
+  readonly revokeReason?: string;
+  readonly createdAt: string;
+  readonly current: boolean;
+}
+
 export interface StaffActorContext extends RequestEvidence {
   readonly actorId: string;
   readonly sessionId: string;
@@ -100,6 +115,21 @@ export interface TenantStaffRepository {
     readonly reason: string;
     readonly now: Date;
   }): Promise<boolean>;
+  readSessions(
+    input: Omit<StaffActorContext, 'idempotencyKey'> & {
+      readonly tenantId: VerifiedTenantId;
+      readonly targetUserId: string;
+      readonly now: Date;
+    },
+  ): Promise<readonly TenantStaffSession[]>;
+  revokeSession(
+    input: Omit<StaffActorContext, 'idempotencyKey'> & {
+      readonly tenantId: VerifiedTenantId;
+      readonly targetUserId: string;
+      readonly targetSessionId: string;
+      readonly now: Date;
+    },
+  ): Promise<boolean>;
 }
 
 export interface StaffInvitationDeliveryAdapter {
@@ -167,6 +197,17 @@ export interface TenantStaffApiService {
   revokeInvitation(
     tenantId: VerifiedTenantId,
     invitationId: string,
+    actor: Omit<StaffActorContext, 'idempotencyKey'>,
+  ): Promise<boolean>;
+  readSessions(
+    tenantId: VerifiedTenantId,
+    targetUserId: string,
+    actor: Omit<StaffActorContext, 'idempotencyKey'>,
+  ): Promise<readonly TenantStaffSession[]>;
+  revokeSession(
+    tenantId: VerifiedTenantId,
+    targetUserId: string,
+    targetSessionId: string,
     actor: Omit<StaffActorContext, 'idempotencyKey'>,
   ): Promise<boolean>;
 }
@@ -301,6 +342,44 @@ export class TenantStaffService implements TenantStaffApiService {
     return this.repository.revokeInvitation({
       tenantId,
       invitationId,
+      actorId: actor.actorId,
+      sessionId: actor.sessionId,
+      requestId: actor.requestId,
+      ...(actor.ipAddress ? { ipAddress: actor.ipAddress } : {}),
+      ...(actor.userAgent ? { userAgent: actor.userAgent } : {}),
+      reason: actor.reason,
+      now: this.now(),
+    });
+  }
+
+  public readSessions(
+    tenantId: VerifiedTenantId,
+    targetUserId: string,
+    actor: Omit<StaffActorContext, 'idempotencyKey'>,
+  ) {
+    return this.repository.readSessions({
+      tenantId,
+      targetUserId,
+      actorId: actor.actorId,
+      sessionId: actor.sessionId,
+      requestId: actor.requestId,
+      ...(actor.ipAddress ? { ipAddress: actor.ipAddress } : {}),
+      ...(actor.userAgent ? { userAgent: actor.userAgent } : {}),
+      reason: actor.reason,
+      now: this.now(),
+    });
+  }
+
+  public revokeSession(
+    tenantId: VerifiedTenantId,
+    targetUserId: string,
+    targetSessionId: string,
+    actor: Omit<StaffActorContext, 'idempotencyKey'>,
+  ) {
+    return this.repository.revokeSession({
+      tenantId,
+      targetUserId,
+      targetSessionId,
       actorId: actor.actorId,
       sessionId: actor.sessionId,
       requestId: actor.requestId,

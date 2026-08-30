@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AuthService, type AuthRepositoryPort } from './auth-service.js';
 
-function repository(): AuthRepositoryPort {
-  return {
+function repository() {
+  const createMfaChallenge = vi.fn(async () => undefined);
+  const appendSecurityEvent = vi.fn(async () => undefined);
+  const port: AuthRepositoryPort = {
     findPrincipalByEmail: async () => null,
     readAuthorization: async () => ({
       audience: 'tenant',
@@ -10,7 +12,7 @@ function repository(): AuthRepositoryPort {
       authorizationVersion: 3,
       permissions: ['tenant.user.administer'],
     }),
-    createMfaChallenge: vi.fn(async () => undefined),
+    createMfaChallenge,
     readMfaChallenge: async () => null,
     consumeMfaChallenge: async () => null,
     recordMfaFailure: async () => undefined,
@@ -21,13 +23,14 @@ function repository(): AuthRepositoryPort {
     revokeAllSessions: async () => 0,
     createRecoveryToken: async () => false,
     completeRecovery: async () => false,
-    appendSecurityEvent: vi.fn(async () => undefined),
+    appendSecurityEvent,
   };
+  return { port, createMfaChallenge, appendSecurityEvent };
 }
 
 describe('AuthService MFA step-up', () => {
   it('creates a short-lived challenge from canonical current authorization', async () => {
-    const repo = repository();
+    const { port: repo, createMfaChallenge, appendSecurityEvent } = repository();
     const start = vi.fn(async () => ({ adapterReference: 'provider-challenge-1' }));
     const now = new Date('2026-08-29T08:00:00.000Z');
     const service = new AuthService(
@@ -51,13 +54,13 @@ describe('AuthService MFA step-up', () => {
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ expiresAt: new Date('2026-08-29T08:05:00.000Z') }),
     );
-    expect(repo.createMfaChallenge).toHaveBeenCalledWith(
+    expect(createMfaChallenge).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: '00000000-0000-4000-8000-00000000000a',
         adapterReference: 'provider-challenge-1',
       }),
     );
-    expect(repo.appendSecurityEvent).toHaveBeenCalledWith(
+    expect(appendSecurityEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'auth.mfa.step_up', result: 'allowed' }),
     );
   });

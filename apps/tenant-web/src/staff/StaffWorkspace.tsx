@@ -11,11 +11,15 @@ import {
 import {
   inviteTenantStaff,
   readTenantStaff,
+  readTenantStaffSessions,
   revokeTenantStaffInvitation,
+  revokeTenantStaffSession,
+  startTenantStaffRecovery,
   updateTenantStaff,
   type TenantStaffInvitation,
   type TenantStaffMember,
   type TenantStaffRole,
+  type TenantStaffSession,
   type TenantScopeCatalogue,
 } from '../api';
 import './staff.css';
@@ -54,6 +58,9 @@ export function StaffWorkspace({
   const [inviteOpen, setInviteOpen] = useState(false);
   const [operationState, setOperationState] = useState<'idle' | 'busy'>('idle');
   const [operationMessage, setOperationMessage] = useState<string>();
+  const [sessionMember, setSessionMember] = useState<TenantStaffMember>();
+  const [staffSessions, setStaffSessions] = useState<readonly TenantStaffSession[]>([]);
+  const [sessionState, setSessionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [stepUpChallengeId, setStepUpChallengeId] = useState<string>();
   const [stepUpCode, setStepUpCode] = useState('');
   const isEnglish = locale === 'en';
@@ -69,6 +76,20 @@ export function StaffWorkspace({
         setState('ready');
       })
       .catch(() => setState('error'));
+  };
+
+  const loadSessions = (member: TenantStaffMember) => {
+    setSessionMember(member);
+    setSessionState('loading');
+    void readTenantStaffSessions(session, member.id)
+      .then((result) => {
+        setStaffSessions(result);
+        setSessionState('ready');
+      })
+      .catch((error) => {
+        setOperationMessage(error instanceof Error ? error.message : String(error));
+        setSessionState('error');
+      });
   };
 
   useEffect(load, [session]);
@@ -358,11 +379,161 @@ export function StaffWorkspace({
                         setOperationState('idle');
                       }
                     }}
+                    onSessions={() => loadSessions(member)}
+                    onRecovery={async () => {
+                      setOperationState('busy');
+                      setOperationMessage(undefined);
+                      try {
+                        await startTenantStaffRecovery(session, member.id);
+                        setOperationMessage(
+                          isEnglish
+                            ? 'A secure recovery message was requested for this employee.'
+                            : 'تم طلب رسالة استرداد آمنة لهذا الموظف.',
+                        );
+                      } catch (error) {
+                        setOperationMessage(error instanceof Error ? error.message : String(error));
+                      } finally {
+                        setOperationState('idle');
+                      }
+                    }}
                   />
                 ))}
               </div>
             )}
           </Surface>
+
+          {sessionMember ? (
+            <Surface className="staff-sessions">
+              <div className="surface__header">
+                <div>
+                  <h2>
+                    {isEnglish ? 'Sessions & devices' : 'الجلسات والأجهزة'} ·{' '}
+                    {sessionMember.displayName}
+                  </h2>
+                  <p>
+                    {isEnglish
+                      ? 'Review recent device access and revoke a lost or untrusted session immediately.'
+                      : 'راجع وصول الأجهزة الحديث وألغِ أي جلسة لجهاز مفقود أو غير موثوق فوراً.'}
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setSessionMember(undefined);
+                    setStaffSessions([]);
+                    setSessionState('idle');
+                  }}
+                >
+                  {isEnglish ? 'Close' : 'إغلاق'}
+                </Button>
+              </div>
+              {sessionState === 'loading' ? (
+                <StatePanel
+                  variant="loading"
+                  title={isEnglish ? 'Loading protected sessions' : 'جارٍ تحميل الجلسات المحمية'}
+                  description={
+                    isEnglish
+                      ? 'Reading tenant-scoped device metadata.'
+                      : 'جارٍ قراءة بيانات الأجهزة ضمن نطاق المستأجر.'
+                  }
+                />
+              ) : sessionState === 'error' ? (
+                <StatePanel
+                  variant="error"
+                  title={isEnglish ? 'Sessions unavailable' : 'الجلسات غير متاحة'}
+                  description={
+                    isEnglish
+                      ? 'Complete recent MFA verification, then retry.'
+                      : 'أكمل التحقق الحديث ثم أعد المحاولة.'
+                  }
+                  actionLabel={isEnglish ? 'Retry' : 'إعادة المحاولة'}
+                  onAction={() => loadSessions(sessionMember)}
+                />
+              ) : staffSessions.length === 0 ? (
+                <StatePanel
+                  variant="empty"
+                  title={isEnglish ? 'No sessions recorded' : 'لا توجد جلسات مسجلة'}
+                  description={
+                    isEnglish
+                      ? 'This employee has no tenant device sessions.'
+                      : 'لا يملك هذا الموظف جلسات أجهزة للمستأجر.'
+                  }
+                />
+              ) : (
+                <div className="staff-session-list">
+                  {staffSessions.map((staffSession) => (
+                    <article key={staffSession.id}>
+                      <div>
+                        <strong>
+                          {staffSession.deviceLabel ||
+                            (isEnglish ? 'Unnamed device' : 'جهاز بلا اسم')}
+                        </strong>
+                        <span>
+                          {staffSession.ipAddress ||
+                            (isEnglish ? 'IP unavailable' : 'عنوان IP غير متاح')}
+                        </span>
+                        <small>
+                          {staffSession.userAgent ||
+                            (isEnglish ? 'Client unavailable' : 'العميل غير متاح')}
+                        </small>
+                      </div>
+                      <div>
+                        <span>{isEnglish ? 'Last active' : 'آخر نشاط'}</span>
+                        <time dateTime={staffSession.lastSeenAt}>
+                          {new Date(staffSession.lastSeenAt).toLocaleString(
+                            isEnglish ? 'en-LB' : 'ar-LB',
+                          )}
+                        </time>
+                      </div>
+                      <StatusBadge tone={staffSession.revokedAt ? 'critical' : 'positive'}>
+                        {staffSession.current
+                          ? isEnglish
+                            ? 'Current'
+                            : 'الحالية'
+                          : staffSession.revokedAt
+                            ? isEnglish
+                              ? 'Revoked'
+                              : 'ملغاة'
+                            : isEnglish
+                              ? 'Active'
+                              : 'نشطة'}
+                      </StatusBadge>
+                      {!staffSession.revokedAt && !staffSession.current ? (
+                        <Button
+                          variant="secondary"
+                          disabled={operationState === 'busy'}
+                          onClick={() => {
+                            setOperationState('busy');
+                            void revokeTenantStaffSession(
+                              session,
+                              sessionMember.id,
+                              staffSession.id,
+                            )
+                              .then(() => {
+                                setOperationMessage(
+                                  isEnglish
+                                    ? 'Staff device session revoked.'
+                                    : 'تم إلغاء جلسة جهاز الموظف.',
+                                );
+                                loadSessions(sessionMember);
+                              })
+                              .catch((error) =>
+                                setOperationMessage(
+                                  error instanceof Error ? error.message : String(error),
+                                ),
+                              )
+                              .finally(() => setOperationState('idle'));
+                          }}
+                        >
+                          {isEnglish ? 'Revoke session' : 'إلغاء الجلسة'}
+                        </Button>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </Surface>
+          ) : null}
 
           {invitations.length ? (
             <Surface className="staff-invitations">
@@ -471,11 +642,11 @@ function InvitationForm({
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     void onSubmit({
-      email: String(data.get('email') ?? ''),
-      displayName: String(data.get('displayName') ?? ''),
+      email: formText(data, 'email'),
+      displayName: formText(data, 'displayName'),
       roleKey,
       scope: scoped ? { routeIds } : {},
-      reason: String(data.get('reason') ?? ''),
+      reason: formText(data, 'reason'),
     });
   };
   return (
@@ -563,6 +734,8 @@ function StaffCard({
   scopes,
   onToggle,
   onUpdate,
+  onSessions,
+  onRecovery,
 }: {
   readonly member: TenantStaffMember;
   readonly locale: Locale;
@@ -576,6 +749,8 @@ function StaffCard({
     readonly active: boolean;
     readonly reason: string;
   }) => Promise<void>;
+  readonly onSessions: () => void;
+  readonly onRecovery: () => Promise<void>;
 }) {
   const isEnglish = locale === 'en';
   const enabled = member.active && !member.disabled;
@@ -631,6 +806,12 @@ function StaffCard({
         </div>
       </dl>
       <div className="staff-card__actions">
+        <Button variant="secondary" onClick={onSessions} disabled={busy}>
+          {isEnglish ? 'Sessions' : 'الجلسات'}
+        </Button>
+        <Button variant="secondary" onClick={() => void onRecovery()} disabled={busy}>
+          {isEnglish ? 'Send recovery' : 'إرسال الاسترداد'}
+        </Button>
         <Button variant="secondary" onClick={() => setEditing((value) => !value)} disabled={busy}>
           {editing
             ? isEnglish
@@ -665,7 +846,7 @@ function StaffCard({
               roleKey,
               scope: scoped ? { routeIds } : {},
               active: member.active,
-              reason: String(data.get('reason') ?? ''),
+              reason: formText(data, 'reason'),
             }).then(() => setEditing(false));
           }}
         >
@@ -711,6 +892,11 @@ function StaffCard({
       ) : null}
     </article>
   );
+}
+
+function formText(data: FormData, field: string): string {
+  const value = data.get(field);
+  return typeof value === 'string' ? value : '';
 }
 
 function roleLabel(roleKey: string, locale: Locale): string {

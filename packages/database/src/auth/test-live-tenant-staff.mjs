@@ -153,6 +153,48 @@ try {
       ${`refresh-${targetSessionId}`},${now},${now},${new Date(now.getTime() + 3_600_000)},
       ${new Date(now.getTime() + 86_400_000)}
     )`;
+  const sessions = await asRuntime(
+    (transaction) => transaction`
+      SELECT * FROM read_tenant_staff_sessions(
+        ${tenantId}::uuid,${actorId}::uuid,${sessionId}::uuid,${acceptedUserId}::uuid,
+        ${request('sessions-read')},'127.0.0.1','tenant-staff-live-test',
+        ${new Date(now.getTime() + 4_500)}::timestamptz
+      )`,
+  );
+  assert(sessions.some((session) => session.session_id === targetSessionId));
+  const [adminRevoked] = await asRuntime(
+    (transaction) => transaction`
+      SELECT revoke_tenant_staff_session(
+        ${tenantId}::uuid,${actorId}::uuid,${sessionId}::uuid,${acceptedUserId}::uuid,
+        ${targetSessionId}::uuid,${request('session-revoke')},'127.0.0.1',
+        'tenant-staff-live-test','Lost employee device',
+        ${new Date(now.getTime() + 4_700)}::timestamptz
+      )`,
+  );
+  assert.equal(adminRevoked?.revoke_tenant_staff_session, true);
+  await assert.rejects(
+    asRuntime(
+      (transaction) => transaction`
+        SELECT revoke_tenant_staff_session(
+          ${tenantId}::uuid,${actorId}::uuid,${sessionId}::uuid,${actorId}::uuid,
+          ${sessionId}::uuid,${request('current-session')},'127.0.0.1',
+          'tenant-staff-live-test','Attempt current session revoke',
+          ${new Date(now.getTime() + 4_800)}::timestamptz
+        )`,
+    ),
+    /use sign out to revoke the current administrator session/i,
+  );
+
+  const authorizationChangeSessionId = randomUUID();
+  await admin`
+    INSERT INTO auth_sessions(
+      id,user_id,audience,tenant_id,authorization_version,current_refresh_digest,mfa_verified_at,
+      last_seen_at,idle_expires_at,absolute_expires_at
+    ) VALUES (
+      ${authorizationChangeSessionId},${acceptedUserId}::uuid,'tenant',${tenantId},
+      ${membership.authorization_version},${`refresh-${authorizationChangeSessionId}`},${now},${now},
+      ${new Date(now.getTime() + 3_600_000)},${new Date(now.getTime() + 86_400_000)}
+    )`;
   const [updated] = await asRuntime(
     (transaction) => transaction`
     SELECT update_tenant_staff_membership(
@@ -166,7 +208,7 @@ try {
     Number(updated?.update_tenant_staff_membership) > Number(membership.authorization_version),
   );
   const [targetSession] =
-    await admin`SELECT revoked_at,revoke_reason FROM auth_sessions WHERE id=${targetSessionId}`;
+    await admin`SELECT revoked_at,revoke_reason FROM auth_sessions WHERE id=${authorizationChangeSessionId}`;
   assert(targetSession?.revoked_at, 'membership changes must revoke target tenant sessions');
   assert.equal(targetSession?.revoke_reason, 'tenant_membership_changed');
 
@@ -221,6 +263,10 @@ try {
     migration_ready: true,
     functions_ready: true,
   });
+  const [sessionReadiness] = await asRuntime(
+    (transaction) => transaction`SELECT * FROM tenant_staff_sessions_readiness()`,
+  );
+  assert.deepEqual(sessionReadiness, { migration_ready: true, functions_ready: true });
   console.log('Tenant staff live migration/lifecycle checks passed');
 } finally {
   await Promise.allSettled([admin.end(), runtime.end()]);

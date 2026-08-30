@@ -21,7 +21,7 @@ const invitationMatch = /^#\/staff-invitation\/([A-Za-z0-9_-]{32,512})$/u.exec(
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {invitationMatch ? (
-      <InvitationAcceptance apiBaseUrl={apiBaseUrl} token={invitationMatch[1]!} />
+      <InvitationAcceptance apiBaseUrl={apiBaseUrl} token={invitationMatch[1]} />
     ) : (
       <AuthenticationGate audience="tenant" apiBaseUrl={apiBaseUrl}>
         {(session) => <App session={session} />}

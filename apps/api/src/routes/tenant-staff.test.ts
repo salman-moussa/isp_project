@@ -78,7 +78,21 @@ describe('tenant staff directory route', () => {
         accept: async () => ({ outcome: 'created', tenantId, userId: memberId }),
         updateMembership: async () => 3,
         revokeInvitation: async () => true,
+        readSessions: async () => [
+          {
+            id: '00000000-0000-4000-8000-000000000088',
+            deviceLabel: 'Office laptop',
+            ipAddress: '127.0.0.1',
+            lastSeenAt: now.toISOString(),
+            idleExpiresAt: '2026-08-29T09:00:00.000Z',
+            absoluteExpiresAt: '2026-08-30T08:00:00.000Z',
+            createdAt: '2026-08-28T08:00:00.000Z',
+            current: false,
+          },
+        ],
+        revokeSession: async () => true,
       },
+      auth: { startRecovery: async () => undefined } as never,
       staffScopes: {
         read: async () => ({
           branches: [],
@@ -193,7 +207,9 @@ describe('tenant staff directory route', () => {
       headers: { authorization },
     });
     expect(scopes.statusCode).toBe(200);
-    expect(scopes.json().routes[0]).toMatchObject({ code: 'R-01' });
+    expect(scopes.json<{ routes: Array<{ code: string }> }>().routes[0]).toMatchObject({
+      code: 'R-01',
+    });
 
     const revoked = await app.inject({
       method: 'POST',
@@ -203,5 +219,41 @@ describe('tenant staff directory route', () => {
     });
     expect(revoked.statusCode).toBe(200);
     expect(revoked.json()).toEqual({ revoked: true });
+  });
+
+  it('manages staff sessions and requests recovery only after recent MFA', async () => {
+    claims = { ...claims, mfaVerifiedAt: now.toISOString() };
+    const authorization = `Bearer ${app.jwt.sign(claims)}`;
+    const sessions = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/staff/${memberId}/sessions`,
+      headers: { authorization },
+    });
+    expect(sessions.statusCode).toBe(200);
+    expect(
+      sessions.json<{ sessions: Array<{ deviceLabel?: string }> }>().sessions[0],
+    ).toMatchObject({ deviceLabel: 'Office laptop' });
+
+    const revoked = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/staff/${memberId}/sessions/00000000-0000-4000-8000-000000000088/revoke`,
+      headers: { authorization },
+      payload: { reason: 'The employee reported this device lost' },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toEqual({ revoked: true });
+
+    const recovery = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/staff/${memberId}/recovery`,
+      headers: { authorization, 'idempotency-key': 'staff-recovery-test-1' },
+      payload: { reason: 'Employee identity was verified by the branch manager' },
+    });
+    expect(recovery.statusCode).toBe(202);
+    expect(audit.events.at(-1)).toMatchObject({
+      action: 'tenant.staff.recovery.start',
+      resourceId: memberId,
+      result: 'allowed',
+    });
   });
 });

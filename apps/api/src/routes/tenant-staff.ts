@@ -4,15 +4,18 @@ import {
   tenantRoles,
   type Permission,
 } from '@isp/contracts';
+import { TenantStaffNotFoundError } from '@isp/database';
 import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AuditWriter } from '../audit.js';
+import type { AuthService } from '../auth-service.js';
 import type { TenantStaffApiService } from '../staff.js';
 import type { TenantStaffScopeService } from '../staff-scope-service.js';
 
 const paramsSchema = z.object({ tenantId: z.uuid() });
 const memberParamsSchema = paramsSchema.extend({ userId: z.uuid() });
+const sessionParamsSchema = memberParamsSchema.extend({ sessionId: z.uuid() });
 const invitationParamsSchema = paramsSchema.extend({ invitationId: z.uuid() });
 const scopeSchema = z
   .object({
@@ -40,6 +43,7 @@ const membershipBodySchema = z
   })
   .strict();
 const revocationBodySchema = z.object({ reason: z.string().trim().min(8).max(500) }).strict();
+const recoveryBodySchema = z.object({ reason: z.string().trim().min(8).max(500) }).strict();
 const invitationAcceptBodySchema = z
   .object({
     token: z.string().min(32).max(512),
@@ -108,6 +112,7 @@ export interface TenantStaffRouteOptions {
   readonly audit: AuditWriter;
   readonly staff: TenantStaffApiService;
   readonly scopes?: TenantStaffScopeService;
+  readonly auth?: AuthService;
   readonly now: () => Date;
 }
 
@@ -459,6 +464,160 @@ export function registerTenantStaffRoute(
       return reply.header('cache-control', 'no-store').send({ revoked });
     },
   );
+
+  app.get(
+    '/v1/tenants/:tenantId/staff/:userId/sessions',
+    {
+      onRequest: [(request, reply) => app.authenticate(request, reply)],
+      config: { rateLimit: { max: 60, timeWindow: '1 hour' } },
+      schema: {
+        operationId: 'readTenantStaffSessions',
+        tags: ['Tenant identity'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          400: errorResponseJsonSchema,
+          401: errorResponseJsonSchema,
+          403: errorResponseJsonSchema,
+          404: errorResponseJsonSchema,
+          200: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['sessions'],
+            properties: {
+              sessions: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: [
+                    'id',
+                    'lastSeenAt',
+                    'idleExpiresAt',
+                    'absoluteExpiresAt',
+                    'createdAt',
+                    'current',
+                  ],
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    deviceLabel: { type: 'string' },
+                    ipAddress: { type: 'string' },
+                    userAgent: { type: 'string' },
+                    mfaVerifiedAt: { type: 'string', format: 'date-time' },
+                    lastSeenAt: { type: 'string', format: 'date-time' },
+                    idleExpiresAt: { type: 'string', format: 'date-time' },
+                    absoluteExpiresAt: { type: 'string', format: 'date-time' },
+                    revokedAt: { type: 'string', format: 'date-time' },
+                    revokeReason: { type: 'string' },
+                    createdAt: { type: 'string', format: 'date-time' },
+                    current: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { tenantId, userId } = memberParamsSchema.parse(request.params);
+      const context = await authorizeStaffMutation(request, tenantId, options, 'sessions.read');
+      const sessions = await options.staff.readSessions(context.tenantId, userId, {
+        actorId: request.auth.sub,
+        sessionId: request.auth.sessionId,
+        requestId: request.id,
+        ipAddress: request.ip,
+        ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+        reason: 'Administrator reviewed staff sessions',
+      });
+      return reply.header('cache-control', 'private, no-store').send({ sessions });
+    },
+  );
+
+  app.post(
+    '/v1/tenants/:tenantId/staff/:userId/sessions/:sessionId/revoke',
+    {
+      onRequest: [(request, reply) => app.authenticate(request, reply)],
+      config: { rateLimit: { max: 30, timeWindow: '1 hour' } },
+      schema: {
+        operationId: 'revokeTenantStaffSession',
+        tags: ['Tenant identity'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          400: errorResponseJsonSchema,
+          401: errorResponseJsonSchema,
+          403: errorResponseJsonSchema,
+          404: errorResponseJsonSchema,
+          200: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['revoked'],
+            properties: { revoked: { type: 'boolean' } },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { tenantId, userId, sessionId } = sessionParamsSchema.parse(request.params);
+      const context = await authorizeStaffMutation(request, tenantId, options, 'session.revoke');
+      const body = revocationBodySchema.parse(request.body);
+      const revoked = await options.staff.revokeSession(context.tenantId, userId, sessionId, {
+        actorId: request.auth.sub,
+        sessionId: request.auth.sessionId,
+        requestId: request.id,
+        ipAddress: request.ip,
+        ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+        reason: body.reason,
+      });
+      return reply.header('cache-control', 'no-store').send({ revoked });
+    },
+  );
+
+  if (options.auth) {
+    app.post(
+      '/v1/tenants/:tenantId/staff/:userId/recovery',
+      {
+        onRequest: [(request, reply) => app.authenticate(request, reply)],
+        config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
+        schema: {
+          operationId: 'startTenantStaffRecovery',
+          tags: ['Tenant identity'],
+          security: [{ bearerAuth: [] }],
+          response: {
+            400: errorResponseJsonSchema,
+            401: errorResponseJsonSchema,
+            403: errorResponseJsonSchema,
+            404: errorResponseJsonSchema,
+            202: { type: 'null' },
+          },
+        },
+      },
+      async (request, reply) => {
+        const { tenantId, userId } = memberParamsSchema.parse(request.params);
+        const context = await authorizeStaffMutation(request, tenantId, options, 'recovery.start');
+        const body = recoveryBodySchema.parse(request.body);
+        const idempotencyKey = idempotencyHeaderSchema.parse(request.headers['idempotency-key']);
+        const target = (await options.staff.read(context.tenantId)).find(
+          (member) => member.id === userId,
+        );
+        if (!target) throw new TenantStaffNotFoundError('Tenant staff membership was not found.');
+        await options.auth!.startRecovery(target.email, idempotencyKey, requestEvidence(request));
+        await options.audit.append({
+          tenantId: context.tenantId,
+          actorId: request.auth.sub,
+          sessionId: request.auth.sessionId,
+          action: 'tenant.staff.recovery.start',
+          resourceType: 'tenant_staff_identity',
+          resourceId: userId,
+          requestId: request.id,
+          ipAddress: request.ip,
+          result: 'allowed',
+          metadata: { delivery: 'requested', targetUserId: userId, businessReason: body.reason },
+          occurredAt: options.now().toISOString(),
+        });
+        return reply.code(202).send();
+      },
+    );
+  }
 
   app.post(
     '/v1/staff-invitations/accept',

@@ -126,6 +126,21 @@ export interface TenantStaffInvitation {
   readonly createdAt: string;
 }
 
+export interface TenantStaffSession {
+  readonly id: string;
+  readonly deviceLabel?: string;
+  readonly ipAddress?: string;
+  readonly userAgent?: string;
+  readonly mfaVerifiedAt?: string;
+  readonly lastSeenAt: string;
+  readonly idleExpiresAt: string;
+  readonly absoluteExpiresAt: string;
+  readonly revokedAt?: string;
+  readonly revokeReason?: string;
+  readonly createdAt: string;
+  readonly current: boolean;
+}
+
 export async function readTenantStaffInvitations(
   database: Database,
   tenantId: VerifiedTenantId,
@@ -293,6 +308,82 @@ export async function revokeTenantStaffInvitation(
   } catch (error) {
     throw mapTenantStaffDatabaseError(error);
   }
+}
+
+export async function readTenantStaffSessions(
+  database: Database,
+  input: TenantStaffActorEvidence & { readonly targetUserId: string },
+): Promise<readonly TenantStaffSession[]> {
+  try {
+    return await inControlTenantTransaction(database, input.tenantId, async (transaction) => {
+      const rows = await transaction.execute<TenantStaffSessionRow>(sql`
+        SELECT * FROM read_tenant_staff_sessions(
+          ${input.tenantId}::uuid,${input.actorId}::uuid,${input.sessionId}::uuid,
+          ${input.targetUserId}::uuid,${input.requestId},${input.ipAddress ?? null},
+          ${input.userAgent ?? null},${input.now.toISOString()}::text::timestamptz
+        )
+      `);
+      return rows.map((row) => ({
+        id: row.session_id,
+        ...(row.device_label ? { deviceLabel: row.device_label } : {}),
+        ...(row.ip_address ? { ipAddress: row.ip_address } : {}),
+        ...(row.user_agent ? { userAgent: row.user_agent } : {}),
+        ...(row.mfa_verified_at ? { mfaVerifiedAt: timestamp(row.mfa_verified_at) } : {}),
+        lastSeenAt: timestamp(row.last_seen_at),
+        idleExpiresAt: timestamp(row.idle_expires_at),
+        absoluteExpiresAt: timestamp(row.absolute_expires_at),
+        ...(row.revoked_at ? { revokedAt: timestamp(row.revoked_at) } : {}),
+        ...(row.revoke_reason ? { revokeReason: row.revoke_reason } : {}),
+        createdAt: timestamp(row.created_at),
+        current: row.is_current,
+      }));
+    });
+  } catch (error) {
+    throw mapTenantStaffDatabaseError(error);
+  }
+}
+
+export async function revokeTenantStaffSession(
+  database: Database,
+  input: TenantStaffActorEvidence & {
+    readonly targetUserId: string;
+    readonly targetSessionId: string;
+  },
+): Promise<boolean> {
+  try {
+    return await inControlTenantTransaction(database, input.tenantId, async (transaction) => {
+      const [row] = await transaction.execute<
+        { readonly revoke_tenant_staff_session: boolean } & Record<string, unknown>
+      >(sql`SELECT revoke_tenant_staff_session(
+        ${input.tenantId}::uuid,${input.actorId}::uuid,${input.sessionId}::uuid,
+        ${input.targetUserId}::uuid,${input.targetSessionId}::uuid,${input.requestId},
+        ${input.ipAddress ?? null},${input.userAgent ?? null},${input.reason},
+        ${input.now.toISOString()}::text::timestamptz)`);
+      if (!row) throw new Error('Tenant staff session revocation returned no result.');
+      return row.revoke_tenant_staff_session;
+    });
+  } catch (error) {
+    throw mapTenantStaffDatabaseError(error);
+  }
+}
+
+interface TenantStaffSessionRow extends Record<string, unknown> {
+  readonly session_id: string;
+  readonly device_label: string | null;
+  readonly ip_address: string | null;
+  readonly user_agent: string | null;
+  readonly mfa_verified_at: Date | string | null;
+  readonly last_seen_at: Date | string;
+  readonly idle_expires_at: Date | string;
+  readonly absolute_expires_at: Date | string;
+  readonly revoked_at: Date | string | null;
+  readonly revoke_reason: string | null;
+  readonly created_at: Date | string;
+  readonly is_current: boolean;
+}
+
+function timestamp(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 function mapTenantStaffDatabaseError(error: unknown): Error {

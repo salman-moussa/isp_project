@@ -7,7 +7,9 @@ import {
   readTenantSummary,
   readTenantStaff,
   readTenantStaffInvitations,
+  readTenantStaffSessions,
   revokeTenantStaffInvitation,
+  revokeTenantStaffSession,
   createTenantStaffInvitation,
   acceptTenantStaffInvitation,
   updateTenantStaffMembership,
@@ -153,6 +155,14 @@ export class PostgresTenantStaffRepository implements TenantStaffRepository {
 
   public revokeInvitation(input: Parameters<TenantStaffRepository['revokeInvitation']>[0]) {
     return revokeTenantStaffInvitation(this.database, input);
+  }
+
+  public readSessions(input: Parameters<TenantStaffRepository['readSessions']>[0]) {
+    return readTenantStaffSessions(this.database, input);
+  }
+
+  public revokeSession(input: Parameters<TenantStaffRepository['revokeSession']>[0]) {
+    return revokeTenantStaffSession(this.database, input);
   }
 }
 

@@ -17,5 +17,6 @@
   "202608112620_control_security_writer_role.sql": "control",
   "202608112630_control_authorization_reader_role.sql": "control",
   "202608112640_control_audit_writer_role.sql": "control",
-  "202608290100_control_tenant_staff_lifecycle.sql": "control"
+  "202608290100_control_tenant_staff_lifecycle.sql": "control",
+  "202608300100_control_tenant_staff_sessions.sql": "control"
 }

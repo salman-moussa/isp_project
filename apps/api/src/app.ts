@@ -128,12 +128,12 @@ export async function buildApp(
     securityAudit,
     now,
   );
-  if (dependencies.auth) {
-    registerAuthRoutes(
-      app,
-      typeof dependencies.auth === 'function' ? dependencies.auth(app) : dependencies.auth,
-    );
-  }
+  const authService = dependencies.auth
+    ? typeof dependencies.auth === 'function'
+      ? dependencies.auth(app)
+      : dependencies.auth
+    : undefined;
+  if (authService) registerAuthRoutes(app, authService);
 
   app.get(
     '/health',
@@ -200,6 +200,7 @@ export async function buildApp(
       audit: dependencies.audit ?? new MemoryAuditWriter(),
       staff: dependencies.staff,
       ...(dependencies.staffScopes ? { scopes: dependencies.staffScopes } : {}),
+      ...(authService ? { auth: authService } : {}),
       now,
     });
   }
