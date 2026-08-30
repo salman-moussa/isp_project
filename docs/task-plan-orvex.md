@@ -20,7 +20,7 @@ Status values: `Pending`, `In progress`, `Blocked`, `Verified`.
 | F    | Network Worker and provider adapters                        | Network/Integrations            | Phase D contracts | Simulator/provider contract matrix           | Verified    |
 | G    | Scale, security, DR, and release candidate                  | SRE + QA + Security             | C–F               | Load, DAST, restore, rollback, final review  | In progress |
 | H1   | Enterprise capability truth and tenant staff administration | Product + Identity + Web        | A5, D, E          | Capability map, staff/role/MFA/collector E2E | In progress |
-| H2   | CRM, catalogue, qualification, and service orders           | Sales + Operations              | H1                | Lead-to-activated-service E2E                | Pending     |
+| H2   | CRM, catalogue, qualification, and service orders           | Sales + Operations              | H1                | Lead-to-activated-service E2E                | In progress |
 | H3   | Resource inventory, warehouse, field service, AAA and IPAM  | Network + Field + Inventory     | H2                | Order-to-resource-to-network E2E             | Pending     |
 | H4   | NOC, assurance, capacity, CPE, QoS and regulatory reporting | NOC + Compliance                | H3                | Alarm-to-impact-to-restoration E2E           | Pending     |
 | H5   | Rating, accounting, revenue assurance, channels and dealers | Finance + Revenue               | H2, H3            | Usage-to-ledger-to-settlement E2E            | Pending     |
@@ -50,6 +50,12 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
+- H2 now has a governed first vertical from lead capture through immutable offer/qualification
+  versions, controlled quote discount approval, acceptance evidence, and deterministic service-order
+  decomposition. The bilingual Sales & Orders workspace uses real authorized data. Focused strict
+  types, lint, builds, API/database/UI/accessibility tests, clean PostgreSQL 18 migrations, RLS
+  denial, approval separation and live lead-to-order proof pass. Activation, resource assignment,
+  installation and first-billing task execution remain in H3/H5 and prevent H2 verification.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

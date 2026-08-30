@@ -15,7 +15,7 @@
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:integration": "tsx --conditions=development scripts/test-live-finance-audit-upgrade.ts && node scripts/test-live-postgres.mjs && node scripts/test-live-finance.mjs && tsx --conditions=development scripts/test-live-finance-outbox.ts && node src/auth/test-live-tenant-staff.mjs && node src/operations/test-live-operations.mjs && tsx --conditions=development scripts/test-live-operations-relay.ts && tsx --conditions=development scripts/test-live-collect.ts && tsx --conditions=development ../../workers/network-worker/scripts/test-live-postgres.ts",
+    "test:integration": "tsx --conditions=development scripts/test-live-finance-audit-upgrade.ts && node scripts/test-live-postgres.mjs && node scripts/test-live-finance.mjs && tsx --conditions=development scripts/test-live-finance-outbox.ts && node src/auth/test-live-tenant-staff.mjs && node src/operations/test-live-operations.mjs && tsx --conditions=development scripts/test-live-sales.ts && tsx --conditions=development scripts/test-live-operations-relay.ts && tsx --conditions=development scripts/test-live-collect.ts && tsx --conditions=development ../../workers/network-worker/scripts/test-live-postgres.ts",
     "test:finance-integration": "node scripts/test-live-finance.mjs",
     "test:finance-outbox-integration": "tsx --conditions=development scripts/test-live-finance-outbox.ts",
     "test:collect-integration": "tsx --conditions=development scripts/test-live-collect.ts",

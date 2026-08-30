@@ -10,6 +10,98 @@ const tenantParams = z.object({ tenantId: z.uuid() });
 const headers = z.object({ 'idempotency-key': z.string().trim().min(8).max(200) });
 const uuid = z.uuid();
 const scopedLocation = { branchId: uuid, areaId: uuid, routeId: uuid } as const;
+const businessReason = z.string().trim().min(8).max(1000);
+
+const salesLeadBody = z
+  .object({
+    leadNumber: z.string().trim().min(1).max(80),
+    partyKind: z.enum(['person', 'business']),
+    displayName: z.string().trim().min(1).max(200),
+    source: z.string().trim().min(1).max(100),
+    primaryPhone: z.string().trim().min(3).max(40).optional(),
+    primaryEmail: z.email().max(320).optional(),
+    ...scopedLocation,
+    addressLine: z.string().trim().min(3).max(500),
+    needsSummary: z.string().trim().min(3).max(1000),
+    assignedTo: uuid.optional(),
+    reason: businessReason,
+  })
+  .strict();
+const salesOfferBody = z
+  .object({
+    offerId: uuid.optional(),
+    branchId: uuid.optional(),
+    code: z.string().trim().min(1).max(80),
+    version: z.number().int().positive(),
+    nameEn: z.string().trim().min(1).max(200),
+    nameAr: z.string().trim().min(1).max(200),
+    accessTechnology: z.enum([
+      'fiber',
+      'fixed_wireless',
+      'dsl',
+      'leased_line',
+      'satellite',
+      'other',
+    ]),
+    downstreamMbps: z.number().int().positive().max(100_000),
+    upstreamMbps: z.number().int().positive().max(100_000),
+    quotaGb: z.number().int().positive().max(10_000_000).optional(),
+    recurringAmountMinor: z.number().int().positive().safe(),
+    activationFeeMinor: z.number().int().nonnegative().safe(),
+    equipmentFeeMinor: z.number().int().nonnegative().safe(),
+    currency: z.enum(['USD', 'LBP']),
+    commitmentMonths: z.number().int().min(0).max(60),
+    eligibility: z.record(z.string(), z.unknown()).default({}),
+    policy: z.record(z.string(), z.unknown()).default({}),
+    effectiveFrom: z.iso.date(),
+    effectiveTo: z.iso.date().optional(),
+    reason: businessReason,
+  })
+  .strict()
+  .refine(
+    (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
+    'Offer version end must follow its start.',
+  );
+const salesQualificationBody = z
+  .object({
+    leadId: uuid,
+    result: z.enum(['eligible', 'ineligible', 'survey_required', 'reserved']),
+    accessTechnology: z.string().trim().min(1).max(80),
+    coverageSource: z.string().trim().min(1).max(200),
+    reasonCodes: z.array(z.string().trim().min(1).max(120)).max(20).default([]),
+    evidence: z.record(z.string(), z.unknown()).default({}),
+    capacityReference: z.string().trim().min(1).max(200).optional(),
+    reservationExpiresAt: z.string().datetime({ offset: true }).optional(),
+    reason: businessReason,
+  })
+  .strict()
+  .refine(
+    (body) => (body.result === 'reserved') === (body.reservationExpiresAt !== undefined),
+    'Reserved qualifications require an expiration; other results must omit it.',
+  );
+const salesQuoteBody = z
+  .object({
+    leadId: uuid,
+    offerVersionId: uuid,
+    quoteNumber: z.string().trim().min(1).max(80),
+    version: z.number().int().positive(),
+    discountBasisPoints: z.number().int().min(0).max(3000),
+    validUntil: z.iso.date(),
+    terms: z.record(z.string(), z.unknown()).default({}),
+    reason: businessReason,
+  })
+  .strict();
+const salesQuoteApprovalBody = z.object({ quoteId: uuid, reason: businessReason }).strict();
+const salesQuoteAcceptanceBody = z
+  .object({
+    quoteId: uuid,
+    orderNumber: z.string().trim().min(1).max(80),
+    acceptedBy: z.string().trim().min(2).max(200),
+    acceptanceReference: z.string().trim().min(3).max(200),
+    ownerId: uuid.optional(),
+    reason: businessReason,
+  })
+  .strict();
 
 const subscriberBody = z
   .object({
@@ -269,6 +361,12 @@ const networkBody = z.discriminatedUnion('action', [
 ]);
 
 export const operationsRequestSchemas = {
+  salesLeadBody,
+  salesOfferBody,
+  salesQualificationBody,
+  salesQuoteBody,
+  salesQuoteApprovalBody,
+  salesQuoteAcceptanceBody,
   subscriberBody,
   billingBody,
   officePaymentBody,
@@ -289,6 +387,7 @@ export const operationsRequestSchemas = {
 
 interface RouteSpec extends OperationsDefinition {
   readonly schema: z.ZodType;
+  readonly requiresRecentMfa?: boolean;
   readonly execute: (
     writer: OperationsWriter,
     tenantId: VerifiedTenantId,
@@ -307,6 +406,62 @@ export function registerTenantOperationsRoutes(
   options: TenantOperationsRouteOptions,
 ): void {
   const routes: readonly RouteSpec[] = [
+    operation(
+      '/sales/leads',
+      'createSalesLead',
+      'tenant.sales.manage',
+      'tenant.sales.lead.create',
+      'sales_lead',
+      salesLeadBody,
+      (w, id, v) => w.createSalesLead(id, v as never),
+    ),
+    operation(
+      '/sales/offers',
+      'createSalesOfferVersion',
+      'tenant.catalog.manage',
+      'tenant.catalog.offer.version.create',
+      'sales_offer_version',
+      salesOfferBody,
+      (w, id, v) => w.createSalesOfferVersion(id, v as never),
+    ),
+    operation(
+      '/sales/qualifications',
+      'qualifySalesLead',
+      'tenant.sales.manage',
+      'tenant.sales.qualify',
+      'sales_qualification',
+      salesQualificationBody,
+      (w, id, v) => w.qualifySalesLead(id, v as never),
+    ),
+    operation(
+      '/sales/quotes',
+      'createSalesQuote',
+      'tenant.sales.manage',
+      'tenant.sales.quote.create',
+      'sales_quote',
+      salesQuoteBody,
+      (w, id, v) => w.createSalesQuote(id, v as never),
+    ),
+    operation(
+      '/sales/quotes/approve',
+      'approveSalesQuote',
+      'tenant.catalog.manage',
+      'tenant.sales.quote.approve',
+      'sales_quote',
+      salesQuoteApprovalBody,
+      (w, id, v) => w.approveSalesQuote(id, v as never),
+      true,
+    ),
+    operation(
+      '/sales/quotes/accept',
+      'acceptSalesQuote',
+      'tenant.order.manage',
+      'tenant.sales.quote.accept',
+      'sales_service_order',
+      salesQuoteAcceptanceBody,
+      (w, id, v) => w.acceptSalesQuote(id, v as never),
+      true,
+    ),
     operation(
       '/subscribers',
       'createOperationsSubscriber',
@@ -452,6 +607,7 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueNetworkAction(id, v as never),
     ),
   ];
+  registerSalesWorkspaceRead(app, options);
   for (const spec of routes) registerMutation(app, options, spec);
 }
 
@@ -463,6 +619,7 @@ function operation(
   resourceType: string,
   schema: z.ZodType,
   execute: RouteSpec['execute'],
+  requiresRecentMfa = false,
 ): RouteSpec {
   return {
     path: `/v1/tenants/:tenantId/operations${path}`,
@@ -472,7 +629,73 @@ function operation(
     resourceType,
     schema,
     execute,
+    ...(requiresRecentMfa ? { requiresRecentMfa } : {}),
   };
+}
+
+function registerSalesWorkspaceRead(
+  app: FastifyInstance,
+  options: TenantOperationsRouteOptions,
+): void {
+  const spec: RouteSpec = {
+    path: '/v1/tenants/:tenantId/operations/sales/workspace',
+    operationId: 'readSalesWorkspace',
+    permission: 'tenant.sales.view',
+    action: 'tenant.sales.workspace.read',
+    resourceType: 'sales_workspace',
+    schema: z.object({}).strict(),
+    execute: (writer, tenantId, input) => writer.readSalesWorkspace(tenantId, input as never),
+  };
+  app.get(
+    spec.path,
+    {
+      onRequest: [(request, reply) => app.authenticate(request, reply)],
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+      schema: {
+        operationId: spec.operationId,
+        tags: ['Tenant sales'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: { type: 'object', additionalProperties: true },
+          400: errorResponseJsonSchema,
+          401: errorResponseJsonSchema,
+          403: errorResponseJsonSchema,
+          500: errorResponseJsonSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { tenantId: requestedTenantId } = tenantParams.parse(request.params);
+      const idempotencyKey = `sales-read:${request.id}`;
+      let context: ReturnType<typeof assertTenantContext>;
+      try {
+        context = assertTenantContext(request.auth, requestedTenantId, options.now());
+        if (request.auth.supportGrant) {
+          throw new AuthorizationDeniedError('Support sessions cannot read the sales workspace.');
+        }
+        assertPermission(request.auth, spec.permission);
+      } catch (error) {
+        await auditDenial(request, options, spec, requestedTenantId, idempotencyKey, error);
+        throw error;
+      }
+      const result = await options.writer.readSalesWorkspace(context.tenantId, {
+        actorId: request.auth.sub,
+        sessionId: request.auth.sessionId,
+        idempotencyKey,
+        requestId: request.id,
+        ipAddress: request.ip,
+        ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+        permission: spec.permission,
+        auditAction: spec.action,
+        reason: 'Authorized sales workspace read',
+        ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
+        ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
+        ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),
+        ...(request.auth.recordIds !== undefined ? { recordIds: request.auth.recordIds } : {}),
+      });
+      return reply.header('cache-control', 'private, no-store').send(result);
+    },
+  );
 }
 
 function registerMutation(
@@ -533,6 +756,7 @@ async function executeMutation(
       );
     }
     assertPermission(request.auth, spec.permission);
+    if (spec.requiresRecentMfa) assertRecentMfa(request, options.now());
     assertBodyWithinClaimScope(request, body);
   } catch (error) {
     await auditDenial(request, options, spec, requestedTenantId, idempotencyKey, error);
@@ -558,6 +782,17 @@ async function executeMutation(
   // Allowed evidence is emitted by the repository transaction itself. Appending here would make
   // an audit failure occur after a committed mutation and would not be atomic.
   return reply.code(201).header('cache-control', 'private, no-store').send(result);
+}
+
+function assertRecentMfa(request: FastifyRequest, now: Date): void {
+  const verifiedAt = request.auth.mfaVerifiedAt
+    ? new Date(request.auth.mfaVerifiedAt).getTime()
+    : Number.NaN;
+  if (!Number.isFinite(verifiedAt) || now.getTime() - verifiedAt > 10 * 60_000) {
+    throw new AuthorizationDeniedError(
+      'Recent MFA verification is required for this sales action.',
+    );
+  }
 }
 
 function assertBodyWithinClaimScope(request: FastifyRequest, body: Record<string, unknown>): void {

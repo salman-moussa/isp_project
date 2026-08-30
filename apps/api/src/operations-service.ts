@@ -1,14 +1,21 @@
 import type { VerifiedTenantId } from '@isp/contracts';
 import {
   assignCollectorInvoice,
+  acceptSalesQuote,
+  approveSalesQuote,
   configureOperations,
   createBillingPolicyVersion,
+  createSalesLead,
+  createSalesOfferVersion,
+  createSalesQuote,
   createOperationsPlanVersion,
   createServiceInstallation,
   createSubscriber,
   createSupportIssue,
   enqueueSubscriberNetworkAction,
   prepareRecurringInvoices,
+  qualifySalesLead,
+  readSalesWorkspace,
   reconcileCollector,
   recordCollectorEvidence,
   recordOfficePaymentCorrection,
@@ -31,6 +38,13 @@ export interface OperationsContextAuthorityConfig {
 }
 
 export interface OperationsRepositoryAdapter {
+  readonly readSalesWorkspace: typeof readSalesWorkspace;
+  readonly createSalesLead: typeof createSalesLead;
+  readonly createSalesOfferVersion: typeof createSalesOfferVersion;
+  readonly qualifySalesLead: typeof qualifySalesLead;
+  readonly createSalesQuote: typeof createSalesQuote;
+  readonly approveSalesQuote: typeof approveSalesQuote;
+  readonly acceptSalesQuote: typeof acceptSalesQuote;
   readonly createSubscriber: typeof createSubscriber;
   readonly prepareRecurringInvoices: typeof prepareRecurringInvoices;
   readonly recordOfficePaymentRequest: typeof recordOfficePaymentRequest;
@@ -50,6 +64,13 @@ export interface OperationsRepositoryAdapter {
 }
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
+  readSalesWorkspace,
+  createSalesLead,
+  createSalesOfferVersion,
+  qualifySalesLead,
+  createSalesQuote,
+  approveSalesQuote,
+  acceptSalesQuote,
   createSubscriber,
   prepareRecurringInvoices,
   recordOfficePaymentRequest,
@@ -92,6 +113,62 @@ export class PostgresOperationsService implements OperationsWriter {
     private readonly now: () => Date = () => new Date(),
     private readonly repository: OperationsRepositoryAdapter = postgresOperationsRepository,
   ) {}
+
+  public readSalesWorkspace(tenantId: VerifiedTenantId, input: WriterInput<'readSalesWorkspace'>) {
+    return this.repository.readSalesWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public createSalesLead(tenantId: VerifiedTenantId, input: WriterInput<'createSalesLead'>) {
+    return this.repository.createSalesLead(this.database, tenantId, {
+      ...input,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public createSalesOfferVersion(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'createSalesOfferVersion'>,
+  ) {
+    return this.repository.createSalesOfferVersion(this.database, tenantId, {
+      ...input,
+      createdBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public qualifySalesLead(tenantId: VerifiedTenantId, input: WriterInput<'qualifySalesLead'>) {
+    return this.repository.qualifySalesLead(this.database, tenantId, {
+      ...input,
+      qualifiedBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public createSalesQuote(tenantId: VerifiedTenantId, input: WriterInput<'createSalesQuote'>) {
+    return this.repository.createSalesQuote(this.database, tenantId, {
+      ...input,
+      createdBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public approveSalesQuote(tenantId: VerifiedTenantId, input: WriterInput<'approveSalesQuote'>) {
+    return this.repository.approveSalesQuote(this.database, tenantId, {
+      ...input,
+      approvedBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public acceptSalesQuote(tenantId: VerifiedTenantId, input: WriterInput<'acceptSalesQuote'>) {
+    return this.repository.acceptSalesQuote(this.database, tenantId, {
+      ...input,
+      ownerId: input.ownerId ?? input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
 
   public createSubscriber(tenantId: VerifiedTenantId, input: WriterInput<'createSubscriber'>) {
     return this.repository.createSubscriber(this.database, tenantId, {

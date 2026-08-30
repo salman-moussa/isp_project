@@ -19,6 +19,7 @@ describe('database readiness', () => {
           migrations_ready: true,
           guard_and_outbox_invariants_ready: true,
           operations_ready: true,
+          sales_ready: true,
         },
       ];
     });
@@ -35,6 +36,8 @@ describe('database readiness', () => {
     expect(query).toContain('202608112500_tenant_network_worker.sql');
     expect(query).toContain('collect_devices');
     expect(query).toContain('operations_readiness');
+    expect(query).toContain('sales_order_readiness');
+    expect(query).toContain('202608300210_tenant_sales_order_core.sql');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {
@@ -66,6 +69,7 @@ describe('database readiness', () => {
           migrations_ready: true,
           guard_and_outbox_invariants_ready: false,
           operations_ready: true,
+          sales_ready: true,
         },
       ]),
     } as unknown as TenantClient;
@@ -91,6 +95,9 @@ describe('database readiness', () => {
       if (statement.includes('tenant_staff_sessions_readiness')) {
         return [{ migration_ready: true, functions_ready: true }];
       }
+      if (statement.includes('sales_permissions_readiness')) {
+        return [{ migration_ready: true, functions_ready: true, assignments_ready: true }];
+      }
       return [
         {
           relations_ready: true,
@@ -107,6 +114,7 @@ describe('database readiness', () => {
     expect(query).toContain('auth_readiness');
     expect(query).toContain('tenant_staff_lifecycle_readiness');
     expect(query).toContain('tenant_staff_sessions_readiness');
+    expect(query).toContain('sales_permissions_readiness');
   });
 
   it('fails control readiness closed when no active signing key is installed', async () => {
@@ -125,6 +133,9 @@ describe('database readiness', () => {
       }
       if (statement.includes('tenant_staff_sessions_readiness')) {
         return [{ migration_ready: true, functions_ready: true }];
+      }
+      if (statement.includes('sales_permissions_readiness')) {
+        return [{ migration_ready: true, functions_ready: true, assignments_ready: true }];
       }
       return [
         {

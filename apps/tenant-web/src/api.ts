@@ -8,6 +8,107 @@ export interface TenantSummary {
   readonly collections: { readonly USD: number; readonly LBP: number };
 }
 
+export interface SalesLead {
+  readonly id: string;
+  readonly leadNumber: string;
+  readonly partyKind: 'person' | 'business';
+  readonly displayName: string;
+  readonly source: string;
+  readonly primaryPhone?: string;
+  readonly primaryEmail?: string;
+  readonly branchId: string;
+  readonly areaId: string;
+  readonly routeId: string;
+  readonly addressLine: string;
+  readonly needsSummary: string;
+  readonly status: 'new' | 'qualifying' | 'qualified' | 'disqualified' | 'quoted' | 'won' | 'lost';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SalesOfferVersion {
+  readonly id: string;
+  readonly offerId: string;
+  readonly branchId?: string;
+  readonly code: string;
+  readonly version: number;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly accessTechnology: string;
+  readonly downstreamMbps: number;
+  readonly upstreamMbps: number;
+  readonly quotaGb?: number;
+  readonly recurringAmountMinor: number;
+  readonly activationFeeMinor: number;
+  readonly equipmentFeeMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly commitmentMonths: number;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+  readonly published: boolean;
+}
+
+export interface SalesQualification {
+  readonly id: string;
+  readonly leadId: string;
+  readonly version: number;
+  readonly result: 'eligible' | 'ineligible' | 'survey_required' | 'reserved';
+  readonly accessTechnology: string;
+  readonly coverageSource: string;
+  readonly reasonCodes: readonly string[];
+  readonly capacityReference?: string;
+  readonly reservationExpiresAt?: string;
+  readonly createdAt: string;
+}
+
+export interface SalesQuote {
+  readonly id: string;
+  readonly leadId: string;
+  readonly offerVersionId: string;
+  readonly quoteNumber: string;
+  readonly version: number;
+  readonly status: 'pending_approval' | 'issued' | 'approved' | 'rejected' | 'accepted' | 'expired';
+  readonly recurringAmountMinor: number;
+  readonly activationFeeMinor: number;
+  readonly equipmentFeeMinor: number;
+  readonly discountBasisPoints: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly commitmentMonths: number;
+  readonly validUntil: string;
+  readonly createdAt: string;
+}
+
+export interface SalesServiceOrder {
+  readonly id: string;
+  readonly leadId: string;
+  readonly quoteId: string;
+  readonly orderNumber: string;
+  readonly status:
+    | 'accepted'
+    | 'validating'
+    | 'in_progress'
+    | 'on_hold'
+    | 'fallout'
+    | 'completed'
+    | 'cancelled';
+  readonly createdAt: string;
+  readonly tasks: readonly {
+    readonly key: string;
+    readonly type: string;
+    readonly dependsOn: readonly string[];
+    readonly status: string;
+  }[];
+}
+
+export interface SalesWorkspaceData {
+  readonly leads: readonly SalesLead[];
+  readonly offers: readonly SalesOfferVersion[];
+  readonly qualifications: readonly SalesQualification[];
+  readonly quotes: readonly SalesQuote[];
+  readonly orders: readonly SalesServiceOrder[];
+  readonly scopes: TenantScopeCatalogue;
+}
+
 export interface TenantStaffMember {
   readonly id: string;
   readonly email: string;
@@ -250,6 +351,25 @@ export async function readTenantSummary(session: ApiSession): Promise<TenantSumm
   if (response.status === 401) session.logout();
   if (!response.ok) throw new Error(`Tenant summary request failed (${response.status}).`);
   return (await response.json()) as TenantSummary;
+}
+
+export async function readSalesWorkspace(session: ApiSession): Promise<SalesWorkspaceData> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/sales/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Sales workspace');
+  return (await response.json()) as SalesWorkspaceData;
+}
+
+export async function submitSalesOperation(
+  session: ApiSession,
+  path: string,
+  payload: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  await submitTenantOperation(session, `sales/${path}`, payload, crypto.randomUUID());
 }
 
 export async function submitTenantOperation(

@@ -33,7 +33,10 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
     const [staffSessions] = await transaction.unsafe(
       'SELECT * FROM public.tenant_staff_sessions_readiness()',
     );
-    return { result, auth, staff, staffSessions };
+    const [salesPermissions] = await transaction.unsafe(
+      'SELECT * FROM public.sales_permissions_readiness()',
+    );
+    return { result, auth, staff, staffSessions, salesPermissions };
   });
   if (
     !state.result?.relations_ready ||
@@ -48,7 +51,10 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
     !state.staff.migration_ready ||
     !state.staff.functions_ready ||
     !state.staffSessions?.migration_ready ||
-    !state.staffSessions.functions_ready
+    !state.staffSessions.functions_ready ||
+    !state.salesPermissions?.migration_ready ||
+    !state.salesPermissions.functions_ready ||
+    !state.salesPermissions.assignments_ready
   ) {
     throw new Error('Control database schema is not ready.');
   }
@@ -66,6 +72,12 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        AND to_regclass('public.operations_subscribers') IS NOT NULL
        AND to_regclass('public.operations_audit_outbox') IS NOT NULL
        AND to_regclass('public.operations_platform_subscription_events') IS NOT NULL
+       AND to_regclass('public.sales_leads') IS NOT NULL
+       AND to_regclass('public.sales_offer_versions') IS NOT NULL
+       AND to_regclass('public.sales_qualifications') IS NOT NULL
+       AND to_regclass('public.sales_quotes') IS NOT NULL
+       AND to_regclass('public.sales_service_orders') IS NOT NULL
+       AND to_regclass('public.sales_order_tasks') IS NOT NULL
        AND to_regclass('public.collect_devices') IS NOT NULL
        AND to_regclass('public.collect_sync_operations') IS NOT NULL
        AND to_regclass('public.collect_audit_outbox') IS NOT NULL
@@ -83,6 +95,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608112500_tenant_network_worker.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608300210_tenant_sales_order_core.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -123,14 +138,17 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
          'public.mark_finance_audit_outbox_delivered(uuid,timestamp with time zone)'
        ) IS NOT NULL AS guard_and_outbox_invariants_ready,
        operations.context_key_ready
-         AND operations.subscription_state_ready AS operations_ready
-     FROM public.operations_readiness() operations`,
+         AND operations.subscription_state_ready AS operations_ready,
+       sales.migration_ready AND sales.relations_ready AND sales.guards_ready AS sales_ready
+     FROM public.operations_readiness() operations
+     CROSS JOIN public.sales_order_readiness() sales`,
   );
   if (
     !state?.relations_ready ||
     !state.migrations_ready ||
     !state.guard_and_outbox_invariants_ready ||
-    !state.operations_ready
+    !state.operations_ready ||
+    !state.sales_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

@@ -121,6 +121,7 @@ const english: TenantCopy = {
   moduleAction: 'Start a new record',
   navigation: [
     { id: 'dashboard', label: 'Operations dashboard' },
+    { id: 'sales', label: 'Sales & orders' },
     { id: 'subscribers', label: 'Subscribers' },
     { id: 'billing', label: 'Billing & invoices' },
     { id: 'payments', label: 'Payments & cashier' },
@@ -396,6 +397,7 @@ const arabic: TenantCopy = {
   moduleAction: 'بدء سجل جديد',
   navigation: [
     { id: 'dashboard', label: 'لوحة العمليات' },
+    { id: 'sales', label: 'المبيعات والطلبات' },
     { id: 'subscribers', label: 'المشتركون' },
     { id: 'billing', label: 'الفوترة والفواتير' },
     { id: 'payments', label: 'الدفعات والصندوق' },

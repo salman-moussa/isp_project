@@ -30,6 +30,7 @@ import {
 import { tenantRoutes } from './routes';
 import { readTenantSummary, submitTenantOperation, type TenantSummary } from './api';
 import { StaffWorkspace } from './staff/StaffWorkspace';
+import { SalesWorkspace } from './sales/SalesWorkspace';
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -388,6 +389,18 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         </>
       ) : activeNavigationId === 'staff' && session ? (
         <StaffWorkspace locale={locale} session={session} />
+      ) : activeNavigationId === 'sales' && session ? (
+        <SalesWorkspace locale={locale} session={session} />
+      ) : activeNavigationId === 'sales' ? (
+        <StatePanel
+          variant="empty"
+          title={locale === 'en' ? 'Sign in to open Sales' : 'سجّل الدخول لفتح المبيعات'}
+          description={
+            locale === 'en'
+              ? 'The governed pipeline is available only inside an authenticated tenant session.'
+              : 'مسار المبيعات المحكوم متاح فقط ضمن جلسة مستأجر موثقة.'
+          }
+        />
       ) : tenantOperationsTasks[activeNavigationId] ? (
         <OperationsWorkspace
           locale={locale}

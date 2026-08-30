@@ -30,6 +30,9 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
       'tenant.subscriber.view',
       'tenant.subscriber.create',
       'tenant.subscriber.edit',
+      'tenant.sales.view',
+      'tenant.sales.manage',
+      'tenant.order.manage',
       'tenant.billing.view',
       'tenant.payment.view',
       'tenant.collection.view',
@@ -49,6 +52,8 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
     permissions: [
       'tenant.dashboard.view',
       'tenant.subscriber.view',
+      'tenant.sales.view',
+      'tenant.catalog.manage',
       'tenant.billing.view',
       'tenant.invoice.create',
       'tenant.invoice.post',
@@ -70,6 +75,7 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
     permissions: [
       'tenant.dashboard.view',
       'tenant.subscriber.view',
+      'tenant.sales.view',
       'tenant.billing.view',
       'tenant.payment.view',
       'tenant.payment.post',
@@ -82,6 +88,7 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
     permissions: [
       'tenant.dashboard.view',
       'tenant.subscriber.view',
+      'tenant.sales.view',
       'tenant.payment.view',
       'tenant.payment.post',
       'tenant.collection.view',
@@ -94,6 +101,7 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
     permissions: [
       'tenant.dashboard.view',
       'tenant.subscriber.view',
+      'tenant.sales.view',
       'tenant.installation.view',
       'tenant.network.view',
       'tenant.network.job.create',
@@ -111,6 +119,9 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
       'tenant.subscriber.view',
       'tenant.subscriber.create',
       'tenant.subscriber.edit',
+      'tenant.sales.view',
+      'tenant.sales.manage',
+      'tenant.order.manage',
       'tenant.billing.view',
       'tenant.payment.view',
       'tenant.installation.view',
@@ -124,6 +135,7 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
     permissions: [
       'tenant.dashboard.view',
       'tenant.subscriber.view',
+      'tenant.sales.view',
       'tenant.installation.view',
       'tenant.installation.manage',
       'tenant.network.view',
@@ -136,6 +148,7 @@ export const tenantRolePresets: Readonly<Record<TenantRole, TenantRolePreset>> =
     permissions: [
       'tenant.dashboard.view',
       'tenant.subscriber.view',
+      'tenant.sales.view',
       'tenant.billing.view',
       'tenant.payment.view',
       'tenant.collection.view',

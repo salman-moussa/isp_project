@@ -20,6 +20,90 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  readSalesWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  createSalesLead(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly leadNumber: string;
+      readonly partyKind: 'person' | 'business';
+      readonly displayName: string;
+      readonly source: string;
+      readonly primaryPhone?: string;
+      readonly primaryEmail?: string;
+      readonly branchId: string;
+      readonly areaId: string;
+      readonly routeId: string;
+      readonly addressLine: string;
+      readonly needsSummary: string;
+      readonly assignedTo?: string;
+    },
+  ): Promise<unknown>;
+  createSalesOfferVersion(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly offerId?: string;
+      readonly branchId?: string;
+      readonly code: string;
+      readonly version: number;
+      readonly nameEn: string;
+      readonly nameAr: string;
+      readonly accessTechnology: string;
+      readonly downstreamMbps: number;
+      readonly upstreamMbps: number;
+      readonly quotaGb?: number;
+      readonly recurringAmountMinor: number;
+      readonly activationFeeMinor: number;
+      readonly equipmentFeeMinor: number;
+      readonly currency: SupportedCurrency;
+      readonly commitmentMonths: number;
+      readonly eligibility: Readonly<Record<string, unknown>>;
+      readonly policy: Readonly<Record<string, unknown>>;
+      readonly effectiveFrom: string;
+      readonly effectiveTo?: string;
+    },
+  ): Promise<unknown>;
+  qualifySalesLead(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly leadId: string;
+      readonly result: 'eligible' | 'ineligible' | 'survey_required' | 'reserved';
+      readonly accessTechnology: string;
+      readonly coverageSource: string;
+      readonly reasonCodes: readonly string[];
+      readonly evidence: Readonly<Record<string, unknown>>;
+      readonly capacityReference?: string;
+      readonly reservationExpiresAt?: string;
+    },
+  ): Promise<unknown>;
+  createSalesQuote(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly leadId: string;
+      readonly offerVersionId: string;
+      readonly quoteNumber: string;
+      readonly version: number;
+      readonly discountBasisPoints: number;
+      readonly validUntil: string;
+      readonly terms: Readonly<Record<string, unknown>>;
+    },
+  ): Promise<unknown>;
+  approveSalesQuote(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly quoteId: string },
+  ): Promise<unknown>;
+  acceptSalesQuote(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly quoteId: string;
+      readonly orderNumber: string;
+      readonly acceptedBy: string;
+      readonly acceptanceReference: string;
+      readonly ownerId?: string;
+    },
+  ): Promise<unknown>;
   createSubscriber(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

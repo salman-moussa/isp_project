@@ -79,11 +79,11 @@ No capability in this expansion is marked `verified` until its release evidence 
 | Domain                               | Required operating capabilities                                                                                                                                                       | Current state                     | Next acceptance target                                                                                                     |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Organization and IAM                 | Employee directory, tenant roles, permission and field scopes, branches/areas/routes, invitations, password recovery, MFA policy, sessions, devices, delegation, separation of duties | `partial`                         | ISP administrator can onboard, scope, suspend, recover, and audit every staff role; collector onboarding works end to end. |
-| CRM and sales                        | Leads, campaigns/sources, opportunities, feasibility, needs survey, site visit, quotation versions, discounts/approval, contracts, win/loss, handoff                                  | `missing`                         | Lead-to-service-order workflow preserves commercial and technical history without duplicate conversion.                    |
+| CRM and sales                        | Leads, campaigns/sources, opportunities, feasibility, needs survey, site visit, quotation versions, discounts/approval, contracts, win/loss, handoff                                  | `partial`                         | Lead-to-service-order workflow preserves commercial and technical history without duplicate conversion.                    |
 | Product and offer catalogue          | Access technology, speed, quota, FUP, burst, add-ons, TV/static IP, prepaid/postpaid, commitment, activation/equipment fees, VAT/stamp rules, eligibility, effective versions         | `partial`                         | Versioned sellable offers drive qualification, order, billing, provisioning, and history consistently.                     |
 | Address and service qualification    | Governorate/district/village/area, geocode, building, Ogero exchange/line, POP/sector/OLT coverage, capacity, LOS/signal/fiber feasibility, survey evidence                           | `partial`                         | Sales receives an explainable eligible/ineligible result and capacity reservation before commitment.                       |
 | Subscriber and party management      | Person/business, contacts, identity controls, consent, addresses, household/company relationships, documents, duplicate detection, lifecycle, privacy requests                        | `partial`                         | Complete bilingual list/detail/wizard/import/archive and controlled sensitive-field workflow.                              |
-| Order orchestration                  | Quote/order, decomposition into commercial/service/resource tasks, dependencies, appointments, holds, fallout, retries, cancellations, changes, completion                            | `missing`                         | One accepted order coordinates installation, inventory, network activation, and first billing idempotently.                |
+| Order orchestration                  | Quote/order, decomposition into commercial/service/resource tasks, dependencies, appointments, holds, fallout, retries, cancellations, changes, completion                            | `partial`                         | One accepted order coordinates installation, inventory, network activation, and first billing idempotently.                |
 | Service inventory                    | Internet service instances, access circuit, PPPoE/RADIUS identity, IP assignment, CPE, plan version, status, dependencies, history                                                    | `partial`                         | Every billed service reconciles to one current technical service and complete change history.                              |
 | Resource and outside-plant inventory | Sites, POPs, towers, rooms, racks, power, routers, switches, OLT/ONT, radios, sectors, links, splitters, fibers, ports, VLANs, IP pools, spares, diagrams                             | `missing`                         | Searchable topology-aware resource inventory with ownership, capacity, status, attachments, and audit.                     |
 | Warehouse and procurement            | Items/SKUs, serialized assets, vendors, quotes, POs, receiving, warehouses/bins, transfers, reservations, issue/return, RMA, reorder, valuation                                       | `missing`                         | Installation cannot consume unavailable equipment; every serialized CPE has custody and financial history.                 |
@@ -152,17 +152,12 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Wave 1 starts with tenant staff and access administration because it blocks real collector testing
-and every later separation-of-duties workflow. The tranche must deliver:
+Continue Wave 2 from the proven accepted-order boundary into executable subscriber, resource,
+installation, network-activation and first-billing tasks. Preserve idempotency, explicit dependency
+and fallout state, tenant/branch/area/route scope, recent-MFA approvals, immutable commercial
+history, and bilingual operator guidance. The tranche is complete only when one accepted order
+reaches a reconciled activated and billed service through real composed APIs and PostgreSQL
+evidence.
 
-- a canonical tenant role catalogue and permission presets;
-- authorized employee/member list and detail reads;
-- secure invitation/onboarding rather than shared passwords;
-- branch, area, and route scope assignment;
-- activate/suspend, authorization-version invalidation, session revocation, and recovery;
-- collector eligibility and device-onboarding visibility;
-- bilingual administration UI backed by the real API; and
-- immutable audit evidence for every sensitive change.
-
-Production activation additionally requires an approved OTP/notification provider. Development and
-test adapters may expose codes only in explicitly non-production environments.
+Production identity activation additionally requires an approved OTP/notification provider.
+Development and test adapters may expose codes only in explicitly non-production environments.

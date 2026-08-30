@@ -27,11 +27,22 @@ const claims: SessionClaims = {
     'tenant.invoice.create',
     'tenant.collection.reconcile',
     'tenant.network.job.create',
+    'tenant.sales.view',
+    'tenant.sales.manage',
+    'tenant.catalog.manage',
+    'tenant.order.manage',
   ],
 };
 
 function writerMocks() {
   return {
+    readSalesWorkspace: vi.fn(async () => ({ leads: [], offers: [], quotes: [], orders: [] })),
+    createSalesLead: vi.fn(async () => ({ id: 'lead-a' })),
+    createSalesOfferVersion: vi.fn(async () => ({ id: 'offer-a' })),
+    qualifySalesLead: vi.fn(async () => ({ id: 'qualification-a' })),
+    createSalesQuote: vi.fn(async () => ({ id: 'quote-a' })),
+    approveSalesQuote: vi.fn(async () => ({ id: 'quote-a', status: 'approved' })),
+    acceptSalesQuote: vi.fn(async () => ({ id: 'order-a' })),
     createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
     recordOfficePayment: vi.fn(async () => ({ id: 'payment-a' })),
@@ -118,6 +129,53 @@ describe('tenant operations API route plugin', () => {
     );
     expect(audit.events).toHaveLength(0);
     await app.close();
+  });
+
+  it('reads the real sales workspace and requires recent MFA for quote approval', async () => {
+    const { app } = await makeApp(claims, writer);
+    const workspace = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/sales/workspace`,
+    });
+    expect(workspace.statusCode).toBe(200);
+    expect(writer.readSalesWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.sales.view',
+        auditAction: 'tenant.sales.workspace.read',
+      }),
+    );
+
+    const denied = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/quotes/approve`,
+      headers: { 'idempotency-key': 'quote-approval-001' },
+      payload: {
+        quoteId: '80000000-0000-4000-8000-000000000001',
+        reason: 'Commercial manager approved the controlled discount',
+      },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.approveSalesQuote).not.toHaveBeenCalled();
+    await app.close();
+
+    const withMfa = { ...claims, mfaVerifiedAt: '2026-08-11T11:55:00.000Z' };
+    const { app: mfaApp } = await makeApp(withMfa, writer);
+    const approved = await mfaApp.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/quotes/approve`,
+      headers: { 'idempotency-key': 'quote-approval-001' },
+      payload: {
+        quoteId: '80000000-0000-4000-8000-000000000001',
+        reason: 'Commercial manager approved the controlled discount',
+      },
+    });
+    expect(approved.statusCode).toBe(201);
+    expect(writer.approveSalesQuote).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.catalog.manage' }),
+    );
+    await mfaApp.close();
   });
 
   it('denies a cross-tenant mutation before invoking the writer', async () => {
