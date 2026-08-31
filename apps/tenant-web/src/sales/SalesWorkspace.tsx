@@ -11,9 +11,12 @@ import {
 import {
   readSalesWorkspace,
   submitSalesOperation,
+  submitTenantOperation,
   type CapacityResource,
   type SalesLead,
+  type SalesInstallation,
   type SalesOfferVersion,
+  type SalesPlan,
   type SalesQuote,
   type SalesWorkspaceData,
   type TenantScopeItem,
@@ -63,6 +66,23 @@ export function SalesWorkspace({
         isEnglish ? 'Sales record committed and audited.' : 'تم حفظ سجل المبيعات وتدقيقه.',
       );
       setPanel(null);
+      await readSalesWorkspace(session).then(setData);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const mutateTenant = async (path: string, payload: Readonly<Record<string, unknown>>) => {
+    setBusy(true);
+    setMessage(undefined);
+    try {
+      await submitTenantOperation(session, path, payload, crypto.randomUUID());
+      setMessage(
+        isEnglish ? 'Operations record committed and audited.' : 'تم حفظ سجل العمليات وتدقيقه.',
+      );
       await readSalesWorkspace(session).then(setData);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -249,7 +269,13 @@ export function SalesWorkspace({
       ) : view === 'catalogue' ? (
         <Catalogue locale={locale} offers={data.offers} />
       ) : (
-        <Orders locale={locale} data={data} busy={busy} onMutate={mutate} />
+        <Orders
+          locale={locale}
+          data={data}
+          busy={busy}
+          onMutate={mutate}
+          onOperate={mutateTenant}
+        />
       )}
     </div>
   );
@@ -637,11 +663,13 @@ function Orders({
   data,
   busy,
   onMutate,
+  onOperate,
 }: {
   readonly locale: Locale;
   readonly data: SalesWorkspaceData;
   readonly busy: boolean;
   readonly onMutate: (path: string, payload: Readonly<Record<string, unknown>>) => Promise<void>;
+  readonly onOperate: (path: string, payload: Readonly<Record<string, unknown>>) => Promise<void>;
 }) {
   const isEnglish = locale === 'en';
   return (
@@ -657,6 +685,10 @@ function Orders({
           const lead = data.leads.find((candidate) => candidate.id === order.leadId);
           const subscriberTask = order.tasks.find((task) => task.key === 'subscriber_creation');
           const resourceTask = order.tasks.find((task) => task.key === 'resource_reservation');
+          const installationTask = order.tasks.find((task) => task.key === 'installation');
+          const installation = data.installations.find(
+            (candidate) => candidate.orderId === order.id,
+          );
           const quote = data.quotes.find((candidate) => candidate.id === order.quoteId);
           const offer = data.offers.find((candidate) => candidate.id === quote?.offerVersionId);
           const eligibleResources = data.resources.filter(
@@ -740,6 +772,30 @@ function Orders({
                   resources={eligibleResources}
                   busy={busy}
                   onSubmit={(payload) => onMutate('orders/resource', payload)}
+                />
+              ) : null}
+              {installationTask?.status === 'ready' && !installation ? (
+                <InstallationCreationForm
+                  locale={locale}
+                  orderId={order.id}
+                  orderNumber={order.orderNumber}
+                  plans={data.plans.filter(
+                    (plan) =>
+                      quote &&
+                      (!plan.branchId || plan.branchId === lead?.branchId) &&
+                      plan.recurringAmountMinor === quote.recurringAmountMinor &&
+                      plan.currency === quote.currency,
+                  )}
+                  busy={busy}
+                  onSubmit={(payload) => onMutate('orders/installation', payload)}
+                />
+              ) : null}
+              {installation ? (
+                <InstallationProgress
+                  locale={locale}
+                  installation={installation}
+                  busy={busy}
+                  onSubmit={(payload) => onOperate('installations/transitions', payload)}
                 />
               ) : null}
             </Surface>
@@ -953,6 +1009,186 @@ function ResourceReservationForm({
         {isEnglish ? 'Reserve and continue installation' : 'حجز ومتابعة التركيب'}
       </Button>
     </form>
+  );
+}
+
+function InstallationCreationForm({
+  locale,
+  orderId,
+  orderNumber,
+  plans,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly plans: readonly SalesPlan[];
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          orderId,
+          planId: formText(form, 'planId'),
+          serviceNumber: formText(form, 'serviceNumber'),
+          billingAnchorDay: Number(formText(form, 'billingAnchorDay')),
+          reason: 'Installation work order created after subscriber and capacity controls passed',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>
+          {isEnglish ? 'Ready: open installation work order' : 'جاهز: فتح أمر عمل تركيب'}
+        </strong>
+        <span>
+          {plans.length
+            ? isEnglish
+              ? 'The service and field work order are linked atomically. Network activation remains locked until evidenced installation completion.'
+              : 'يتم ربط الخدمة وأمر العمل الميداني ذرياً. يبقى تفعيل الشبكة مقفلاً حتى إكمال التركيب بالأدلة.'
+            : isEnglish
+              ? 'No active billing plan is available for this branch. Publish one in Operations first.'
+              : 'لا توجد خطة فوترة فعالة لهذا الفرع. انشر خطة في العمليات أولاً.'}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Operations plan' : 'خطة العمليات'}</span>
+        <select name="planId" required disabled={!plans.length}>
+          {plans.map((plan) => (
+            <option key={plan.id} value={plan.id}>
+              {plan.code} · {isEnglish ? plan.nameEn : plan.nameAr} ·{' '}
+              {money(plan.recurringAmountMinor, plan.currency, locale)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>{isEnglish ? 'Service number' : 'رقم الخدمة'}</span>
+        <input name="serviceNumber" defaultValue={`SVC-${orderNumber}`} required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Monthly billing day' : 'يوم الفوترة الشهري'}</span>
+        <input name="billingAnchorDay" type="number" min="1" max="28" defaultValue="1" required />
+      </label>
+      <Button type="submit" variant="primary" disabled={busy || !plans.length}>
+        {isEnglish ? 'Create field work order' : 'إنشاء أمر العمل الميداني'}
+      </Button>
+    </form>
+  );
+}
+
+function InstallationProgress({
+  locale,
+  installation,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly installation: SalesInstallation;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  const transition = (
+    toStatus: string,
+    evidence: Readonly<Record<string, unknown>>,
+    note?: string,
+  ) =>
+    onSubmit({
+      installationId: installation.id,
+      expectedVersion: installation.version,
+      toStatus,
+      evidence,
+      ...(note ? { note } : {}),
+    });
+  return (
+    <div className="sales-installation-progress">
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Field installation' : 'التركيب الميداني'}</strong>
+        <span>
+          {installation.id} · {statusLabel(installation.status, locale)} · v{installation.version}
+        </span>
+      </div>
+      {installation.status === 'requested' || installation.status === 'blocked' ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            void transition(
+              'scheduled',
+              {
+                scheduledFor: new Date(formText(form, 'scheduledFor')).toISOString(),
+                installerUserId: formText(form, 'installerUserId'),
+              },
+              isEnglish
+                ? 'Installation scheduled from service order'
+                : 'تمت جدولة التركيب من الطلب',
+            ).catch(() => undefined);
+          }}
+        >
+          <label>
+            <span>{isEnglish ? 'Appointment' : 'الموعد'}</span>
+            <input name="scheduledFor" type="datetime-local" required />
+          </label>
+          <label>
+            <span>{isEnglish ? 'Installer staff ID' : 'معرّف فني التركيب'}</span>
+            <input name="installerUserId" required />
+          </label>
+          <Button type="submit" variant="secondary" disabled={busy}>
+            {isEnglish ? 'Schedule installation' : 'جدولة التركيب'}
+          </Button>
+        </form>
+      ) : installation.status === 'scheduled' ? (
+        <Button
+          variant="primary"
+          disabled={busy}
+          onClick={() => void transition('in_progress', {}).catch(() => undefined)}
+        >
+          {isEnglish ? 'Start field work' : 'بدء العمل الميداني'}
+        </Button>
+      ) : installation.status === 'in_progress' ||
+        installation.status === 'ready_for_activation' ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            void transition(
+              installation.status === 'in_progress' ? 'ready_for_activation' : 'completed',
+              {
+                signalTest: formText(form, 'signalTest'),
+                equipmentSerial: formText(form, 'equipmentSerial'),
+                completedAt: new Date().toISOString(),
+              },
+              isEnglish ? 'Verified field completion evidence' : 'أدلة إكمال ميداني متحقق منها',
+            ).catch(() => undefined);
+          }}
+        >
+          <label>
+            <span>{isEnglish ? 'Signal / optical test' : 'فحص الإشارة / الألياف'}</span>
+            <input name="signalTest" required />
+          </label>
+          <label>
+            <span>{isEnglish ? 'Equipment serial' : 'الرقم التسلسلي للجهاز'}</span>
+            <input name="equipmentSerial" required />
+          </label>
+          <Button type="submit" variant="primary" disabled={busy}>
+            {installation.status === 'in_progress'
+              ? isEnglish
+                ? 'Submit activation evidence'
+                : 'إرسال أدلة التفعيل'
+              : isEnglish
+                ? 'Complete installation'
+                : 'إكمال التركيب'}
+          </Button>
+        </form>
+      ) : null}
+    </div>
   );
 }
 

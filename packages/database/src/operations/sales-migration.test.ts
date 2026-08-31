@@ -18,6 +18,10 @@ const resourceMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310000_tenant_order_resource_execution.sql',
 );
+const installationExecutionMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310100_tenant_order_installation_execution.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -75,5 +79,15 @@ describe('sales and order migrations', () => {
     expect(migration).toContain("context_row.permission='tenant.network.job.create'");
     expect(migration).toContain('sales_resource_execution_readiness');
     expect(migration).toContain('FORCE ROW LEVEL SECURITY');
+  });
+
+  it('links field installation state to the governed service-order dependency chain', async () => {
+    const migration = await readFile(installationExecutionMigration, 'utf8');
+    expect(migration).toContain('operations_installations_sales_order_fk');
+    expect(migration).toContain('sync_sales_order_installation_task');
+    expect(migration).toContain("NEW.status='completed'");
+    expect(migration).toContain("task_key='network_activation'");
+    expect(migration).toContain("context_row.action<>'tenant.installation.transition'");
+    expect(migration).toContain('sales_installation_execution_readiness');
   });
 });

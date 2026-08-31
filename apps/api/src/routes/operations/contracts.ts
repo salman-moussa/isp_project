@@ -143,6 +143,15 @@ export interface OperationsWriter {
       readonly units: number;
     },
   ): Promise<unknown>;
+  createSalesOrderInstallation(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly orderId: string;
+      readonly planId: string;
+      readonly serviceNumber: string;
+      readonly billingAnchorDay: number;
+    },
+  ): Promise<unknown>;
   createSubscriber(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

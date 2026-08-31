@@ -27,6 +27,7 @@ const claims: SessionClaims = {
     'tenant.invoice.create',
     'tenant.collection.reconcile',
     'tenant.network.job.create',
+    'tenant.installation.manage',
     'tenant.sales.view',
     'tenant.sales.manage',
     'tenant.catalog.manage',
@@ -46,6 +47,7 @@ function writerMocks() {
     convertSalesOrderSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     createCapacityResource: vi.fn(async () => ({ id: 'resource-a' })),
     reserveSalesOrderResource: vi.fn(async () => ({ id: 'reservation-a' })),
+    createSalesOrderInstallation: vi.fn(async () => ({ id: 'installation-a' })),
     createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
     recordOfficePayment: vi.fn(async () => ({ id: 'payment-a' })),
@@ -259,6 +261,48 @@ describe('tenant operations API route plugin', () => {
         orderId: payload.orderId,
         permission: 'tenant.network.job.create',
         auditAction: 'tenant.resource.reserve',
+      }),
+    );
+    await app.close();
+  });
+
+  it('requires installation and order authority before opening field work', async () => {
+    const payload = {
+      orderId: '80000000-0000-4000-8000-000000000001',
+      planId: '90000000-0000-4000-8000-000000000001',
+      serviceNumber: 'SVC-SO-1001',
+      billingAnchorDay: 1,
+      reason: 'Field work opened after subscriber and capacity controls passed',
+    };
+    const withoutOrderPermission = {
+      ...claims,
+      permissions: claims.permissions.filter((permission) => permission !== 'tenant.order.manage'),
+    };
+    const { app: deniedApp } = await makeApp(withoutOrderPermission, writer);
+    const denied = await deniedApp.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/installation`,
+      headers: { 'idempotency-key': 'order-installation-001' },
+      payload,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.createSalesOrderInstallation).not.toHaveBeenCalled();
+    await deniedApp.close();
+
+    const { app } = await makeApp(claims, writer);
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/installation`,
+      headers: { 'idempotency-key': 'order-installation-001' },
+      payload,
+    });
+    expect(allowed.statusCode).toBe(201);
+    expect(writer.createSalesOrderInstallation).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        orderId: payload.orderId,
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.service.installation.create',
       }),
     );
     await app.close();

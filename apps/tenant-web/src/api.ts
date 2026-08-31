@@ -124,6 +124,34 @@ export interface CapacityResource {
   readonly status: 'active' | 'maintenance' | 'retired';
 }
 
+export interface SalesPlan {
+  readonly id: string;
+  readonly code: string;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly recurringAmountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly branchId?: string;
+}
+
+export interface SalesInstallation {
+  readonly id: string;
+  readonly orderId: string;
+  readonly serviceId: string;
+  readonly status:
+    | 'requested'
+    | 'scheduled'
+    | 'in_progress'
+    | 'blocked'
+    | 'ready_for_activation'
+    | 'completed'
+    | 'cancelled';
+  readonly version: number;
+  readonly scheduledFor?: string;
+  readonly installerUserId?: string;
+  readonly blockerReason?: string;
+}
+
 export interface SalesWorkspaceData {
   readonly leads: readonly SalesLead[];
   readonly offers: readonly SalesOfferVersion[];
@@ -131,6 +159,8 @@ export interface SalesWorkspaceData {
   readonly quotes: readonly SalesQuote[];
   readonly orders: readonly SalesServiceOrder[];
   readonly resources: readonly CapacityResource[];
+  readonly plans: readonly SalesPlan[];
+  readonly installations: readonly SalesInstallation[];
   readonly scopes: TenantScopeCatalogue;
 }
 

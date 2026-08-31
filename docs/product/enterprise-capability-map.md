@@ -152,12 +152,11 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue Wave 2 from the proven subscriber and capacity-reservation boundary into executable
-installation, network-activation and first-billing tasks. Preserve idempotency, explicit dependency
-and fallout state, tenant/branch/area/route scope, recent-MFA approvals, immutable commercial
-history, and bilingual operator guidance. The tranche is complete only when one accepted order
-reaches a reconciled activated and billed service through real composed APIs and PostgreSQL
-evidence.
+Continue Wave 2 from the proven subscriber, capacity and completed-installation boundary into
+executable network-activation and first-billing tasks. Preserve idempotency, explicit dependency and
+fallout state, tenant/branch/area/route scope, recent-MFA approvals, immutable commercial history,
+and bilingual operator guidance. The tranche is complete only when one accepted order reaches a
+reconciled activated and billed service through real composed APIs and PostgreSQL evidence.
 
 Production identity activation additionally requires an approved OTP/notification provider.
 Development and test adapters may expose codes only in explicitly non-production environments.

@@ -149,6 +149,15 @@ const salesOrderResourceBody = z
     reason: businessReason,
   })
   .strict();
+const salesOrderInstallationBody = z
+  .object({
+    orderId: uuid,
+    planId: uuid,
+    serviceNumber: z.string().trim().min(1).max(80),
+    billingAnchorDay: z.number().int().min(1).max(28),
+    reason: businessReason,
+  })
+  .strict();
 
 const subscriberBody = z
   .object({
@@ -417,6 +426,7 @@ export const operationsRequestSchemas = {
   salesOrderSubscriberBody,
   capacityResourceBody,
   salesOrderResourceBody,
+  salesOrderInstallationBody,
   subscriberBody,
   billingBody,
   officePaymentBody,
@@ -541,6 +551,17 @@ export function registerTenantOperationsRoutes(
       'sales_order_resource_reservation',
       salesOrderResourceBody,
       (w, id, v) => w.reserveSalesOrderResource(id, v as never),
+      false,
+      ['tenant.order.manage'],
+    ),
+    operation(
+      '/sales/orders/installation',
+      'createSalesOrderInstallation',
+      'tenant.installation.manage',
+      'tenant.service.installation.create',
+      'operations_installation',
+      salesOrderInstallationBody,
+      (w, id, v) => w.createSalesOrderInstallation(id, v as never),
       false,
       ['tenant.order.manage'],
     ),

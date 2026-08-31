@@ -58,8 +58,9 @@ enterprise capabilities are complete.
   authorized data. Focused strict types, lint, builds, API/database/UI/accessibility tests, clean
   PostgreSQL 18 migrations, hierarchical RLS denial, approval separation and live
   lead-to-subscriber-order proof pass. Scoped capacity registration and exact-replay-safe resource
-  reservation now decrement availability and unlock installation with clean PostgreSQL 18 proof.
-  Installation, activation and first-billing execution remain in H3/H5 and prevent H2 verification.
+  reservation now decrements availability and unlocks installation. Linked service and field-work
+  creation, scheduling, versioned progress, signal/equipment evidence, completion and network-task
+  unlock now pass clean PostgreSQL 18 proof. Network activation and first billing remain open.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

@@ -7,8 +7,10 @@ import {
   acceptSalesQuote,
   approveSalesQuote,
   createDatabase,
+  createOperationsPlanVersion,
   createSalesLead,
   createSalesOfferVersion,
+  createSalesOrderInstallation,
   createSalesQuote,
   convertSalesOrderSubscriber,
   createCapacityResource,
@@ -17,6 +19,7 @@ import {
   readSalesWorkspace,
   reserveSalesOrderResource,
   signOperationsAttestation,
+  transitionInstallation,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -80,7 +83,8 @@ try {
     VALUES (${tenantId},${actorId},'isp_administrator',ARRAY[
       'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage',
       'tenant.subscriber.create','tenant.user.administer','tenant.network.view',
-      'tenant.network.job.create'
+      'tenant.network.job.create','tenant.invoice.create','tenant.installation.manage',
+      'tenant.installation.view'
     ],${JSON.stringify({ branchIds: [branchId], areaIds: [areaId], routeIds: [routeId] })}::jsonb)`;
   await admin`INSERT INTO operations_context_keys(key_id,secret,active_from)
     VALUES (${keyId},decode(${secret.toString('hex')},'hex'),clock_timestamp()-interval '1 minute')`;
@@ -284,6 +288,113 @@ try {
   assert.equal(reservationReplay.replayed, true);
   assert.equal(reservationReplay.reservationId, reservation.reservationId);
 
+  const plan = await createOperationsPlanVersion(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.plan.version.create',
+      'sales-plan-001',
+    ),
+    branchId,
+    code: `PLAN-${randomUUID().slice(0, 6)}`,
+    nameEn: 'Business Fiber 100 Operations Plan',
+    nameAr: 'خطة تشغيل فايبر أعمال ١٠٠',
+    version: 1,
+    recurringAmountMinor: 12_500,
+    currency: 'USD',
+    billingIntervalMonths: 1,
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    createdBy: actorId,
+    idempotencyKey: 'sales-plan-001',
+  });
+
+  const installationInput = {
+    authorization: authorization(
+      'tenant.installation.manage' as const,
+      'tenant.service.installation.create',
+      'sales-installation-001',
+    ),
+    orderId: order.id,
+    planId: plan.planId,
+    serviceNumber: `SVC-${randomUUID().slice(0, 8)}`,
+    billingAnchorDay: 1,
+    actorId,
+    idempotencyKey: 'sales-installation-001',
+  };
+  const installation = await createSalesOrderInstallation(runtime.db, tenantId, installationInput);
+  assert.equal(installation.replayed, false);
+  const installationReplay = await createSalesOrderInstallation(
+    runtime.db,
+    tenantId,
+    installationInput,
+  );
+  assert.equal(installationReplay.replayed, true);
+  assert.equal(installationReplay.installationId, installation.installationId);
+
+  const scheduled = await transitionInstallation(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.installation.manage',
+      'tenant.installation.transition',
+      'sales-installation-schedule-001',
+    ),
+    installationId: installation.installationId,
+    expectedVersion: 1,
+    toStatus: 'scheduled',
+    note: 'Installation appointment confirmed for live proof',
+    evidence: {
+      scheduledFor: new Date(Date.now() + 86_400_000).toISOString(),
+      installerUserId: actorId,
+    },
+    actorId,
+    idempotencyKey: 'sales-installation-schedule-001',
+  });
+  const inProgress = await transitionInstallation(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.installation.manage',
+      'tenant.installation.transition',
+      'sales-installation-start-001',
+    ),
+    installationId: installation.installationId,
+    expectedVersion: scheduled.version,
+    toStatus: 'in_progress',
+    evidence: {},
+    actorId,
+    idempotencyKey: 'sales-installation-start-001',
+  });
+  const completionEvidence = {
+    signalTest: '-18.2 dBm optical receive power; pass',
+    equipmentSerial: 'ONT-LIVE-0001',
+    completedAt: new Date().toISOString(),
+  };
+  const readyForActivation = await transitionInstallation(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.installation.manage',
+      'tenant.installation.transition',
+      'sales-installation-ready-001',
+    ),
+    installationId: installation.installationId,
+    expectedVersion: inProgress.version,
+    toStatus: 'ready_for_activation',
+    note: 'Field evidence verified before activation handoff',
+    evidence: completionEvidence,
+    actorId,
+    idempotencyKey: 'sales-installation-ready-001',
+  });
+  const completedInstallation = await transitionInstallation(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.installation.manage',
+      'tenant.installation.transition',
+      'sales-installation-complete-001',
+    ),
+    installationId: installation.installationId,
+    expectedVersion: readyForActivation.version,
+    toStatus: 'completed',
+    note: 'Installation completion released network activation',
+    evidence: completionEvidence,
+    actorId,
+    idempotencyKey: 'sales-installation-complete-001',
+  });
+  assert.equal(completedInstallation.status, 'completed');
+
   const workspace = await readSalesWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.sales.view',
@@ -297,9 +408,13 @@ try {
   assert.equal(workspace.orders[0]?.subscriberId, conversion.subscriberId);
   assert.equal(workspace.orders[0]?.tasks[1]?.status, 'completed');
   assert.equal(workspace.orders[0]?.tasks[2]?.status, 'completed');
-  assert.equal(workspace.orders[0]?.tasks[3]?.status, 'ready');
+  assert.equal(workspace.orders[0]?.tasks[3]?.status, 'completed');
+  assert.equal(workspace.orders[0]?.tasks[4]?.status, 'ready');
   assert.equal(workspace.resources[0]?.reservedUnits, 1);
   assert.equal(workspace.resources[0]?.availableUnits, 7);
+  assert.equal(workspace.installations[0]?.status, 'completed');
+  assert.equal(workspace.installations[0]?.orderId, order.id);
+  assert.equal(workspace.plans[0]?.id, plan.planId);
   assert.equal(workspace.scopes.routes[0]?.id, routeId);
 
   const [audit] = await admin`SELECT count(*)::integer AS count,
@@ -308,10 +423,11 @@ try {
       AND action IN ('tenant.sales.lead.create','tenant.sales.qualify','tenant.catalog.offer.version.create',
         'tenant.sales.quote.create','tenant.sales.quote.approve','tenant.sales.quote.accept',
         'tenant.sales.workspace.read','tenant.subscriber.create','tenant.resource.create',
-        'tenant.resource.reserve')`;
-  assert((audit?.count ?? 0) >= 25, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
+        'tenant.installation.transition')`;
+  assert((audit?.count ?? 0) >= 40, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
-  console.log('Sales lead-to-resource-reservation live checks passed');
+  console.log('Sales lead-to-completed-installation live checks passed');
 } finally {
   await Promise.allSettled([admin.end(), runtime.client.end()]);
 }

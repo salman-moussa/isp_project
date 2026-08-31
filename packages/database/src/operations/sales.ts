@@ -119,6 +119,8 @@ export interface SalesWorkspace {
   readonly quotes: readonly SalesQuote[];
   readonly orders: readonly SalesServiceOrder[];
   readonly resources: readonly CapacityResource[];
+  readonly plans: readonly SalesPlan[];
+  readonly installations: readonly SalesInstallation[];
   readonly scopes: {
     readonly branches: readonly SalesScopeItem[];
     readonly areas: readonly SalesScopeItem[];
@@ -148,6 +150,34 @@ export interface CapacityResource {
   readonly status: 'active' | 'maintenance' | 'retired';
 }
 
+export interface SalesPlan {
+  readonly id: string;
+  readonly code: string;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly recurringAmountMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly branchId?: string;
+}
+
+export interface SalesInstallation {
+  readonly id: string;
+  readonly orderId: string;
+  readonly serviceId: string;
+  readonly status:
+    | 'requested'
+    | 'scheduled'
+    | 'in_progress'
+    | 'blocked'
+    | 'ready_for_activation'
+    | 'completed'
+    | 'cancelled';
+  readonly version: number;
+  readonly scheduledFor?: string;
+  readonly installerUserId?: string;
+  readonly blockerReason?: string;
+}
+
 export interface SalesScopeItem {
   readonly id: string;
   readonly parentId?: string;
@@ -171,6 +201,8 @@ export async function readSalesWorkspace(
       orders,
       tasks,
       resources,
+      plans,
+      installations,
       branches,
       areas,
       routes,
@@ -207,6 +239,18 @@ export async function readSalesWorkspace(
           SELECT * FROM operations_capacity_resources WHERE tenant_id=${tenantId}
           ORDER BY status,code LIMIT 250
         `),
+      transaction.execute<SalesPlanRow>(sql`
+          SELECT id,code,name_en,name_ar,recurring_amount_minor,currency,branch_id
+          FROM operations_plans WHERE tenant_id=${tenantId} AND active
+          ORDER BY code LIMIT 250
+        `),
+      transaction.execute<SalesInstallationRow>(sql`
+          SELECT id,sales_order_id,service_id,status,version,scheduled_for,installer_user_id,
+            blocker_reason
+          FROM operations_installations
+          WHERE tenant_id=${tenantId} AND sales_order_id IS NOT NULL
+          ORDER BY updated_at DESC LIMIT 100
+        `),
       transaction.execute<SalesScopeRow>(sql`
           SELECT id,NULL::uuid AS parent_id,code,name_en,name_ar
           FROM operations_branches WHERE tenant_id=${tenantId} AND active ORDER BY code
@@ -230,6 +274,8 @@ export async function readSalesWorkspace(
         tasks: tasks.filter((task) => task.order_id === order.id).map(mapTask),
       })),
       resources: resources.map(mapResource),
+      plans: plans.map(mapPlan),
+      installations: installations.map(mapInstallation),
       scopes: {
         branches: branches.map(mapScope),
         areas: areas.map(mapScope),
@@ -877,6 +923,126 @@ export async function reserveSalesOrderResource(
   });
 }
 
+export async function createSalesOrderInstallation(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly orderId: string;
+    readonly planId: string;
+    readonly serviceNumber: string;
+    readonly billingAnchorDay: number;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<{
+  readonly orderId: string;
+  readonly serviceId: string;
+  readonly installationId: string;
+  readonly replayed: boolean;
+}> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:order-installation:${input.idempotencyKey}`},0)
+    )`);
+    const [replay] = await transaction.execute<{
+      readonly service_id: string;
+      readonly installation_id: string;
+      readonly sales_order_id: string;
+      readonly plan_id: string;
+      readonly service_number: string;
+      readonly billing_anchor_day: number;
+      readonly execution_fingerprint: string | null;
+    }>(sql`
+      SELECT service.id AS service_id,installation.id AS installation_id,
+        installation.sales_order_id,service.plan_id,service.service_number,
+        service.billing_anchor_day,task.execution_fingerprint
+      FROM operations_services service
+      JOIN operations_installations installation
+        ON installation.tenant_id=service.tenant_id AND installation.service_id=service.id
+      JOIN sales_order_tasks task ON task.tenant_id=installation.tenant_id
+        AND task.order_id=installation.sales_order_id AND task.task_key='installation'
+      WHERE service.tenant_id=${tenantId} AND service.idempotency_key=${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (
+        replay.sales_order_id !== input.orderId ||
+        replay.plan_id !== input.planId ||
+        replay.service_number !== input.serviceNumber ||
+        replay.billing_anchor_day !== input.billingAnchorDay ||
+        replay.execution_fingerprint !== fingerprint
+      )
+        throw new OperationsConflictError();
+      return {
+        orderId: input.orderId,
+        serviceId: replay.service_id,
+        installationId: replay.installation_id,
+        replayed: true,
+      };
+    }
+
+    const [target] = await transaction.execute<{
+      readonly subscriber_id: string;
+      readonly location_id: string;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+      readonly task_status: SalesOrderTask['status'];
+      readonly recurring_amount_minor: string | number;
+      readonly currency: SupportedCurrency;
+    }>(sql`
+      SELECT sales_order.subscriber_id,subscriber.primary_location_id AS location_id,
+        lead.branch_id,lead.area_id,lead.route_id,task.status AS task_status,
+        quote.recurring_amount_minor,quote.currency
+      FROM sales_service_orders sales_order
+      JOIN sales_leads lead ON lead.tenant_id=sales_order.tenant_id AND lead.id=sales_order.lead_id
+      JOIN sales_quotes quote ON quote.tenant_id=sales_order.tenant_id AND quote.id=sales_order.quote_id
+      JOIN operations_subscribers subscriber ON subscriber.tenant_id=sales_order.tenant_id
+        AND subscriber.id=sales_order.subscriber_id
+      JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
+        AND task.order_id=sales_order.id AND task.task_key='installation'
+      WHERE sales_order.tenant_id=${tenantId} AND sales_order.id=${input.orderId}
+      FOR UPDATE OF sales_order,task
+    `);
+    if (!target || target.task_status !== 'ready')
+      throw new OperationsConflictError('The installation task is not ready.');
+
+    const [service] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_services(
+        tenant_id,subscriber_id,location_id,plan_id,service_number,status,billing_anchor_day,
+        branch_id,area_id,route_id,idempotency_key
+      )
+      SELECT ${tenantId},${target.subscriber_id},${target.location_id},plan.id,
+        ${input.serviceNumber},'pending_installation',${input.billingAnchorDay},
+        ${target.branch_id},${target.area_id},${target.route_id},${input.idempotencyKey}
+      FROM operations_plans plan
+      WHERE plan.tenant_id=${tenantId} AND plan.id=${input.planId} AND plan.active
+        AND (plan.branch_id IS NULL OR plan.branch_id=${target.branch_id})
+        AND plan.recurring_amount_minor=${Number(target.recurring_amount_minor)}
+        AND plan.currency=${target.currency}
+      RETURNING id
+    `);
+    if (!service) throw new OperationsConflictError('The selected plan is not eligible.');
+    const [installation] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_installations(
+        tenant_id,service_id,status,branch_id,area_id,route_id,idempotency_key,sales_order_id
+      ) VALUES(
+        ${tenantId},${service.id},'requested',${target.branch_id},${target.area_id},
+        ${target.route_id},${input.idempotencyKey},${input.orderId}
+      ) RETURNING id
+    `);
+    if (!installation) throw new Error('Unable to create the governed installation work order.');
+    const result = { serviceId: service.id, installationId: installation.id };
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='running',last_error=NULL,
+        result_reference=${JSON.stringify(result)}::jsonb,execution_fingerprint=${fingerprint},
+        execution_idempotency_key=${input.idempotencyKey}
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key='installation'
+    `);
+    return { orderId: input.orderId, ...result, replayed: false };
+  });
+}
+
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function readOrderTasks(
@@ -996,6 +1162,25 @@ interface CapacityResourceRow extends Record<string, unknown> {
   readonly route_id: string | null;
   readonly status: CapacityResource['status'];
   readonly request_fingerprint: string;
+}
+interface SalesPlanRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly code: string;
+  readonly name_en: string;
+  readonly name_ar: string;
+  readonly recurring_amount_minor: string | number;
+  readonly currency: SupportedCurrency;
+  readonly branch_id: string | null;
+}
+interface SalesInstallationRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly sales_order_id: string;
+  readonly service_id: string;
+  readonly status: SalesInstallation['status'];
+  readonly version: number;
+  readonly scheduled_for: Date | string | null;
+  readonly installer_user_id: string | null;
+  readonly blocker_reason: string | null;
 }
 
 function mapLead(row: SalesLeadRow): SalesLead {
@@ -1117,6 +1302,29 @@ function mapResource(row: CapacityResourceRow): CapacityResource {
     ...(row.area_id ? { areaId: row.area_id } : {}),
     ...(row.route_id ? { routeId: row.route_id } : {}),
     status: row.status,
+  };
+}
+function mapPlan(row: SalesPlanRow): SalesPlan {
+  return {
+    id: row.id,
+    code: row.code,
+    nameEn: row.name_en,
+    nameAr: row.name_ar,
+    recurringAmountMinor: Number(row.recurring_amount_minor),
+    currency: row.currency,
+    ...(row.branch_id ? { branchId: row.branch_id } : {}),
+  };
+}
+function mapInstallation(row: SalesInstallationRow): SalesInstallation {
+  return {
+    id: row.id,
+    orderId: row.sales_order_id,
+    serviceId: row.service_id,
+    status: row.status,
+    version: row.version,
+    ...(row.scheduled_for ? { scheduledFor: iso(row.scheduled_for) } : {}),
+    ...(row.installer_user_id ? { installerUserId: row.installer_user_id } : {}),
+    ...(row.blocker_reason ? { blockerReason: row.blocker_reason } : {}),
   };
 }
 function iso(value: Date | string): string {

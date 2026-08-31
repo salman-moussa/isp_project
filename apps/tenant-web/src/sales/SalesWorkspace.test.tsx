@@ -117,6 +117,8 @@ const workspace = {
       status: 'active',
     },
   ],
+  plans: [],
+  installations: [],
   scopes: {
     branches: [
       {

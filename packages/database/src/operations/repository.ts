@@ -535,7 +535,6 @@ export async function transitionInstallation(
     }>(sql`
       SELECT status, version FROM operations_installations
       WHERE tenant_id = ${tenantId} AND id = ${input.installationId}
-      FOR UPDATE
     `);
     if (
       !current ||
