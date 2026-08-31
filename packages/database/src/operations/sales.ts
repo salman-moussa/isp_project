@@ -91,8 +91,12 @@ export interface SalesOrderTask {
     | 'blocked'
     | 'failed'
     | 'cancelled';
+  readonly attempts: number;
+  readonly lastError?: string;
   readonly result?: Readonly<Record<string, unknown>>;
 }
+
+export type SalesOrderCommand = 'retry_task' | 'place_on_hold' | 'resume' | 'cancel';
 
 export interface SalesServiceOrder {
   readonly id: string;
@@ -1360,6 +1364,167 @@ export async function postSalesOrderFirstInvoice(
   });
 }
 
+export async function executeSalesOrderCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly orderId: string;
+    readonly command: SalesOrderCommand;
+    readonly taskKey?: string;
+    readonly reason: string;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<{
+  readonly orderId: string;
+  readonly command: SalesOrderCommand;
+  readonly orderStatus: SalesServiceOrder['status'];
+  readonly taskKey?: string;
+  readonly replayed: boolean;
+}> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:order-command:${input.orderId}`},0)
+    )`);
+    const [replay] = await transaction.execute<{
+      readonly order_id: string;
+      readonly command: SalesOrderCommand;
+      readonly task_key: string | null;
+      readonly request_fingerprint: string;
+      readonly result_reference: Record<string, unknown>;
+    }>(sql`
+      SELECT order_id,command,task_key,request_fingerprint,result_reference
+      FROM sales_order_commands
+      WHERE tenant_id=${tenantId} AND idempotency_key=${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (
+        replay.order_id !== input.orderId ||
+        replay.command !== input.command ||
+        (replay.task_key ?? undefined) !== input.taskKey ||
+        replay.request_fingerprint !== fingerprint
+      )
+        throw new OperationsConflictError();
+      return orderCommandResult(replay.order_id, replay.command, replay.result_reference, true);
+    }
+
+    const [order] = await transaction.execute<{
+      readonly status: SalesServiceOrder['status'];
+      readonly subscriber_id: string | null;
+    }>(sql`
+      SELECT status,subscriber_id FROM sales_service_orders
+      WHERE tenant_id=${tenantId} AND id=${input.orderId}
+      FOR UPDATE
+    `);
+    if (!order) throw new OperationsConflictError('The service order was not found.');
+
+    let orderStatus: SalesServiceOrder['status'];
+    if (input.command === 'retry_task') {
+      if (!input.taskKey || ['completed', 'cancelled', 'on_hold'].includes(order.status))
+        throw new OperationsConflictError('This order cannot retry a delivery task.');
+      const [task] = await transaction.execute<{
+        readonly status: SalesOrderTask['status'];
+      }>(sql`
+        SELECT status FROM sales_order_tasks
+        WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key=${input.taskKey}
+        FOR UPDATE
+      `);
+      if (!task || !['failed', 'blocked'].includes(task.status))
+        throw new OperationsConflictError('Only a failed or blocked task can be retried.');
+      await transaction.execute(sql`
+        UPDATE sales_order_tasks SET status='ready',last_error=NULL
+        WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key=${input.taskKey}
+      `);
+      const [recoveredOrder] = await transaction.execute<{
+        readonly status: SalesServiceOrder['status'];
+      }>(sql`
+        SELECT status FROM sales_service_orders
+        WHERE tenant_id=${tenantId} AND id=${input.orderId}
+      `);
+      if (!recoveredOrder) throw new OperationsConflictError();
+      orderStatus = recoveredOrder.status;
+    } else if (input.command === 'place_on_hold') {
+      if (!['accepted', 'in_progress', 'fallout'].includes(order.status))
+        throw new OperationsConflictError('Only an active service order can be placed on hold.');
+      const [running] = await transaction.execute<{ readonly count: number }>(sql`
+        SELECT count(*)::integer AS count FROM sales_order_tasks
+        WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND status='running'
+      `);
+      if ((running?.count ?? 0) > 0)
+        throw new OperationsConflictError(
+          'Wait for the running delivery step before placing a hold.',
+        );
+      orderStatus = 'on_hold';
+      await transaction.execute(sql`
+        UPDATE sales_service_orders SET status=${orderStatus},updated_at=clock_timestamp()
+        WHERE tenant_id=${tenantId} AND id=${input.orderId}
+      `);
+    } else if (input.command === 'resume') {
+      if (order.status !== 'on_hold')
+        throw new OperationsConflictError('Only an order on hold can be resumed.');
+      const [exceptions] = await transaction.execute<{ readonly count: number }>(sql`
+        SELECT count(*)::integer AS count FROM sales_order_tasks
+        WHERE tenant_id=${tenantId} AND order_id=${input.orderId}
+          AND status IN ('failed','blocked')
+      `);
+      orderStatus = (exceptions?.count ?? 0) > 0 ? 'fallout' : 'in_progress';
+      await transaction.execute(sql`
+        UPDATE sales_service_orders SET status=${orderStatus},updated_at=clock_timestamp()
+        WHERE tenant_id=${tenantId} AND id=${input.orderId}
+      `);
+    } else {
+      if (['completed', 'cancelled'].includes(order.status))
+        throw new OperationsConflictError('This service order is already terminal.');
+      if (order.subscriber_id)
+        throw new OperationsConflictError(
+          'Orders with a subscriber require a governed service termination instead of cancellation.',
+        );
+      const [unsafeTask] = await transaction.execute<{ readonly task_key: string }>(sql`
+        SELECT task_key FROM sales_order_tasks
+        WHERE tenant_id=${tenantId} AND order_id=${input.orderId}
+          AND (status='running' OR (status='completed' AND task_key<>'commercial_acceptance'))
+        LIMIT 1
+      `);
+      if (unsafeTask)
+        throw new OperationsConflictError(
+          'Cancellation is blocked because delivery side effects already exist.',
+        );
+      await transaction.execute(sql`
+        UPDATE sales_order_tasks SET status='cancelled',last_error=${input.reason}
+        WHERE tenant_id=${tenantId} AND order_id=${input.orderId}
+          AND status IN ('pending','ready','blocked','failed')
+      `);
+      orderStatus = 'cancelled';
+      await transaction.execute(sql`
+        UPDATE sales_service_orders SET status=${orderStatus},updated_at=clock_timestamp()
+        WHERE tenant_id=${tenantId} AND id=${input.orderId}
+      `);
+    }
+
+    const result = {
+      orderStatus,
+      ...(input.taskKey ? { taskKey: input.taskKey } : {}),
+    };
+    await transaction.execute(sql`
+      INSERT INTO sales_order_commands(
+        tenant_id,order_id,command,task_key,reason,request_fingerprint,result_reference,
+        requested_by,idempotency_key
+      ) VALUES(
+        ${tenantId},${input.orderId},${input.command},${input.taskKey ?? null},${input.reason},
+        ${fingerprint},${JSON.stringify(result)}::jsonb,${input.actorId},${input.idempotencyKey}
+      )
+    `);
+    return {
+      orderId: input.orderId,
+      command: input.command,
+      orderStatus,
+      ...(input.taskKey ? { taskKey: input.taskKey } : {}),
+      replayed: false,
+    };
+  });
+}
+
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function readOrderTasks(
@@ -1460,6 +1625,8 @@ interface SalesOrderTaskRow extends Record<string, unknown> {
   readonly task_type: SalesOrderTask['type'];
   readonly depends_on_keys: string[];
   readonly status: SalesOrderTask['status'];
+  readonly attempts: number;
+  readonly last_error: string | null;
   readonly result_reference: Record<string, unknown> | null;
 }
 interface SalesScopeRow extends Record<string, unknown> {
@@ -1614,6 +1781,8 @@ function mapTask(row: SalesOrderTaskRow): SalesOrderTask {
     type: row.task_type,
     dependsOn: row.depends_on_keys,
     status: row.status,
+    attempts: row.attempts,
+    ...(row.last_error ? { lastError: row.last_error } : {}),
     ...(row.result_reference ? { result: row.result_reference } : {}),
   };
 }
@@ -1727,6 +1896,42 @@ function firstBillingResult(
   )
     throw new Error('The first billing result is incomplete.');
   return { orderId, invoiceId, amountMinor, currency, replayed };
+}
+function orderCommandResult(
+  orderId: string,
+  command: SalesOrderCommand,
+  result: Readonly<Record<string, unknown>>,
+  replayed: boolean,
+): {
+  readonly orderId: string;
+  readonly command: SalesOrderCommand;
+  readonly orderStatus: SalesServiceOrder['status'];
+  readonly taskKey?: string;
+  readonly replayed: boolean;
+} {
+  const orderStatus = result.orderStatus;
+  const taskKey = result.taskKey;
+  if (
+    typeof orderStatus !== 'string' ||
+    ![
+      'accepted',
+      'validating',
+      'in_progress',
+      'on_hold',
+      'fallout',
+      'completed',
+      'cancelled',
+    ].includes(orderStatus) ||
+    (taskKey !== undefined && typeof taskKey !== 'string')
+  )
+    throw new Error('The service-order command result is incomplete.');
+  return {
+    orderId,
+    command,
+    orderStatus: orderStatus as SalesServiceOrder['status'],
+    ...(typeof taskKey === 'string' ? { taskKey } : {}),
+    replayed,
+  };
 }
 function safeMinor(value: string): number {
   const converted = Number(value);

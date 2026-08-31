@@ -16,6 +16,7 @@ import {
   convertSalesOrderSubscriber,
   createCapacityResource,
   enqueueSalesOrderActivation,
+  executeSalesOrderCommand,
   inOperationsTransaction,
   qualifySalesLead,
   postSalesOrderFirstInvoice,
@@ -238,6 +239,74 @@ try {
   assert.equal(order.tasks[0]?.status, 'completed');
   assert.equal(order.tasks[1]?.status, 'ready');
 
+  const holdInput = {
+    authorization: authorization(
+      'tenant.order.manage' as const,
+      'tenant.order.command',
+      'sales-order-hold-001',
+    ),
+    orderId: order.id,
+    command: 'place_on_hold' as const,
+    reason: 'Customer requested a documented installation scheduling pause',
+    actorId,
+    idempotencyKey: 'sales-order-hold-001',
+  };
+  const held = await executeSalesOrderCommand(runtime.db, tenantId, holdInput);
+  assert.equal(held.orderStatus, 'on_hold');
+  assert.equal(held.replayed, false);
+  const heldReplay = await executeSalesOrderCommand(runtime.db, tenantId, holdInput);
+  assert.equal(heldReplay.orderStatus, 'on_hold');
+  assert.equal(heldReplay.replayed, true);
+  const resumed = await executeSalesOrderCommand(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.order.manage',
+      'tenant.order.command',
+      'sales-order-resume-001',
+    ),
+    orderId: order.id,
+    command: 'resume',
+    reason: 'Customer confirmed the installation schedule may continue',
+    actorId,
+    idempotencyKey: 'sales-order-resume-001',
+  });
+  assert.equal(resumed.orderStatus, 'in_progress');
+
+  await inOperationsTransaction(
+    runtime.db,
+    tenantId,
+    authorization('tenant.order.manage', 'tenant.order.command', 'sales-order-fallout-seed-001'),
+    async (transaction) => {
+      await transaction.execute(sql`
+        UPDATE sales_order_tasks SET status='failed',last_error='test-only dependency failure'
+        WHERE tenant_id=${tenantId} AND order_id=${order.id} AND task_key='subscriber_creation'
+      `);
+    },
+  );
+  const falloutWorkspace = await readSalesWorkspace(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.sales.view',
+      'tenant.sales.workspace.read',
+      'sales-read-fallout-001',
+    ),
+  });
+  assert.equal(falloutWorkspace.orders[0]?.status, 'fallout');
+  assert.equal(falloutWorkspace.orders[0]?.tasks[1]?.status, 'failed');
+  assert.equal(falloutWorkspace.orders[0]?.tasks[1]?.lastError, 'test-only dependency failure');
+  const retried = await executeSalesOrderCommand(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.order.manage',
+      'tenant.order.command',
+      'sales-order-retry-001',
+    ),
+    orderId: order.id,
+    command: 'retry_task',
+    taskKey: 'subscriber_creation',
+    reason: 'The dependency fault was resolved and verified by operations',
+    actorId,
+    idempotencyKey: 'sales-order-retry-001',
+  });
+  assert.equal(retried.orderStatus, 'in_progress');
+
   const conversionInput = {
     authorization: authorization(
       'tenant.subscriber.create' as const,
@@ -257,6 +326,21 @@ try {
   const conversionReplay = await convertSalesOrderSubscriber(runtime.db, tenantId, conversionInput);
   assert.equal(conversionReplay.replayed, true);
   assert.equal(conversionReplay.subscriberId, conversion.subscriberId);
+  await assert.rejects(
+    executeSalesOrderCommand(runtime.db, tenantId, {
+      authorization: authorization(
+        'tenant.order.manage',
+        'tenant.order.command',
+        'sales-order-cancel-denied-001',
+      ),
+      orderId: order.id,
+      command: 'cancel',
+      reason: 'Attempted cancellation after subscriber conversion',
+      actorId,
+      idempotencyKey: 'sales-order-cancel-denied-001',
+    }),
+    /governed service termination/i,
+  );
 
   const resource = await createCapacityResource(runtime.db, tenantId, {
     authorization: authorization(
@@ -562,8 +646,9 @@ try {
         'tenant.sales.workspace.read','tenant.subscriber.create','tenant.resource.create',
         'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
         'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete',
-        'tenant.billing.policy.version.create','tenant.order.first_invoice.post')`;
-  assert((audit?.count ?? 0) >= 53, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.billing.policy.version.create','tenant.order.first_invoice.post',
+        'tenant.order.command')`;
+  assert((audit?.count ?? 0) >= 62, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
   const [financeAudit] = await admin`SELECT count(*)::integer AS count,
     bool_and(actor_id=${actorId}::text) AS actor_matches
@@ -571,6 +656,9 @@ try {
       AND action='tenant.invoice.post' AND permission='tenant.invoice.post'`;
   assert((financeAudit?.count ?? 0) >= 1, 'first billing must emit immutable finance evidence');
   assert.equal(financeAudit?.actor_matches, true);
+  const [commandHistory] = await admin`SELECT count(*)::integer AS count
+    FROM sales_order_commands WHERE tenant_id=${tenantId} AND order_id=${order.id}`;
+  assert.equal(commandHistory?.count, 3);
   console.log('Sales lead-to-activated-and-billed-order live checks passed');
 } finally {
   await Promise.allSettled([admin.end(), runtime.client.end(), networkWorker.end()]);

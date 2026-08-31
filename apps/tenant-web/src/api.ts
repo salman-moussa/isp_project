@@ -101,6 +101,8 @@ export interface SalesServiceOrder {
     readonly type: string;
     readonly dependsOn: readonly string[];
     readonly status: string;
+    readonly attempts: number;
+    readonly lastError?: string;
     readonly result?: Readonly<Record<string, unknown>>;
   }[];
 }

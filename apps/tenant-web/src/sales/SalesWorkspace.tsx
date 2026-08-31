@@ -689,6 +689,12 @@ function Orders({
           const installationTask = order.tasks.find((task) => task.key === 'installation');
           const networkTask = order.tasks.find((task) => task.key === 'network_activation');
           const firstBillingTask = order.tasks.find((task) => task.key === 'first_billing');
+          const exceptionTasks = order.tasks.filter(
+            (task) => task.status === 'failed' || task.status === 'blocked',
+          );
+          const executionEnabled = !['on_hold', 'fallout', 'completed', 'cancelled'].includes(
+            order.status,
+          );
           const installation = data.installations.find(
             (candidate) => candidate.orderId === order.id,
           );
@@ -767,6 +773,10 @@ function Orders({
                           : isEnglish
                             ? 'No dependency'
                             : 'دون تبعية'}
+                        {task.lastError ? ` · ${task.lastError}` : ''}
+                        {task.attempts
+                          ? ` · ${isEnglish ? 'Attempts' : 'المحاولات'} ${task.attempts}`
+                          : ''}
                       </small>
                     </div>
                     <StatusBadge
@@ -783,7 +793,34 @@ function Orders({
                   </li>
                 ))}
               </ol>
-              {lead && subscriberTask?.status === 'ready' && !order.subscriberId ? (
+              {order.status !== 'on_hold'
+                ? exceptionTasks.map((task) => (
+                    <RetryOrderTaskForm
+                      key={task.key}
+                      locale={locale}
+                      orderId={order.id}
+                      taskKey={task.key}
+                      taskType={task.type}
+                      busy={busy}
+                      onSubmit={(payload) => onMutate('orders/commands', payload)}
+                    />
+                  ))
+                : null}
+              {!['completed', 'cancelled'].includes(order.status) ? (
+                <OrderCommandForm
+                  key={order.status}
+                  locale={locale}
+                  orderId={order.id}
+                  orderStatus={order.status}
+                  canCancel={!order.subscriberId}
+                  busy={busy}
+                  onSubmit={(payload) => onMutate('orders/commands', payload)}
+                />
+              ) : null}
+              {executionEnabled &&
+              lead &&
+              subscriberTask?.status === 'ready' &&
+              !order.subscriberId ? (
                 <SubscriberConversionForm
                   locale={locale}
                   orderId={order.id}
@@ -793,7 +830,7 @@ function Orders({
                   onSubmit={(payload) => onMutate('orders/subscriber', payload)}
                 />
               ) : null}
-              {resourceTask?.status === 'ready' ? (
+              {executionEnabled && resourceTask?.status === 'ready' ? (
                 <ResourceReservationForm
                   locale={locale}
                   orderId={order.id}
@@ -802,7 +839,7 @@ function Orders({
                   onSubmit={(payload) => onMutate('orders/resource', payload)}
                 />
               ) : null}
-              {installationTask?.status === 'ready' && !installation ? (
+              {executionEnabled && installationTask?.status === 'ready' && !installation ? (
                 <>
                   {!eligiblePlans.length && quote && lead ? (
                     <PlanPublicationForm
@@ -824,7 +861,7 @@ function Orders({
                   />
                 </>
               ) : null}
-              {installation ? (
+              {executionEnabled && installation ? (
                 <InstallationProgress
                   locale={locale}
                   installation={installation}
@@ -832,7 +869,7 @@ function Orders({
                   onSubmit={(payload) => onOperate('installations/transitions', payload)}
                 />
               ) : null}
-              {networkTask?.status === 'ready' ? (
+              {executionEnabled && networkTask?.status === 'ready' ? (
                 <NetworkActivationForm
                   locale={locale}
                   orderId={order.id}
@@ -840,7 +877,10 @@ function Orders({
                   onSubmit={(payload) => onMutate('orders/network', payload)}
                 />
               ) : null}
-              {firstBillingTask?.status === 'ready' && activationDate && lead ? (
+              {executionEnabled &&
+              firstBillingTask?.status === 'ready' &&
+              activationDate &&
+              lead ? (
                 effectiveBillingPolicies.length ? (
                   <FirstBillingForm
                     locale={locale}
@@ -884,6 +924,129 @@ function Orders({
         />
       )}
     </div>
+  );
+}
+
+function RetryOrderTaskForm({
+  locale,
+  orderId,
+  taskKey,
+  taskType,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly taskKey: string;
+  readonly taskType: string;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          orderId,
+          command: 'retry_task',
+          taskKey,
+          reason: formText(form, 'reason'),
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>
+          {isEnglish
+            ? `Resolve and retry ${taskLabel(taskType, locale)}`
+            : `معالجة وإعادة ${taskLabel(taskType, locale)}`}
+        </strong>
+        <span>
+          {isEnglish
+            ? 'Record what was corrected. Dependencies are checked again before the step returns to Ready.'
+            : 'سجّل ما تمت معالجته. يعاد التحقق من التبعيات قبل إعادة الخطوة إلى جاهز.'}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Resolution note' : 'ملاحظة المعالجة'}</span>
+        <input name="reason" minLength={8} maxLength={500} required />
+      </label>
+      <Button type="submit" variant="primary" disabled={busy}>
+        {isEnglish ? 'Retry governed step' : 'إعادة الخطوة المحكومة'}
+      </Button>
+    </form>
+  );
+}
+
+function OrderCommandForm({
+  locale,
+  orderId,
+  orderStatus,
+  canCancel,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly orderStatus: string;
+  readonly canCancel: boolean;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  const [command, setCommand] = useState<'place_on_hold' | 'resume' | 'cancel'>(
+    orderStatus === 'on_hold' ? 'resume' : 'place_on_hold',
+  );
+  const options =
+    orderStatus === 'on_hold' ? ['resume'] : ['place_on_hold', ...(canCancel ? ['cancel'] : [])];
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({ orderId, command, reason: formText(form, 'reason') }).catch(
+          () => undefined,
+        );
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Order control' : 'التحكم بالطلب'}</strong>
+        <span>
+          {canCancel
+            ? isEnglish
+              ? 'Hold, resume, or cancel before subscriber/service side effects exist.'
+              : 'علّق أو استأنف أو ألغِ قبل إنشاء آثار المشترك أو الخدمة.'
+            : isEnglish
+              ? 'Cancellation is locked after subscriber creation; use a governed service termination.'
+              : 'يُقفل الإلغاء بعد إنشاء المشترك؛ استخدم إنهاء خدمة محكوماً.'}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Action' : 'الإجراء'}</span>
+        <select
+          value={command}
+          onChange={(event) =>
+            setCommand(event.target.value as 'place_on_hold' | 'resume' | 'cancel')
+          }
+        >
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {orderCommandLabel(option, locale)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>{isEnglish ? 'Operational reason' : 'السبب التشغيلي'}</span>
+        <input name="reason" minLength={8} maxLength={500} required />
+      </label>
+      <Button type="submit" variant={command === 'cancel' ? 'danger' : 'secondary'} disabled={busy}>
+        {orderCommandLabel(command, locale)}
+      </Button>
+    </form>
   );
 }
 
@@ -1927,6 +2090,14 @@ function taskLabel(type: string, locale: Locale) {
     billing: { en: 'First billing', ar: 'الفوترة الأولى' },
   };
   return labels[type]?.[locale] ?? type;
+}
+function orderCommandLabel(command: string, locale: Locale) {
+  const labels: Record<string, { en: string; ar: string }> = {
+    place_on_hold: { en: 'Place on hold', ar: 'تعليق الطلب' },
+    resume: { en: 'Resume order', ar: 'استئناف الطلب' },
+    cancel: { en: 'Cancel order', ar: 'إلغاء الطلب' },
+  };
+  return labels[command]?.[locale] ?? command.replaceAll('_', ' ');
 }
 function statusLabel(status: string, locale: Locale) {
   const labels: Record<string, { en: string; ar: string }> = {

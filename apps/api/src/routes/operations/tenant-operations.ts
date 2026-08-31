@@ -159,6 +159,23 @@ const salesOrderInstallationBody = z
   })
   .strict();
 const salesOrderNetworkBody = z.object({ orderId: uuid, reason: businessReason }).strict();
+const salesOrderCommandBody = z
+  .object({
+    orderId: uuid,
+    command: z.enum(['retry_task', 'place_on_hold', 'resume', 'cancel']),
+    taskKey: z.string().trim().min(1).max(80).optional(),
+    reason: businessReason,
+  })
+  .strict()
+  .superRefine((body, context) => {
+    if ((body.command === 'retry_task') !== Boolean(body.taskKey)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['taskKey'],
+        message: 'taskKey is required only for retry_task',
+      });
+    }
+  });
 const salesOrderFirstBillingBody = z
   .object({
     orderId: uuid,
@@ -598,6 +615,15 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueSalesOrderActivation(id, v as never),
       false,
       ['tenant.order.manage'],
+    ),
+    operation(
+      '/sales/orders/commands',
+      'executeSalesOrderCommand',
+      'tenant.order.manage',
+      'tenant.order.command',
+      'sales_order_command',
+      salesOrderCommandBody,
+      (w, id, v) => w.executeSalesOrderCommand(id, v as never),
     ),
     operation(
       '/sales/orders/billing',

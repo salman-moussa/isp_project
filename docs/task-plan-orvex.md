@@ -64,7 +64,9 @@ enterprise capabilities are complete.
   worker-only verified terminal synchronization and first-billing unlock now pass. Effective
   branch billing policy resolution, explicit VAT/rounding, immutable invoice posting, billing-run
   linkage, exact replay, finance/operations audit and final order closure now pass a fresh
-  PostgreSQL 18 composed proof. Governed fallout/retry/cancel/change handling remains open.
+  PostgreSQL 18 composed proof. Immutable exception commands, hold/resume replay, automatic fallout,
+  resolution retry and unsafe post-subscriber cancellation denial now pass live. Post-subscriber
+  termination and commercial/technical change-order handling remain open.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

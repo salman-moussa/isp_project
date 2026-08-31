@@ -49,6 +49,7 @@ function writerMocks() {
     reserveSalesOrderResource: vi.fn(async () => ({ id: 'reservation-a' })),
     createSalesOrderInstallation: vi.fn(async () => ({ id: 'installation-a' })),
     enqueueSalesOrderActivation: vi.fn(async () => ({ id: 'network-job-a' })),
+    executeSalesOrderCommand: vi.fn(async () => ({ orderStatus: 'on_hold' })),
     postSalesOrderFirstInvoice: vi.fn(async () => ({ id: 'invoice-a' })),
     createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
@@ -344,6 +345,30 @@ describe('tenant operations API route plugin', () => {
         orderId: payload.orderId,
         permission: 'tenant.network.job.create',
         auditAction: 'tenant.network.job.create',
+      }),
+    );
+    await app.close();
+  });
+
+  it('executes a governed order command with order authority', async () => {
+    const { app } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/commands`,
+      headers: { 'idempotency-key': 'order-hold-001' },
+      payload: {
+        orderId: '80000000-0000-4000-8000-000000000001',
+        command: 'place_on_hold',
+        reason: 'Customer requested a documented scheduling pause',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(writer.executeSalesOrderCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command: 'place_on_hold',
+        permission: 'tenant.order.manage',
+        auditAction: 'tenant.order.command',
       }),
     );
     await app.close();

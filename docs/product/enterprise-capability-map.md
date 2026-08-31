@@ -152,12 +152,13 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue Wave 2 from the proven accepted-order path—which now reaches a reconciled activated,
-invoiced and closed service—into governed fallout/retry/cancellation/change-order handling and the
-internal subscriber/service workspaces. Preserve idempotency, explicit dependency state,
-tenant/branch/area/route scope, recent-MFA approvals, immutable commercial and finance history, and
-bilingual operator guidance. Router and subscriber-service bindings remain a privileged
-provisioning prerequisite and must not expose credential material to the application runtime.
+Continue Wave 2 from the proven accepted-order path—which now includes governed fallout/retry,
+hold/resume, safe pre-side-effect cancellation and reconciled activated/invoiced closure—into the
+internal subscriber/service workspaces, post-subscriber termination, and commercial/technical
+change orders. Preserve idempotency, explicit dependency state, tenant/branch/area/route scope,
+recent-MFA approvals, immutable commercial and finance history, and bilingual operator guidance.
+Router and subscriber-service bindings remain a privileged provisioning prerequisite and must not
+expose credential material to the application runtime.
 
 Production identity activation additionally requires an approved OTP/notification provider.
 Development and test adapters may expose codes only in explicitly non-production environments.

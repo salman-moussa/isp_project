@@ -156,6 +156,14 @@ export interface OperationsWriter {
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly orderId: string },
   ): Promise<unknown>;
+  executeSalesOrderCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly orderId: string;
+      readonly command: 'retry_task' | 'place_on_hold' | 'resume' | 'cancel';
+      readonly taskKey?: string;
+    },
+  ): Promise<unknown>;
   postSalesOrderFirstInvoice(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

@@ -30,6 +30,10 @@ const firstBillingMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310300_tenant_order_first_billing.sql',
 );
+const orderExceptionMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310400_tenant_order_exception_commands.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -119,5 +123,15 @@ describe('sales and order migrations', () => {
     expect(migration).toContain('first_invoice_period_end>first_invoice_period_start');
     expect(migration).toContain('operations_plan_versions_first_billing_read');
     expect(migration).toContain('operations_billing_policies_sales_workspace_read');
+  });
+
+  it('governs order fallout, recovery, hold, resume, and safe cancellation', async () => {
+    const migration = await readFile(orderExceptionMigration, 'utf8');
+    expect(migration).toContain('CREATE TABLE sales_order_commands');
+    expect(migration).toContain('sync_sales_order_exception_status');
+    expect(migration).toContain("command IN ('retry_task','place_on_hold','resume','cancel')");
+    expect(migration).toContain("context_row.action='tenant.order.command'");
+    expect(migration).toContain('sales_order_exception_readiness');
+    expect(migration).toContain('FORCE ROW LEVEL SECURITY');
   });
 });

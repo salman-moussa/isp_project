@@ -78,6 +78,7 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        AND to_regclass('public.sales_quotes') IS NOT NULL
        AND to_regclass('public.sales_service_orders') IS NOT NULL
        AND to_regclass('public.sales_order_tasks') IS NOT NULL
+       AND to_regclass('public.sales_order_commands') IS NOT NULL
        AND to_regclass('public.collect_devices') IS NOT NULL
        AND to_regclass('public.collect_sync_operations') IS NOT NULL
        AND to_regclass('public.collect_audit_outbox') IS NOT NULL
@@ -113,6 +114,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608310300_tenant_order_first_billing.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608310400_tenant_order_exception_commands.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -164,14 +168,18 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        network_execution.migration_ready AND network_execution.sync_ready
          AND network_execution.worker_bridge_ready AS sales_network_execution_ready,
        first_billing.migration_ready AND first_billing.columns_ready
-         AND first_billing.audit_ready AS sales_first_billing_ready
+         AND first_billing.audit_ready AS sales_first_billing_ready,
+       order_exceptions.migration_ready AND order_exceptions.commands_ready
+         AND order_exceptions.sync_ready AND order_exceptions.audit_ready
+         AS sales_order_exceptions_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
      CROSS JOIN public.sales_resource_execution_readiness() resource_execution
      CROSS JOIN public.sales_installation_execution_readiness() installation_execution
      CROSS JOIN public.sales_network_execution_readiness() network_execution
-     CROSS JOIN public.sales_first_billing_readiness() first_billing`,
+     CROSS JOIN public.sales_first_billing_readiness() first_billing
+     CROSS JOIN public.sales_order_exception_readiness() order_exceptions`,
   );
   if (
     !state?.relations_ready ||
@@ -183,7 +191,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.sales_resource_execution_ready ||
     !state.sales_installation_execution_ready ||
     !state.sales_network_execution_ready ||
-    !state.sales_first_billing_ready
+    !state.sales_first_billing_ready ||
+    !state.sales_order_exceptions_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }
