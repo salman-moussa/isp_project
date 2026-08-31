@@ -68,11 +68,34 @@ export interface SubscriberWorkspaceIssue {
   readonly updatedAt: string;
 }
 
+export interface SubscriberWorkspacePlan {
+  readonly id: string;
+  readonly code: string;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly recurringAmountMinor: number;
+  readonly currency: SupportedCurrency;
+}
+
+export interface SubscriberWorkspaceServiceChange {
+  readonly id: string;
+  readonly serviceId: string;
+  readonly action: 'plan_change' | 'suspend' | 'restore' | 'terminate';
+  readonly fromStatus: SubscriberWorkspaceService['status'];
+  readonly toStatus: SubscriberWorkspaceService['status'];
+  readonly fromPlanId: string;
+  readonly toPlanId: string;
+  readonly reason: string;
+  readonly effectiveAt: string;
+}
+
 export interface SubscriberWorkspace {
   readonly subscribers: readonly SubscriberWorkspaceSubscriber[];
   readonly services: readonly SubscriberWorkspaceService[];
   readonly invoices: readonly SubscriberWorkspaceInvoice[];
   readonly issues: readonly SubscriberWorkspaceIssue[];
+  readonly plans: readonly SubscriberWorkspacePlan[];
+  readonly serviceChanges: readonly SubscriberWorkspaceServiceChange[];
 }
 
 export async function readSubscriberWorkspace(
@@ -82,7 +105,8 @@ export async function readSubscriberWorkspace(
 ): Promise<SubscriberWorkspace> {
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
     await transaction.execute(sql`SELECT audit_subscriber_workspace_read()`);
-    const [subscribers, contacts, services, invoices, issues] = await Promise.all([
+    const [subscribers, contacts, services, invoices, issues, plans, serviceChanges] =
+      await Promise.all([
       transaction.execute<SubscriberRow>(sql`
         SELECT subscriber.id,subscriber.subscriber_number,subscriber.display_name,subscriber.status,
           subscriber.created_at,household.reference_code AS household_reference,
@@ -147,6 +171,16 @@ export async function readSubscriberWorkspace(
         SELECT id,subscriber_id,service_id,issue_number,subject,priority,status,updated_at
         FROM operations_support_issues WHERE tenant_id=${tenantId}
         ORDER BY updated_at DESC LIMIT 500
+      `),
+      transaction.execute<PlanRow>(sql`
+        SELECT id,code,name_en,name_ar,recurring_amount_minor::text,currency
+        FROM operations_plans WHERE tenant_id=${tenantId} AND active AND archived_at IS NULL
+        ORDER BY code LIMIT 250
+      `),
+      transaction.execute<ServiceChangeRow>(sql`
+        SELECT id,service_id,action,from_status,to_status,from_plan_id,to_plan_id,reason,effective_at
+        FROM operations_service_change_orders WHERE tenant_id=${tenantId}
+        ORDER BY effective_at DESC,id DESC LIMIT 1000
       `),
     ]);
     return {
@@ -214,6 +248,25 @@ export async function readSubscriberWorkspace(
         status: row.status,
         updatedAt: timestamp(row.updated_at),
       })),
+      plans: plans.map((row) => ({
+        id: row.id,
+        code: row.code,
+        nameEn: row.name_en,
+        nameAr: row.name_ar,
+        recurringAmountMinor: safeMinor(row.recurring_amount_minor),
+        currency: row.currency,
+      })),
+      serviceChanges: serviceChanges.map((row) => ({
+        id: row.id,
+        serviceId: row.service_id,
+        action: row.action,
+        fromStatus: row.from_status,
+        toStatus: row.to_status,
+        fromPlanId: row.from_plan_id,
+        toPlanId: row.to_plan_id,
+        reason: row.reason,
+        effectiveAt: timestamp(row.effective_at),
+      })),
     };
   });
 }
@@ -275,6 +328,25 @@ interface IssueRow extends Record<string, unknown> {
   readonly priority: SubscriberWorkspaceIssue['priority'];
   readonly status: SubscriberWorkspaceIssue['status'];
   readonly updated_at: Date | string;
+}
+interface PlanRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly code: string;
+  readonly name_en: string;
+  readonly name_ar: string;
+  readonly recurring_amount_minor: string;
+  readonly currency: SupportedCurrency;
+}
+interface ServiceChangeRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly service_id: string;
+  readonly action: SubscriberWorkspaceServiceChange['action'];
+  readonly from_status: SubscriberWorkspaceService['status'];
+  readonly to_status: SubscriberWorkspaceService['status'];
+  readonly from_plan_id: string;
+  readonly to_plan_id: string;
+  readonly reason: string;
+  readonly effective_at: Date | string;
 }
 
 function timestamp(value: Date | string): string {

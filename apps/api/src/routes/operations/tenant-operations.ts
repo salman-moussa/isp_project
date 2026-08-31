@@ -455,6 +455,23 @@ const networkBody = z.discriminatedUnion('action', [
     })
     .strict(),
 ]);
+const serviceChangeBody = z.discriminatedUnion('action', [
+  z
+    .object({
+      serviceId: uuid,
+      action: z.literal('plan_change'),
+      targetPlanId: uuid,
+      reason: z.string().trim().min(8).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      serviceId: uuid,
+      action: z.enum(['suspend', 'restore', 'terminate']),
+      reason: z.string().trim().min(8).max(500),
+    })
+    .strict(),
+]);
 
 export const operationsRequestSchemas = {
   salesLeadBody,
@@ -483,6 +500,7 @@ export const operationsRequestSchemas = {
   exportBody,
   configurationBody,
   networkBody,
+  serviceChangeBody,
 } as const;
 
 interface RouteSpec extends OperationsDefinition {
@@ -770,6 +788,17 @@ export function registerTenantOperationsRoutes(
       'configuration',
       configurationBody,
       (w, id, v) => w.configure(id, v as never),
+    ),
+    operation(
+      '/services/change-orders',
+      'applyServiceChangeOrder',
+      'tenant.subscriber.edit',
+      'tenant.service.change.apply',
+      'service_change_order',
+      serviceChangeBody,
+      (w, id, v) => w.applyServiceChangeOrder(id, v as never),
+      false,
+      ['tenant.order.manage'],
     ),
     operation(
       '/network-actions',

@@ -25,6 +25,7 @@ const claims: SessionClaims = {
   permissions: [
     'tenant.subscriber.view',
     'tenant.subscriber.create',
+    'tenant.subscriber.edit',
     'tenant.invoice.create',
     'tenant.collection.reconcile',
     'tenant.network.job.create',
@@ -40,6 +41,7 @@ function writerMocks() {
   return {
     readSubscriberWorkspace: vi.fn(async () => ({ subscribers: [], services: [] })),
     readSalesWorkspace: vi.fn(async () => ({ leads: [], offers: [], quotes: [], orders: [] })),
+    applyServiceChangeOrder: vi.fn(async () => ({ id: 'change-order-a' })),
     createSalesLead: vi.fn(async () => ({ id: 'lead-a' })),
     createSalesOfferVersion: vi.fn(async () => ({ id: 'offer-a' })),
     qualifySalesLead: vi.fn(async () => ({ id: 'qualification-a' })),
@@ -493,6 +495,34 @@ describe('tenant operations API route plugin', () => {
       expect.objectContaining({ serviceId, action: 'change_profile' }),
     );
     expect(response.body).not.toContain('platformSubscription');
+    await app.close();
+  });
+
+  it('applies a reasoned service change order under subscriber and order permissions', async () => {
+    const { app } = await makeApp(claims, writer);
+    const targetPlanId = '50000000-0000-4000-8000-000000000001';
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/services/change-orders`,
+      headers: { 'idempotency-key': 'service-change-001' },
+      payload: {
+        serviceId,
+        action: 'plan_change',
+        targetPlanId,
+        reason: 'Customer approved the upgraded plan.',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(writer.applyServiceChangeOrder).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        serviceId,
+        action: 'plan_change',
+        targetPlanId,
+        permission: 'tenant.subscriber.edit',
+        auditAction: 'tenant.service.change.apply',
+      }),
+    );
     await app.close();
   });
 

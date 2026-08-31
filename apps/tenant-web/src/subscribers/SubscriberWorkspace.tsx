@@ -9,8 +9,10 @@ import {
   type Locale,
 } from '@isp/ui';
 import {
+  applyServiceChange,
   readSubscriberWorkspace,
   type SubscriberWorkspaceData,
+  type SubscriberWorkspaceService,
   type SubscriberWorkspaceSubscriber,
 } from '../api';
 import './subscriber.css';
@@ -203,7 +205,15 @@ export function SubscriberWorkspace({
               ))}
             </div>
           </Surface>
-          {selected ? <SubscriberDetail locale={locale} data={data} subscriber={selected} /> : null}
+          {selected ? (
+            <SubscriberDetail
+              locale={locale}
+              data={data}
+              subscriber={selected}
+              session={session}
+              onChanged={load}
+            />
+          ) : null}
         </div>
       )}
     </div>
@@ -253,10 +263,14 @@ function SubscriberDetail({
   locale,
   data,
   subscriber,
+  session,
+  onChanged,
 }: {
   readonly locale: Locale;
   readonly data: SubscriberWorkspaceData;
   readonly subscriber: SubscriberWorkspaceSubscriber;
+  readonly session: ApiSession;
+  readonly onChanged: () => void;
 }) {
   const isEnglish = locale === 'en';
   const services = data.services.filter((service) => service.subscriberId === subscriber.id);
@@ -309,36 +323,45 @@ function SubscriberDetail({
         <h2>{isEnglish ? 'Services and network lifecycle' : 'الخدمات ودورة حياة الشبكة'}</h2>
         {services.length ? (
           services.map((service) => (
-            <Surface key={service.id} className="subscriber-service-card">
-              <div>
-                <small>{service.serviceNumber}</small>
-                <strong>{locale === 'en' ? service.planNameEn : service.planNameAr}</strong>
-                <span>
-                  {service.planCode} ·{' '}
-                  {money(service.recurringAmountMinor, service.currency, locale)} ·{' '}
-                  {isEnglish ? 'anchor' : 'يوم الفوترة'} {service.billingAnchorDay}
-                </span>
-              </div>
-              <div>
-                <StatusBadge
-                  tone={
-                    service.status === 'active'
-                      ? 'positive'
-                      : service.status === 'suspended'
-                        ? 'warning'
-                        : 'neutral'
-                  }
-                >
-                  {statusText(service.status, locale)}
-                </StatusBadge>
-                {service.installationStatus ? (
-                  <small>
-                    {isEnglish ? 'Installation' : 'التركيب'}:{' '}
-                    {statusText(service.installationStatus, locale)}
-                  </small>
-                ) : null}
-              </div>
-            </Surface>
+            <div className="subscriber-service" key={service.id}>
+              <Surface className="subscriber-service-card">
+                <div>
+                  <small>{service.serviceNumber}</small>
+                  <strong>{locale === 'en' ? service.planNameEn : service.planNameAr}</strong>
+                  <span>
+                    {service.planCode} ·{' '}
+                    {money(service.recurringAmountMinor, service.currency, locale)} ·{' '}
+                    {isEnglish ? 'anchor' : 'يوم الفوترة'} {service.billingAnchorDay}
+                  </span>
+                </div>
+                <div>
+                  <StatusBadge
+                    tone={
+                      service.status === 'active'
+                        ? 'positive'
+                        : service.status === 'suspended'
+                          ? 'warning'
+                          : 'neutral'
+                    }
+                  >
+                    {statusText(service.status, locale)}
+                  </StatusBadge>
+                  {service.installationStatus ? (
+                    <small>
+                      {isEnglish ? 'Installation' : 'التركيب'}:{' '}
+                      {statusText(service.installationStatus, locale)}
+                    </small>
+                  ) : null}
+                </div>
+              </Surface>
+              <ServiceLifecycle
+                locale={locale}
+                session={session}
+                service={service}
+                data={data}
+                onChanged={onChanged}
+              />
+            </div>
           ))
         ) : (
           <StatePanel
@@ -422,6 +445,158 @@ function SubscriberDetail({
   );
 }
 
+function ServiceLifecycle({
+  locale,
+  session,
+  service,
+  data,
+  onChanged,
+}: {
+  readonly locale: Locale;
+  readonly session: ApiSession;
+  readonly service: SubscriberWorkspaceService;
+  readonly data: SubscriberWorkspaceData;
+  readonly onChanged: () => void;
+}) {
+  const isEnglish = locale === 'en';
+  const [action, setAction] = useState<'plan_change' | 'suspend' | 'restore' | 'terminate'>(
+    service.status === 'suspended' ? 'restore' : 'plan_change',
+  );
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const history = data.serviceChanges.filter((change) => change.serviceId === service.id);
+  const availableActions =
+    service.status === 'active'
+      ? (['plan_change', 'suspend', 'terminate'] as const)
+      : service.status === 'suspended'
+        ? (['restore', 'terminate'] as const)
+        : [];
+  useEffect(() => {
+    if (service.status === 'suspended' && !['restore', 'terminate'].includes(action))
+      setAction('restore');
+    if (service.status === 'active' && action === 'restore') setAction('plan_change');
+  }, [action, service.status]);
+  if (!availableActions.length && !history.length) return null;
+  return (
+    <details className="service-lifecycle">
+      <summary>
+        <span>
+          <strong>{isEnglish ? 'Lifecycle & change history' : 'دورة الحياة وسجل التغييرات'}</strong>
+          <small>
+            {history.length
+              ? isEnglish
+                ? `${history.length} governed change${history.length === 1 ? '' : 's'}`
+                : `${history.length} تغييرات محكومة`
+              : isEnglish
+                ? 'No change recorded yet'
+                : 'لم يُسجّل أي تغيير بعد'}
+          </small>
+        </span>
+        <span aria-hidden="true">＋</span>
+      </summary>
+      {availableActions.length ? (
+        <form
+          className="service-change-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            const reasonValue = form.get('reason');
+            const targetPlanValue = form.get('targetPlanId');
+            const reason = typeof reasonValue === 'string' ? reasonValue.trim() : '';
+            const targetPlanId = typeof targetPlanValue === 'string' ? targetPlanValue : '';
+            if (action === 'terminate') {
+              const accepted = globalThis.confirm(
+                isEnglish
+                  ? 'Terminate this service? Billing eligibility and network access will end.'
+                  : 'إنهاء هذه الخدمة؟ ستتوقف أهلية الفوترة والوصول إلى الشبكة.',
+              );
+              if (!accepted) return;
+            }
+            setPending(true);
+            setMessage(undefined);
+            const request =
+              action === 'plan_change'
+                ? { serviceId: service.id, action, targetPlanId, reason }
+                : { serviceId: service.id, action, reason };
+            void applyServiceChange(session, request)
+              .then(() => {
+                setMessage(isEnglish ? 'Change committed.' : 'تم اعتماد التغيير.');
+                onChanged();
+              })
+              .catch((error: unknown) =>
+                setMessage(error instanceof Error ? error.message : 'Service change failed.'),
+              )
+              .finally(() => setPending(false));
+          }}
+        >
+          <label>
+            <span>{isEnglish ? 'Change action' : 'إجراء التغيير'}</span>
+            <select
+              value={action}
+              onChange={(event) =>
+                setAction(event.target.value as 'plan_change' | 'suspend' | 'restore' | 'terminate')
+              }
+            >
+              {availableActions.map((value) => (
+                <option key={value} value={value}>
+                  {statusText(value, locale)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {action === 'plan_change' ? (
+            <label>
+              <span>{isEnglish ? 'New plan' : 'الباقة الجديدة'}</span>
+              <select name="targetPlanId" required defaultValue="">
+                <option value="" disabled>
+                  {isEnglish ? 'Select a plan' : 'اختر باقة'}
+                </option>
+                {data.plans
+                  .filter((plan) => plan.id !== service.planId)
+                  .map((plan) => (
+                    <option value={plan.id} key={plan.id}>
+                      {locale === 'en' ? plan.nameEn : plan.nameAr} ·{' '}
+                      {money(plan.recurringAmountMinor, plan.currency, locale)}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="service-change-form__reason">
+            <span>{isEnglish ? 'Business reason' : 'سبب العمل'}</span>
+            <textarea name="reason" minLength={8} maxLength={500} rows={2} required />
+          </label>
+          <Button type="submit" variant={action === 'terminate' ? 'danger' : 'primary'} disabled={pending}>
+            {pending
+              ? isEnglish
+                ? 'Applying…'
+                : 'جارٍ التنفيذ…'
+              : isEnglish
+                ? 'Apply governed change'
+                : 'تطبيق التغيير المحكوم'}
+          </Button>
+          {message ? <p role="status">{message}</p> : null}
+        </form>
+      ) : null}
+      {history.length ? (
+        <ol className="service-change-history">
+          {history.map((change) => (
+            <li key={change.id}>
+              <span>
+                <strong>{statusText(change.action, locale)}</strong>
+                <small>{change.reason}</small>
+              </span>
+              <small>
+                {new Date(change.effectiveAt).toLocaleString(isEnglish ? 'en-LB' : 'ar-LB')}
+              </small>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </details>
+  );
+}
+
 function Metric({
   label,
   value,
@@ -473,6 +648,10 @@ function statusText(status: string, locale: Locale) {
     triaged: { en: 'Triaged', ar: 'تم الفرز' },
     waiting: { en: 'Waiting', ar: 'بانتظار' },
     resolved: { en: 'Resolved', ar: 'محلول' },
+    plan_change: { en: 'Change plan', ar: 'تغيير الباقة' },
+    suspend: { en: 'Suspend service', ar: 'تعليق الخدمة' },
+    restore: { en: 'Restore service', ar: 'إعادة الخدمة' },
+    terminate: { en: 'Terminate service', ar: 'إنهاء الخدمة' },
   };
   return labels[status]?.[locale] ?? status.replaceAll('_', ' ');
 }

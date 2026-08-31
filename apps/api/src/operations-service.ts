@@ -1,6 +1,7 @@
 import type { VerifiedTenantId } from '@isp/contracts';
 import {
   assignCollectorInvoice,
+  applyServiceChangeOrder,
   acceptSalesQuote,
   approveSalesQuote,
   configureOperations,
@@ -48,6 +49,7 @@ export interface OperationsContextAuthorityConfig {
 export interface OperationsRepositoryAdapter {
   readonly readSalesWorkspace: typeof readSalesWorkspace;
   readonly readSubscriberWorkspace: typeof readSubscriberWorkspace;
+  readonly applyServiceChangeOrder: typeof applyServiceChangeOrder;
   readonly createSalesLead: typeof createSalesLead;
   readonly createSalesOfferVersion: typeof createSalesOfferVersion;
   readonly qualifySalesLead: typeof qualifySalesLead;
@@ -82,6 +84,7 @@ export interface OperationsRepositoryAdapter {
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readSalesWorkspace,
   readSubscriberWorkspace,
+  applyServiceChangeOrder,
   createSalesLead,
   createSalesOfferVersion,
   qualifySalesLead,
@@ -149,6 +152,17 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'readSubscriberWorkspace'>,
   ) {
     return this.repository.readSubscriberWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public applyServiceChangeOrder(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'applyServiceChangeOrder'>,
+  ) {
+    return this.repository.applyServiceChangeOrder(this.database, tenantId, {
+      ...input,
+      requestedBy: input.actorId,
       authorization: this.sign(tenantId, input),
     });
   }

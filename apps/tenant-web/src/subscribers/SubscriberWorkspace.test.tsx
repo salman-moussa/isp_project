@@ -63,6 +63,25 @@ const workspace = {
     },
   ],
   issues: [],
+  plans: [
+    {
+      id: '40000000-0000-4000-8000-000000000001',
+      code: 'BIZ-100',
+      nameEn: 'Business Fiber 100',
+      nameAr: 'فايبر أعمال ١٠٠',
+      recurringAmountMinor: 12500,
+      currency: 'USD',
+    },
+    {
+      id: '40000000-0000-4000-8000-000000000002',
+      code: 'BIZ-200',
+      nameEn: 'Business Fiber 200',
+      nameAr: 'فايبر أعمال ٢٠٠',
+      recurringAmountMinor: 19000,
+      currency: 'USD',
+    },
+  ],
+  serviceChanges: [],
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -81,6 +100,7 @@ describe('SubscriberWorkspace', () => {
     expect(screen.getByText('Business Fiber 100')).toBeVisible();
     expect(screen.getByText('INV-1001')).toBeVisible();
     expect(screen.getByText('+9611000000')).toBeVisible();
+    expect(screen.getByText('Lifecycle & change history')).toBeVisible();
     await user.type(screen.getByRole('searchbox'), 'not present');
     expect(screen.getByText('No subscribers match')).toBeVisible();
     expect(

@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import {
   acceptSalesQuote,
+  applyServiceChangeOrder,
   approveSalesQuote,
   createDatabase,
   createBillingPolicyVersion,
@@ -90,7 +91,8 @@ try {
   await admin`INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope)
     VALUES (${tenantId},${actorId},'isp_administrator',ARRAY[
       'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage',
-      'tenant.subscriber.view','tenant.subscriber.create','tenant.user.administer','tenant.network.view',
+      'tenant.subscriber.view','tenant.subscriber.create','tenant.subscriber.edit',
+      'tenant.user.administer','tenant.network.view',
       'tenant.network.job.create','tenant.invoice.create','tenant.installation.manage',
       'tenant.invoice.post',
       'tenant.installation.view'
@@ -654,6 +656,74 @@ try {
   assert.equal(subscriberWorkspace.invoices[0]?.id, firstBilling.invoiceId);
   assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 13_875);
 
+  const upgradedPlan = await createOperationsPlanVersion(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.plan.version.create',
+      'service-change-plan-001',
+      { branchIds: [branchId] },
+    ),
+    branchId,
+    code: `BIZ-UP-${randomUUID().slice(0, 6)}`,
+    nameEn: 'Business Fiber 200',
+    nameAr: 'فايبر أعمال ٢٠٠',
+    networkProfileReference: 'BIZ-FIBER-200',
+    version: 1,
+    recurringAmountMinor: 19_000,
+    currency: 'USD',
+    billingIntervalMonths: 1,
+    effectiveFrom: activationDate,
+    createdBy: actorId,
+    idempotencyKey: 'service-change-plan-001',
+  });
+  const planChangeInput = {
+    authorization: authorization(
+      'tenant.subscriber.edit' as const,
+      'tenant.service.change.apply',
+      'service-change-upgrade-001',
+    ),
+    serviceId: installation.serviceId,
+    action: 'plan_change' as const,
+    targetPlanId: upgradedPlan.planId,
+    reason: 'Subscriber approved the upgraded service plan.',
+    requestedBy: actorId,
+    idempotencyKey: 'service-change-upgrade-001',
+  };
+  const planChange = await applyServiceChangeOrder(runtime.db, tenantId, planChangeInput);
+  assert.equal(planChange.planId, upgradedPlan.planId);
+  assert.equal(planChange.replayed, false);
+  const planChangeReplay = await applyServiceChangeOrder(runtime.db, tenantId, planChangeInput);
+  assert.equal(planChangeReplay.id, planChange.id);
+  assert.equal(planChangeReplay.replayed, true);
+
+  for (const [action, key, expected] of [
+    ['suspend', 'service-change-suspend-001', 'suspended'],
+    ['restore', 'service-change-restore-001', 'active'],
+    ['terminate', 'service-change-terminate-001', 'terminated'],
+  ] as const) {
+    const result = await applyServiceChangeOrder(runtime.db, tenantId, {
+      authorization: authorization('tenant.subscriber.edit', 'tenant.service.change.apply', key),
+      serviceId: installation.serviceId,
+      action,
+      reason: `Authorized live acceptance ${action} lifecycle change.`,
+      requestedBy: actorId,
+      idempotencyKey: key,
+    });
+    assert.equal(result.serviceStatus, expected);
+  }
+  const lifecycleWorkspace = await readSubscriberWorkspace(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.subscriber.view',
+      'tenant.subscriber.workspace.read',
+      'subscriber-workspace-lifecycle-read-001',
+    ),
+  });
+  assert.equal(lifecycleWorkspace.services[0]?.status, 'terminated');
+  assert.equal(lifecycleWorkspace.services[0]?.planId, upgradedPlan.planId);
+  assert.equal(lifecycleWorkspace.subscribers[0]?.status, 'closed');
+  assert.equal(lifecycleWorkspace.serviceChanges.length, 4);
+  assert.equal(lifecycleWorkspace.serviceChanges[0]?.action, 'terminate');
+
   const [audit] = await admin`SELECT count(*)::integer AS count,
     bool_and(actor_id=${actorId}::text) AS actor_matches
     FROM operations_audit_outbox WHERE tenant_id=${tenantId}
@@ -663,8 +733,8 @@ try {
         'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
         'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete',
         'tenant.billing.policy.version.create','tenant.order.first_invoice.post',
-        'tenant.order.command','tenant.subscriber.workspace.read')`;
-  assert((audit?.count ?? 0) >= 63, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.order.command','tenant.subscriber.workspace.read','tenant.service.change.apply')`;
+  assert((audit?.count ?? 0) >= 80, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
   const [financeAudit] = await admin`SELECT count(*)::integer AS count,
     bool_and(actor_id=${actorId}::text) AS actor_matches

@@ -38,6 +38,10 @@ const subscriberWorkspaceMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310500_tenant_subscriber_workspace.sql',
 );
+const serviceChangeMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310600_tenant_service_change_orders.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -145,5 +149,16 @@ describe('sales and order migrations', () => {
     expect(migration).toContain("context_row.permission<>'tenant.subscriber.view'");
     expect(migration).toContain('subscriber_workspace_readiness');
     expect(migration).not.toMatch(/password|credential|session token/i);
+  });
+
+  it('applies service lifecycle changes with immutable history, RLS, and network coupling', async () => {
+    const migration = await readFile(serviceChangeMigration, 'utf8');
+    expect(migration).toContain('CREATE TABLE operations_service_change_orders');
+    expect(migration).toContain("action IN ('plan_change','suspend','restore','terminate')");
+    expect(migration).toContain("base_action='tenant.service.change.apply'");
+    expect(migration).toContain("context_row.permission='tenant.subscriber.edit'");
+    expect(migration).toContain('operations_service_change_orders_append_only');
+    expect(migration).toContain('service_change_order_readiness');
+    expect(migration).toContain('FORCE ROW LEVEL SECURITY');
   });
 });

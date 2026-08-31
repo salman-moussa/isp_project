@@ -129,3 +129,7 @@ enterprise capabilities are complete.
   medium issue in the implemented foundation. The bilingual reference web routes, shared tokens, RTL
   preservation, mobile drawer containment, deep links and accessibility tests pass; Storybook,
   browser/assistive-technology visual evidence and the Collect reference flow remain Phase-B work.
+- Subscriber 360 now includes one governed service-change workflow for plan upgrades, suspension,
+  restoration and termination. The command is exact-replay safe, synchronizes subscriber/service
+  commercial state with the durable router job, retains append-only reason/history, and passed the
+  composed PostgreSQL acceptance path through subscriber closure.

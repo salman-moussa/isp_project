@@ -28,6 +28,14 @@ export interface OperationsWriter {
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
   ): Promise<unknown>;
+  applyServiceChangeOrder(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly serviceId: string;
+      readonly action: 'plan_change' | 'suspend' | 'restore' | 'terminate';
+      readonly targetPlanId?: string;
+    },
+  ): Promise<unknown>;
   createSalesLead(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

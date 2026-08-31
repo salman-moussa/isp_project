@@ -173,6 +173,75 @@
 .subscriber-service-card small {
   color: var(--color-ink-muted);
 }
+.subscriber-service {
+  display: grid;
+  gap: 0.45rem;
+}
+.service-lifecycle {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface) 96%, var(--color-primary-soft));
+  overflow: hidden;
+}
+.service-lifecycle summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+.service-lifecycle summary::-webkit-details-marker {
+  display: none;
+}
+.service-lifecycle summary > span:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+.service-lifecycle summary small,
+.service-change-form p,
+.service-change-history small {
+  color: var(--color-ink-muted);
+}
+.service-change-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+  border-block-start: 1px solid var(--color-border);
+}
+.service-change-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 700;
+}
+.service-change-form__reason,
+.service-change-form p {
+  grid-column: 1 / -1;
+}
+.service-change-form button {
+  justify-self: start;
+}
+.service-change-history {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 1rem 1rem;
+  list-style: none;
+}
+.service-change-history li {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.65rem;
+  border-block-start: 1px solid var(--color-border);
+}
+.service-change-history li > span {
+  display: grid;
+  gap: 0.2rem;
+}
 .subscriber-detail__columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -234,5 +303,11 @@
   }
   .subscriber-service-card > div:last-child {
     justify-items: start;
+  }
+  .service-change-form {
+    grid-template-columns: 1fr;
+  }
+  .service-change-history li {
+    flex-direction: column;
   }
 }

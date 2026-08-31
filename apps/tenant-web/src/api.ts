@@ -13,6 +13,8 @@ export interface SubscriberWorkspaceData {
   readonly services: readonly SubscriberWorkspaceService[];
   readonly invoices: readonly SubscriberWorkspaceInvoice[];
   readonly issues: readonly SubscriberWorkspaceIssue[];
+  readonly plans: readonly SubscriberWorkspacePlan[];
+  readonly serviceChanges: readonly SubscriberWorkspaceServiceChange[];
 }
 export interface SubscriberWorkspaceSubscriber {
   readonly id: string;
@@ -71,6 +73,25 @@ export interface SubscriberWorkspaceIssue {
   readonly priority: 'low' | 'normal' | 'high' | 'urgent';
   readonly status: 'open' | 'triaged' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
   readonly updatedAt: string;
+}
+export interface SubscriberWorkspacePlan {
+  readonly id: string;
+  readonly code: string;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly recurringAmountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+}
+export interface SubscriberWorkspaceServiceChange {
+  readonly id: string;
+  readonly serviceId: string;
+  readonly action: 'plan_change' | 'suspend' | 'restore' | 'terminate';
+  readonly fromStatus: SubscriberWorkspaceService['status'];
+  readonly toStatus: SubscriberWorkspaceService['status'];
+  readonly fromPlanId: string;
+  readonly toPlanId: string;
+  readonly reason: string;
+  readonly effectiveAt: string;
 }
 
 export interface SalesLead {
@@ -513,6 +534,24 @@ export async function readSubscriberWorkspace(
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Subscriber workspace');
   return (await response.json()) as SubscriberWorkspaceData;
+}
+
+export async function applyServiceChange(
+  session: ApiSession,
+  input:
+    | {
+        readonly serviceId: string;
+        readonly action: 'plan_change';
+        readonly targetPlanId: string;
+        readonly reason: string;
+      }
+    | {
+        readonly serviceId: string;
+        readonly action: 'suspend' | 'restore' | 'terminate';
+        readonly reason: string;
+      },
+): Promise<void> {
+  await submitTenantOperation(session, 'services/change-orders', input, crypto.randomUUID());
 }
 
 export async function submitSalesOperation(

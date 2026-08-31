@@ -152,12 +152,11 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue Wave 2 from the proven accepted-order path and real internal Subscriber 360 workspace into
-governed service suspension/restoration/termination, plan changes, post-subscriber termination, and
-commercial/technical change orders. Preserve idempotency, explicit dependency state, tenant/branch/area/route scope,
-recent-MFA approvals, immutable commercial and finance history, and bilingual operator guidance.
-Router and subscriber-service bindings remain a privileged provisioning prerequisite and must not
-expose credential material to the application runtime.
+Continue from the proven accepted-order, Subscriber 360, and atomic service-change path into the
+versioned product/rating model: quota, FUP, add-ons, top-ups, proration, billing eligibility and
+invoice explanation must all resolve from one effective commercial version. Preserve explicit USD
+and LBP amounts, immutable commercial and finance history, exact idempotency, scoped authority, and
+bilingual operator guidance. Relocation remains coupled to the later field/resource delivery tranche.
 
 Production identity activation additionally requires an approved OTP/notification provider.
 Development and test adapters may expose codes only in explicitly non-production environments.

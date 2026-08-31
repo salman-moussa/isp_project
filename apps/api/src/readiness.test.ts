@@ -27,6 +27,7 @@ describe('database readiness', () => {
           sales_first_billing_ready: true,
           sales_order_exceptions_ready: true,
           subscriber_workspace_ready: true,
+          service_changes_ready: true,
         },
       ];
     });
@@ -57,6 +58,7 @@ describe('database readiness', () => {
     expect(query).toContain('sales_first_billing_readiness');
     expect(query).toContain('sales_order_exception_readiness');
     expect(query).toContain('subscriber_workspace_readiness');
+    expect(query).toContain('service_change_order_readiness');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {
