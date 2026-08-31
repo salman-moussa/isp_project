@@ -158,6 +158,7 @@ const salesOrderInstallationBody = z
     reason: businessReason,
   })
   .strict();
+const salesOrderNetworkBody = z.object({ orderId: uuid, reason: businessReason }).strict();
 
 const subscriberBody = z
   .object({
@@ -212,6 +213,7 @@ const planVersionBody = z
     code: z.string().trim().min(1).max(80),
     nameEn: z.string().trim().min(1).max(200),
     nameAr: z.string().trim().min(1).max(200),
+    networkProfileReference: z.string().trim().min(1).max(200).optional(),
     version: z.number().int().positive(),
     recurringAmountMinor: z.number().int().positive().safe(),
     currency: z.enum(['USD', 'LBP']),
@@ -562,6 +564,17 @@ export function registerTenantOperationsRoutes(
       'operations_installation',
       salesOrderInstallationBody,
       (w, id, v) => w.createSalesOrderInstallation(id, v as never),
+      false,
+      ['tenant.order.manage'],
+    ),
+    operation(
+      '/sales/orders/network',
+      'enqueueSalesOrderActivation',
+      'tenant.network.job.create',
+      'tenant.network.job.create',
+      'operations_network_action',
+      salesOrderNetworkBody,
+      (w, id, v) => w.enqueueSalesOrderActivation(id, v as never),
       false,
       ['tenant.order.manage'],
     ),

@@ -152,6 +152,10 @@ export interface OperationsWriter {
       readonly billingAnchorDay: number;
     },
   ): Promise<unknown>;
+  enqueueSalesOrderActivation(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly orderId: string },
+  ): Promise<unknown>;
   createSubscriber(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

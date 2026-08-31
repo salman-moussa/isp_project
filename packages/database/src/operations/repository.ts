@@ -697,10 +697,11 @@ export async function createOperationsPlanVersion(
       readonly code: string;
       readonly name_en: string;
       readonly name_ar: string;
+      readonly network_profile_reference: string | null;
     }>(sql`
       SELECT v.id, v.plan_id, v.version, v.recurring_amount_minor, v.currency,
         v.billing_interval_months, v.effective_from, v.effective_to, v.created_by,
-        p.branch_id, p.code, p.name_en, p.name_ar
+        p.branch_id, p.code, p.name_en, p.name_ar, p.network_profile_reference
       FROM operations_plan_versions v
       JOIN operations_plans p ON p.tenant_id = v.tenant_id AND p.id = v.plan_id
       WHERE v.tenant_id = ${tenantId} AND v.idempotency_key = ${input.idempotencyKey}
@@ -719,7 +720,8 @@ export async function createOperationsPlanVersion(
         (replay.branch_id ?? undefined) !== input.branchId ||
         replay.code !== input.code ||
         replay.name_en !== input.nameEn ||
-        replay.name_ar !== input.nameAr
+        replay.name_ar !== input.nameAr ||
+        (replay.network_profile_reference ?? undefined) !== input.networkProfileReference
       )
         throw new OperationsIdempotencyConflictError();
       return { planId: replay.plan_id, versionId: replay.id, replayed: true };
@@ -730,10 +732,11 @@ export async function createOperationsPlanVersion(
       const [plan] = await transaction.execute<{ readonly id: string }>(sql`
         INSERT INTO operations_plans (
           tenant_id, branch_id, code, name_en, name_ar, recurring_amount_minor, currency,
-          billing_interval_months, idempotency_key
+          billing_interval_months, network_profile_reference, idempotency_key
         ) VALUES (
           ${tenantId}, ${input.branchId ?? null}, ${input.code}, ${input.nameEn}, ${input.nameAr},
           ${input.recurringAmountMinor}, ${input.currency}, ${input.billingIntervalMonths},
+          ${input.networkProfileReference ?? null},
           ${input.idempotencyKey}
         )
         RETURNING id

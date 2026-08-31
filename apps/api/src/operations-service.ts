@@ -10,6 +10,7 @@ import {
   createSalesLead,
   createSalesOfferVersion,
   createSalesOrderInstallation,
+  enqueueSalesOrderActivation,
   createSalesQuote,
   createOperationsPlanVersion,
   createServiceInstallation,
@@ -53,6 +54,7 @@ export interface OperationsRepositoryAdapter {
   readonly createCapacityResource: typeof createCapacityResource;
   readonly reserveSalesOrderResource: typeof reserveSalesOrderResource;
   readonly createSalesOrderInstallation: typeof createSalesOrderInstallation;
+  readonly enqueueSalesOrderActivation: typeof enqueueSalesOrderActivation;
   readonly createSubscriber: typeof createSubscriber;
   readonly prepareRecurringInvoices: typeof prepareRecurringInvoices;
   readonly recordOfficePaymentRequest: typeof recordOfficePaymentRequest;
@@ -83,6 +85,7 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   createCapacityResource,
   reserveSalesOrderResource,
   createSalesOrderInstallation,
+  enqueueSalesOrderActivation,
   createSubscriber,
   prepareRecurringInvoices,
   recordOfficePaymentRequest,
@@ -219,6 +222,17 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.createSalesOrderInstallation(this.database, tenantId, {
       ...input,
       authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public enqueueSalesOrderActivation(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'enqueueSalesOrderActivation'>,
+  ) {
+    return this.repository.enqueueSalesOrderActivation(this.database, tenantId, {
+      ...input,
+      authorization: this.sign(tenantId, input),
+      actorId: input.actorId,
     });
   }
 

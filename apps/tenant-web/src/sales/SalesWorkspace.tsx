@@ -686,11 +686,20 @@ function Orders({
           const subscriberTask = order.tasks.find((task) => task.key === 'subscriber_creation');
           const resourceTask = order.tasks.find((task) => task.key === 'resource_reservation');
           const installationTask = order.tasks.find((task) => task.key === 'installation');
+          const networkTask = order.tasks.find((task) => task.key === 'network_activation');
           const installation = data.installations.find(
             (candidate) => candidate.orderId === order.id,
           );
           const quote = data.quotes.find((candidate) => candidate.id === order.quoteId);
           const offer = data.offers.find((candidate) => candidate.id === quote?.offerVersionId);
+          const eligiblePlans = data.plans.filter(
+            (plan) =>
+              quote &&
+              plan.networkProfileReference &&
+              (!plan.branchId || plan.branchId === lead?.branchId) &&
+              plan.recurringAmountMinor === quote.recurringAmountMinor &&
+              plan.currency === quote.currency,
+          );
           const eligibleResources = data.resources.filter(
             (resource) =>
               lead &&
@@ -775,20 +784,26 @@ function Orders({
                 />
               ) : null}
               {installationTask?.status === 'ready' && !installation ? (
-                <InstallationCreationForm
-                  locale={locale}
-                  orderId={order.id}
-                  orderNumber={order.orderNumber}
-                  plans={data.plans.filter(
-                    (plan) =>
-                      quote &&
-                      (!plan.branchId || plan.branchId === lead?.branchId) &&
-                      plan.recurringAmountMinor === quote.recurringAmountMinor &&
-                      plan.currency === quote.currency,
-                  )}
-                  busy={busy}
-                  onSubmit={(payload) => onMutate('orders/installation', payload)}
-                />
+                <>
+                  {!eligiblePlans.length && quote && lead ? (
+                    <PlanPublicationForm
+                      locale={locale}
+                      orderNumber={order.orderNumber}
+                      branchId={lead.branchId}
+                      quote={quote}
+                      busy={busy}
+                      onSubmit={(payload) => onOperate('plan-versions', payload)}
+                    />
+                  ) : null}
+                  <InstallationCreationForm
+                    locale={locale}
+                    orderId={order.id}
+                    orderNumber={order.orderNumber}
+                    plans={eligiblePlans}
+                    busy={busy}
+                    onSubmit={(payload) => onMutate('orders/installation', payload)}
+                  />
+                </>
               ) : null}
               {installation ? (
                 <InstallationProgress
@@ -796,6 +811,14 @@ function Orders({
                   installation={installation}
                   busy={busy}
                   onSubmit={(payload) => onOperate('installations/transitions', payload)}
+                />
+              ) : null}
+              {networkTask?.status === 'ready' ? (
+                <NetworkActivationForm
+                  locale={locale}
+                  orderId={order.id}
+                  busy={busy}
+                  onSubmit={(payload) => onMutate('orders/network', payload)}
                 />
               ) : null}
             </Surface>
@@ -813,6 +836,112 @@ function Orders({
         />
       )}
     </div>
+  );
+}
+
+function PlanPublicationForm({
+  locale,
+  orderNumber,
+  branchId,
+  quote,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderNumber: string;
+  readonly branchId: string;
+  readonly quote: SalesQuote;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          branchId,
+          code: formText(form, 'code'),
+          nameEn: formText(form, 'nameEn'),
+          nameAr: formText(form, 'nameAr'),
+          networkProfileReference: formText(form, 'networkProfileReference'),
+          version: 1,
+          recurringAmountMinor: quote.recurringAmountMinor,
+          currency: quote.currency,
+          billingIntervalMonths: 1,
+          effectiveFrom: new Date().toISOString().slice(0, 10),
+          reason: 'Order-matched billing and network profile published for governed activation',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Publish the order plan' : 'نشر خطة الطلب'}</strong>
+        <span>
+          {isEnglish
+            ? 'This order needs a price-matched plan with a RouterOS profile before installation can open.'
+            : 'يحتاج هذا الطلب إلى خطة مطابقة للسعر مع ملف RouterOS قبل فتح التركيب.'}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Plan code' : 'رمز الخطة'}</span>
+        <input name="code" defaultValue={`PLAN-${orderNumber}`.slice(0, 80)} required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'English name' : 'الاسم بالإنجليزية'}</span>
+        <input name="nameEn" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Arabic name' : 'الاسم بالعربية'}</span>
+        <input name="nameAr" dir="rtl" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'RouterOS profile reference' : 'مرجع ملف RouterOS'}</span>
+        <input name="networkProfileReference" placeholder="profile-business-100" required />
+      </label>
+      <Button type="submit" variant="secondary" disabled={busy}>
+        {isEnglish ? 'Publish matched plan' : 'نشر الخطة المطابقة'}
+      </Button>
+    </form>
+  );
+}
+
+function NetworkActivationForm({
+  locale,
+  orderId,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSubmit({
+          orderId,
+          reason: 'Verified field installation queued for durable RouterOS activation',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Ready: activate network service' : 'جاهز: تفعيل خدمة الشبكة'}</strong>
+        <span>
+          {isEnglish
+            ? 'The order completes this step only after the Network Worker confirms the router state. An active router and service binding must already be provisioned.'
+            : 'لا تُكمل المنصة هذه الخطوة إلا بعد تأكيد عامل الشبكة لحالة الموجّه. يجب تجهيز ربط فعّال للموجّه والخدمة مسبقاً.'}
+        </span>
+      </div>
+      <Button type="submit" variant="primary" disabled={busy}>
+        {isEnglish ? 'Queue verified activation' : 'إرسال التفعيل المتحقق'}
+      </Button>
+    </form>
   );
 }
 

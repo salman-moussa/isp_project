@@ -107,6 +107,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608310100_tenant_order_installation_execution.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608310200_tenant_order_network_execution.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -154,12 +157,15 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        resource_execution.migration_ready AND resource_execution.relations_ready
          AND resource_execution.guards_ready AS sales_resource_execution_ready,
        installation_execution.migration_ready AND installation_execution.column_ready
-         AND installation_execution.sync_ready AS sales_installation_execution_ready
+         AND installation_execution.sync_ready AS sales_installation_execution_ready,
+       network_execution.migration_ready AND network_execution.sync_ready
+         AND network_execution.worker_bridge_ready AS sales_network_execution_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
      CROSS JOIN public.sales_resource_execution_readiness() resource_execution
-     CROSS JOIN public.sales_installation_execution_readiness() installation_execution`,
+     CROSS JOIN public.sales_installation_execution_readiness() installation_execution
+     CROSS JOIN public.sales_network_execution_readiness() network_execution`,
   );
   if (
     !state?.relations_ready ||
@@ -169,7 +175,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.sales_ready ||
     !state.sales_execution_ready ||
     !state.sales_resource_execution_ready ||
-    !state.sales_installation_execution_ready
+    !state.sales_installation_execution_ready ||
+    !state.sales_network_execution_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

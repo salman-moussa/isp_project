@@ -129,6 +129,7 @@ export interface SalesPlan {
   readonly code: string;
   readonly nameEn: string;
   readonly nameAr: string;
+  readonly networkProfileReference?: string;
   readonly recurringAmountMinor: number;
   readonly currency: 'USD' | 'LBP';
   readonly branchId?: string;

@@ -164,6 +164,7 @@ export interface PlanVersionInput extends OperationsRepositoryRequest {
   readonly code: string;
   readonly nameEn: string;
   readonly nameAr: string;
+  readonly networkProfileReference?: string;
   readonly version: number;
   readonly recurringAmountMinor: number;
   readonly currency: SupportedCurrency;

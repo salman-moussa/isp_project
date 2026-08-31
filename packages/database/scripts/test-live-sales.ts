@@ -14,6 +14,7 @@ import {
   createSalesQuote,
   convertSalesOrderSubscriber,
   createCapacityResource,
+  enqueueSalesOrderActivation,
   inOperationsTransaction,
   qualifySalesLead,
   readSalesWorkspace,
@@ -24,11 +25,10 @@ import {
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
 const runtimeUrl = process.env.SALES_TEST_RUNTIME_DATABASE_URL;
-if (!adminUrl || !runtimeUrl) {
+const networkWorkerUrl = process.env.SALES_TEST_NETWORK_WORKER_DATABASE_URL;
+if (!adminUrl || !runtimeUrl || !networkWorkerUrl) {
   if (process.env.ORVEX_REQUIRE_LIVE_POSTGRES === '1') {
-    throw new Error(
-      'Sales integration requires SALES_TEST_ADMIN_DATABASE_URL and SALES_TEST_RUNTIME_DATABASE_URL.',
-    );
+    throw new Error('Sales integration requires admin, runtime, and Network Worker database URLs.');
   }
   console.log('Sales integration skipped: live tenant database URLs are not configured.');
   process.exit(0);
@@ -36,6 +36,7 @@ if (!adminUrl || !runtimeUrl) {
 
 const admin = postgres(adminUrl, { max: 2, prepare: false });
 const runtime = createDatabase(runtimeUrl);
+const networkWorker = postgres(networkWorkerUrl, { max: 1, prepare: false });
 const tenantId = randomUUID() as VerifiedTenantId;
 const actorId = randomUUID();
 const branchId = randomUUID();
@@ -77,6 +78,9 @@ function authorization(
 try {
   await admin`INSERT INTO tenants(id,code,brand_name,legal_name,status)
     VALUES (${tenantId},${`SALES-${tenantId}`},'Sales Live','Sales Live LLC','active')`;
+  await admin`SELECT record_operations_platform_subscription_state(
+    ${randomUUID()}::uuid,${tenantId}::uuid,'active',1,clock_timestamp()
+  )`;
   await admin`INSERT INTO users(id,account_kind,email,display_name,password_hash,mfa_required)
     VALUES (${actorId},'tenant',${`${actorId}@sales.invalid`},'Sales Manager','disabled-live-hash',true)`;
   await admin`INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope)
@@ -298,6 +302,7 @@ try {
     code: `PLAN-${randomUUID().slice(0, 6)}`,
     nameEn: 'Business Fiber 100 Operations Plan',
     nameAr: 'خطة تشغيل فايبر أعمال ١٠٠',
+    networkProfileReference: 'profile-business-fiber-100',
     version: 1,
     recurringAmountMinor: 12_500,
     currency: 'USD',
@@ -395,6 +400,64 @@ try {
   });
   assert.equal(completedInstallation.status, 'completed');
 
+  const routerId = `router-${randomUUID().slice(0, 8)}`;
+  await admin`SELECT network_worker.register_router(
+    ${tenantId},${routerId},'https://router.live.invalid/','secret://routers/live-test',
+    'simulator',true
+  )`;
+  await admin`SELECT network_worker.register_service_binding(
+    ${tenantId}::uuid,${installation.serviceId}::uuid,${routerId},'subscriber-live-test',
+    'secret://subscribers/live-test','pool-live-test',NULL,NULL,true
+  )`;
+  const activationInput = {
+    authorization: authorization(
+      'tenant.network.job.create' as const,
+      'tenant.network.job.create',
+      'sales-network-activate-001',
+    ),
+    orderId: order.id,
+    actorId,
+    idempotencyKey: 'sales-network-activate-001',
+  };
+  const activation = await enqueueSalesOrderActivation(runtime.db, tenantId, activationInput);
+  assert.equal(activation.replayed, false);
+  const activationReplay = await enqueueSalesOrderActivation(runtime.db, tenantId, activationInput);
+  assert.equal(activationReplay.replayed, true);
+  assert.equal(activationReplay.outboxId, activation.outboxId);
+
+  const [claimed] = await networkWorker`SELECT * FROM network_worker.claim_job(
+    'sales-live-worker',clock_timestamp(),60000
+  )`;
+  assert(claimed?.job && claimed.lease_token, 'the durable activation job must be claimable');
+  const completedAt = new Date().toISOString();
+  const succeededJob = {
+    ...(claimed.job as Record<string, unknown>),
+    state: 'succeeded',
+    availableAt: completedAt,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: completedAt,
+        finishedAt: completedAt,
+        outcome: {
+          classification: 'definite_success',
+          requestId: (claimed.job as { request: { requestId: string } }).request.requestId,
+          observed: {
+            accountName: 'subscriber-live-test',
+            enabled: true,
+            profileId: 'profile-business-fiber-100',
+            ipAssignment: { mode: 'dynamic', poolId: 'pool-live-test' },
+          },
+          latencyMs: 3,
+        },
+      },
+    ],
+  };
+  const [saved] = await networkWorker`SELECT network_worker.save_job(
+    'sales-live-worker',${claimed.lease_token}::uuid,${networkWorker.json(succeededJob)}::jsonb
+  ) AS saved`;
+  assert.equal(saved?.saved, true);
+
   const workspace = await readSalesWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.sales.view',
@@ -409,7 +472,8 @@ try {
   assert.equal(workspace.orders[0]?.tasks[1]?.status, 'completed');
   assert.equal(workspace.orders[0]?.tasks[2]?.status, 'completed');
   assert.equal(workspace.orders[0]?.tasks[3]?.status, 'completed');
-  assert.equal(workspace.orders[0]?.tasks[4]?.status, 'ready');
+  assert.equal(workspace.orders[0]?.tasks[4]?.status, 'completed');
+  assert.equal(workspace.orders[0]?.tasks[5]?.status, 'ready');
   assert.equal(workspace.resources[0]?.reservedUnits, 1);
   assert.equal(workspace.resources[0]?.availableUnits, 7);
   assert.equal(workspace.installations[0]?.status, 'completed');
@@ -424,10 +488,10 @@ try {
         'tenant.sales.quote.create','tenant.sales.quote.approve','tenant.sales.quote.accept',
         'tenant.sales.workspace.read','tenant.subscriber.create','tenant.resource.create',
         'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
-        'tenant.installation.transition')`;
-  assert((audit?.count ?? 0) >= 40, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete')`;
+  assert((audit?.count ?? 0) >= 44, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
-  console.log('Sales lead-to-completed-installation live checks passed');
+  console.log('Sales lead-to-verified-network-activation live checks passed');
 } finally {
-  await Promise.allSettled([admin.end(), runtime.client.end()]);
+  await Promise.allSettled([admin.end(), runtime.client.end(), networkWorker.end()]);
 }

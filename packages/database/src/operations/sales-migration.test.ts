@@ -22,6 +22,10 @@ const installationExecutionMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310100_tenant_order_installation_execution.sql',
 );
+const networkExecutionMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310200_tenant_order_network_execution.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -89,5 +93,16 @@ describe('sales and order migrations', () => {
     expect(migration).toContain("task_key='network_activation'");
     expect(migration).toContain("context_row.action<>'tenant.installation.transition'");
     expect(migration).toContain('sales_installation_execution_readiness');
+  });
+
+  it('completes network activation only from a terminal durable worker result', async () => {
+    const migration = await readFile(networkExecutionMigration, 'utf8');
+    expect(migration).toContain('sync_sales_order_network_job');
+    expect(migration).toContain("session_user<>'orvex_network_worker'");
+    expect(migration).toContain("request_value->>'origin'<>'tenant-service-lifecycle'");
+    expect(migration).toContain("job_state IN ('reconciled','succeeded')");
+    expect(migration).toContain("task_key='first_billing'");
+    expect(migration).toContain('FROM PUBLIC,orvex_runtime,orvex_network_worker');
+    expect(migration).toContain('sales_network_execution_readiness');
   });
 });

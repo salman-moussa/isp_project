@@ -152,11 +152,14 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue Wave 2 from the proven subscriber, capacity and completed-installation boundary into
-executable network-activation and first-billing tasks. Preserve idempotency, explicit dependency and
+Continue Wave 2 from the proven subscriber, capacity, completed-installation and verified
+network-activation boundary into executable first billing and order completion. Preserve
+idempotency, explicit dependency and
 fallout state, tenant/branch/area/route scope, recent-MFA approvals, immutable commercial history,
 and bilingual operator guidance. The tranche is complete only when one accepted order reaches a
-reconciled activated and billed service through real composed APIs and PostgreSQL evidence.
+reconciled activated and billed service through real composed APIs and PostgreSQL evidence. Router
+and subscriber-service bindings remain a privileged provisioning prerequisite and must not expose
+credential material to the application runtime.
 
 Production identity activation additionally requires an approved OTP/notification provider.
 Development and test adapters may expose codes only in explicitly non-production environments.

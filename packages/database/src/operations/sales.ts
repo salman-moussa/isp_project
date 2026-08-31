@@ -155,6 +155,7 @@ export interface SalesPlan {
   readonly code: string;
   readonly nameEn: string;
   readonly nameAr: string;
+  readonly networkProfileReference?: string;
   readonly recurringAmountMinor: number;
   readonly currency: SupportedCurrency;
   readonly branchId?: string;
@@ -240,7 +241,8 @@ export async function readSalesWorkspace(
           ORDER BY status,code LIMIT 250
         `),
       transaction.execute<SalesPlanRow>(sql`
-          SELECT id,code,name_en,name_ar,recurring_amount_minor,currency,branch_id
+          SELECT id,code,name_en,name_ar,network_profile_reference,
+            recurring_amount_minor,currency,branch_id
           FROM operations_plans WHERE tenant_id=${tenantId} AND active
           ORDER BY code LIMIT 250
         `),
@@ -1043,6 +1045,87 @@ export async function createSalesOrderInstallation(
   });
 }
 
+export async function enqueueSalesOrderActivation(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly orderId: string;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<{
+  readonly orderId: string;
+  readonly serviceId: string;
+  readonly outboxId: string;
+  readonly replayed: boolean;
+}> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:order-network:${input.orderId}`},0)
+    )`);
+    const [replay] = await transaction.execute<{
+      readonly order_id: string;
+      readonly execution_fingerprint: string | null;
+      readonly result_reference: Record<string, unknown> | null;
+    }>(sql`
+      SELECT order_id,execution_fingerprint,result_reference FROM sales_order_tasks
+      WHERE tenant_id=${tenantId} AND task_key='network_activation'
+        AND execution_idempotency_key=${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (replay.order_id !== input.orderId || replay.execution_fingerprint !== fingerprint)
+        throw new OperationsConflictError();
+      const serviceId = replay.result_reference?.serviceId;
+      const outboxId = replay.result_reference?.outboxId;
+      if (typeof serviceId !== 'string' || typeof outboxId !== 'string')
+        throw new Error('The replayed activation is missing its durable references.');
+      return { orderId: input.orderId, serviceId, outboxId, replayed: true };
+    }
+
+    const [target] = await transaction.execute<{
+      readonly service_id: string;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+      readonly task_status: SalesOrderTask['status'];
+    }>(sql`
+      SELECT service.id AS service_id,service.branch_id,service.area_id,service.route_id,
+        task.status AS task_status
+      FROM sales_service_orders sales_order
+      JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
+        AND task.order_id=sales_order.id AND task.task_key='network_activation'
+      JOIN operations_installations installation ON installation.tenant_id=sales_order.tenant_id
+        AND installation.sales_order_id=sales_order.id AND installation.status='completed'
+      JOIN operations_services service ON service.tenant_id=installation.tenant_id
+        AND service.id=installation.service_id AND service.status='active'
+      WHERE sales_order.tenant_id=${tenantId} AND sales_order.id=${input.orderId}
+      FOR UPDATE OF sales_order,task
+    `);
+    if (!target || target.task_status !== 'ready')
+      throw new OperationsConflictError('The network activation task is not ready.');
+
+    const [outbox] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_network_action_outbox(
+        tenant_id,service_id,branch_id,area_id,route_id,action,payload,idempotency_key,requested_by
+      ) VALUES(
+        ${tenantId},${target.service_id},${target.branch_id},${target.area_id},${target.route_id},
+        'activate','{}'::jsonb,
+        ${input.idempotencyKey},${input.actorId}
+      ) RETURNING id
+    `);
+    if (!outbox) throw new Error('Unable to queue the governed network activation.');
+    const result = { serviceId: target.service_id, outboxId: outbox.id };
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='running',last_error=NULL,
+        result_reference=${JSON.stringify(result)}::jsonb,execution_fingerprint=${fingerprint},
+        execution_idempotency_key=${input.idempotencyKey}
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key='network_activation'
+    `);
+    return { orderId: input.orderId, ...result, replayed: false };
+  });
+}
+
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function readOrderTasks(
@@ -1168,6 +1251,7 @@ interface SalesPlanRow extends Record<string, unknown> {
   readonly code: string;
   readonly name_en: string;
   readonly name_ar: string;
+  readonly network_profile_reference: string | null;
   readonly recurring_amount_minor: string | number;
   readonly currency: SupportedCurrency;
   readonly branch_id: string | null;
@@ -1310,6 +1394,9 @@ function mapPlan(row: SalesPlanRow): SalesPlan {
     code: row.code,
     nameEn: row.name_en,
     nameAr: row.name_ar,
+    ...(row.network_profile_reference
+      ? { networkProfileReference: row.network_profile_reference }
+      : {}),
     recurringAmountMinor: Number(row.recurring_amount_minor),
     currency: row.currency,
     ...(row.branch_id ? { branchId: row.branch_id } : {}),
