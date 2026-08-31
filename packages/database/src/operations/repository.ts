@@ -204,7 +204,8 @@ export async function prepareRecurringInvoices(
       INSERT INTO operations_invoice_preparations
         (tenant_id, billing_run_id, service_id, subtotal_minor, vat_rate_basis_points, vat_minor,
          currency, branch_id, area_id, route_id, billing_date, period_start, period_end,
-         plan_version_id, billing_policy_id)
+         plan_version_id, billing_policy_id,base_amount_minor,addon_amount_minor,
+         overage_amount_minor,rating_snapshot)
       SELECT
         s.tenant_id, ${run.id}, s.id, pv.recurring_amount_minor, bp.vat_rate_basis_points,
         CASE bp.rounding_mode
@@ -213,7 +214,16 @@ export async function prepareRecurringInvoices(
           ELSE (pv.recurring_amount_minor * bp.vat_rate_basis_points + 5000) / 10000
         END,
         pv.currency, s.branch_id, s.area_id, s.route_id, due.billing_date,
-        ${input.periodStart}::date, ${input.periodEnd}::date, pv.id, bp.id
+        ${input.periodStart}::date, ${input.periodEnd}::date, pv.id, bp.id,
+        pv.recurring_amount_minor,0,0,
+        jsonb_build_object(
+          'planVersionId',pv.id,'planVersion',pv.version,'accessTechnology',pv.access_technology,
+          'downstreamMbps',pv.downstream_mbps,'upstreamMbps',pv.upstream_mbps,
+          'quotaGb',pv.quota_gb,'billingMode',pv.billing_mode,'prorationMode',pv.proration_mode,
+          'fupPolicy',pv.fup_policy,'includedAddons',pv.included_addons,
+          'baseAmountMinor',pv.recurring_amount_minor,'addonAmountMinor',0,
+          'overageAmountMinor',0,'currency',pv.currency,'billingDate',due.billing_date
+        )
       FROM operations_services s
       JOIN operations_plans p ON p.tenant_id = s.tenant_id AND p.id = s.plan_id
       CROSS JOIN LATERAL (
@@ -698,10 +708,21 @@ export async function createOperationsPlanVersion(
       readonly name_en: string;
       readonly name_ar: string;
       readonly network_profile_reference: string | null;
+      readonly access_technology: string;
+      readonly downstream_mbps: number;
+      readonly upstream_mbps: number;
+      readonly quota_gb: string | null;
+      readonly billing_mode: 'prepaid' | 'postpaid';
+      readonly proration_mode: 'none' | 'daily';
+      readonly fup_policy: unknown;
+      readonly included_addons: unknown;
+      readonly overage_per_gb_minor: string | null;
     }>(sql`
       SELECT v.id, v.plan_id, v.version, v.recurring_amount_minor, v.currency,
         v.billing_interval_months, v.effective_from, v.effective_to, v.created_by,
-        p.branch_id, p.code, p.name_en, p.name_ar, p.network_profile_reference
+        p.branch_id, p.code, p.name_en, p.name_ar, p.network_profile_reference,
+        v.access_technology,v.downstream_mbps,v.upstream_mbps,v.quota_gb,
+        v.billing_mode,v.proration_mode,v.fup_policy,v.included_addons,v.overage_per_gb_minor
       FROM operations_plan_versions v
       JOIN operations_plans p ON p.tenant_id = v.tenant_id AND p.id = v.plan_id
       WHERE v.tenant_id = ${tenantId} AND v.idempotency_key = ${input.idempotencyKey}
@@ -721,7 +742,18 @@ export async function createOperationsPlanVersion(
         replay.code !== input.code ||
         replay.name_en !== input.nameEn ||
         replay.name_ar !== input.nameAr ||
-        (replay.network_profile_reference ?? undefined) !== input.networkProfileReference
+        (replay.network_profile_reference ?? undefined) !== input.networkProfileReference ||
+        replay.access_technology !== input.accessTechnology ||
+        replay.downstream_mbps !== input.downstreamMbps ||
+        replay.upstream_mbps !== input.upstreamMbps ||
+        (replay.quota_gb === null ? undefined : safeInteger(replay.quota_gb)) !== input.quotaGb ||
+        replay.billing_mode !== input.billingMode ||
+        replay.proration_mode !== input.prorationMode ||
+        stableJson(replay.fup_policy) !== stableJson(input.fupPolicy) ||
+        stableJson(replay.included_addons) !== stableJson(input.includedAddons) ||
+        (replay.overage_per_gb_minor === null
+          ? undefined
+          : safeInteger(replay.overage_per_gb_minor)) !== input.overagePerGbMinor
       )
         throw new OperationsIdempotencyConflictError();
       return { planId: replay.plan_id, versionId: replay.id, replayed: true };
@@ -747,11 +779,16 @@ export async function createOperationsPlanVersion(
     const [version] = await transaction.execute<{ readonly id: string }>(sql`
       INSERT INTO operations_plan_versions (
         tenant_id, plan_id, version, recurring_amount_minor, currency, billing_interval_months,
-        effective_from, effective_to, created_by, idempotency_key
+        effective_from, effective_to, created_by, idempotency_key,access_technology,
+        downstream_mbps,upstream_mbps,quota_gb,billing_mode,proration_mode,fup_policy,
+        included_addons,overage_per_gb_minor
       ) VALUES (
         ${tenantId}, ${planId}, ${input.version}, ${input.recurringAmountMinor}, ${input.currency},
         ${input.billingIntervalMonths}, ${input.effectiveFrom}::date, ${input.effectiveTo ?? null}::date,
-        ${input.createdBy}, ${input.idempotencyKey}
+        ${input.createdBy}, ${input.idempotencyKey},${input.accessTechnology},${input.downstreamMbps},
+        ${input.upstreamMbps},${input.quotaGb ?? null},${input.billingMode},${input.prorationMode},
+        ${JSON.stringify(input.fupPolicy)}::jsonb,${JSON.stringify(input.includedAddons)}::jsonb,
+        ${input.overagePerGbMinor ?? null}
       )
       RETURNING id
     `);

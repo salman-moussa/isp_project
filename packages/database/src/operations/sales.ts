@@ -1208,6 +1208,16 @@ export async function postSalesOrderFirstInvoice(
       readonly vat_minor: string;
       readonly total_minor: string;
       readonly currency: SupportedCurrency;
+      readonly plan_version_number: number;
+      readonly access_technology: string;
+      readonly downstream_mbps: number;
+      readonly upstream_mbps: number;
+      readonly quota_gb: string | null;
+      readonly billing_mode: 'prepaid' | 'postpaid';
+      readonly proration_mode: 'none' | 'daily';
+      readonly fup_policy: Record<string, unknown>;
+      readonly included_addons: readonly Record<string, unknown>[];
+      readonly overage_per_gb_minor: string | null;
     }>(sql`
       SELECT service.id AS service_id,service.branch_id,service.area_id,service.route_id,
         task.status AS task_status,service.activated_at::date AS activated_on,
@@ -1223,7 +1233,12 @@ export async function postSalesOrderFirstInvoice(
           WHEN 'down' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points)/10000
           WHEN 'up' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+9999)/10000
           ELSE (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+5000)/10000
-        END)::text AS total_minor,plan_version.currency
+        END)::text AS total_minor,plan_version.currency,
+        plan_version.version AS plan_version_number,plan_version.access_technology,
+        plan_version.downstream_mbps,plan_version.upstream_mbps,
+        plan_version.quota_gb::text,plan_version.billing_mode,plan_version.proration_mode,
+        plan_version.fup_policy,plan_version.included_addons,
+        plan_version.overage_per_gb_minor::text
       FROM sales_service_orders sales_order
       JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
         AND task.order_id=sales_order.id AND task.task_key='first_billing'
@@ -1261,6 +1276,24 @@ export async function postSalesOrderFirstInvoice(
     const amountMinor = safeMinor(target.total_minor);
     const subtotalMinor = safeMinor(target.subtotal_minor);
     const vatMinor = safeNonnegativeMinor(target.vat_minor);
+    const ratingSnapshot = {
+      source: 'first_billing',
+      planVersion: target.plan_version_number,
+      accessTechnology: target.access_technology,
+      downstreamMbps: target.downstream_mbps,
+      upstreamMbps: target.upstream_mbps,
+      ...(target.quota_gb ? { quotaGb: safeMinor(target.quota_gb) } : {}),
+      billingMode: target.billing_mode,
+      prorationMode: target.proration_mode,
+      fupPolicy: target.fup_policy,
+      includedAddons: target.included_addons,
+      ...(target.overage_per_gb_minor
+        ? { overagePerGbMinor: safeNonnegativeMinor(target.overage_per_gb_minor) }
+        : {}),
+      baseAmountMinor: subtotalMinor,
+      addonAmountMinor: 0,
+      overageAmountMinor: 0,
+    };
 
     const [existingInvoice] = await transaction.execute<{ readonly id: string }>(sql`
       SELECT id FROM finance_invoices
@@ -1318,13 +1351,15 @@ export async function postSalesOrderFirstInvoice(
       INSERT INTO operations_invoice_preparations(
         tenant_id,billing_run_id,service_id,subtotal_minor,vat_rate_basis_points,vat_minor,
         currency,posting_status,finance_invoice_id,branch_id,area_id,route_id,billing_date,
-        period_start,period_end,plan_version_id,billing_policy_id
+        period_start,period_end,plan_version_id,billing_policy_id,base_amount_minor,
+        addon_amount_minor,overage_amount_minor,rating_snapshot
       ) VALUES(
         ${tenantId},${billingRun.id},${target.service_id},${subtotalMinor},
         ${target.vat_rate_basis_points},${vatMinor},${target.currency},'posted',${invoice.id},
         ${target.branch_id},${target.area_id},${target.route_id},${input.periodStart}::date,
         ${input.periodStart}::date,${input.periodEnd}::date,${target.plan_version_id},
-        ${target.billing_policy_id}
+        ${target.billing_policy_id},${subtotalMinor},0,0,
+        ${JSON.stringify(ratingSnapshot)}::jsonb
       )
     `);
     const result = {

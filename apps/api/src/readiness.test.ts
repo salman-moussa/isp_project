@@ -28,6 +28,7 @@ describe('database readiness', () => {
           sales_order_exceptions_ready: true,
           subscriber_workspace_ready: true,
           service_changes_ready: true,
+          plan_rating_ready: true,
         },
       ];
     });
@@ -59,6 +60,8 @@ describe('database readiness', () => {
     expect(query).toContain('sales_order_exception_readiness');
     expect(query).toContain('subscriber_workspace_readiness');
     expect(query).toContain('service_change_order_readiness');
+    expect(query).toContain('plan_rating_version_readiness');
+    expect(query).toContain('202608310701_tenant_plan_rating_validator_permission.sql');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {

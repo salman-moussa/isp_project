@@ -393,6 +393,14 @@ try {
     nameEn: 'Business Fiber 100 Operations Plan',
     nameAr: 'خطة تشغيل فايبر أعمال ١٠٠',
     networkProfileReference: 'profile-business-fiber-100',
+    accessTechnology: 'fiber',
+    downstreamMbps: 100,
+    upstreamMbps: 50,
+    quotaGb: 1000,
+    billingMode: 'postpaid',
+    prorationMode: 'daily',
+    fupPolicy: { mode: 'throttle', thresholdPercent: 100, profile: 'FUP-10M' },
+    includedAddons: [{ code: 'STATIC-IP', quantity: 1 }],
     version: 1,
     recurringAmountMinor: 12_500,
     currency: 'USD',
@@ -628,7 +636,11 @@ try {
   assert.equal(completedWorkspace.billingPolicies[0]?.id, billingPolicy.id);
   const [posted] =
     await admin`SELECT invoice.entry_kind,invoice.amount_minor::integer AS amount_minor,
-    preparation.posting_status,run.status AS run_status,preparation.service_id
+    preparation.posting_status,run.status AS run_status,preparation.service_id,
+    preparation.base_amount_minor::integer AS base_amount_minor,
+    preparation.addon_amount_minor::integer AS addon_amount_minor,
+    preparation.overage_amount_minor::integer AS overage_amount_minor,
+    preparation.rating_snapshot
     FROM finance_invoices invoice
     JOIN operations_invoice_preparations preparation
       ON preparation.tenant_id=invoice.tenant_id AND preparation.finance_invoice_id=invoice.id
@@ -640,6 +652,12 @@ try {
   assert.equal(posted?.posting_status, 'posted');
   assert.equal(posted?.run_status, 'succeeded');
   assert.equal(posted?.service_id, installation.serviceId);
+  assert.equal(posted?.base_amount_minor, 12_500);
+  assert.equal(posted?.addon_amount_minor, 0);
+  assert.equal(posted?.overage_amount_minor, 0);
+  assert.equal(posted?.rating_snapshot.accessTechnology, 'fiber');
+  assert.equal(posted?.rating_snapshot.quotaGb, 1000);
+  assert.equal(posted?.rating_snapshot.fupPolicy.mode, 'throttle');
   const subscriberWorkspace = await readSubscriberWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.subscriber.view',
@@ -653,6 +671,11 @@ try {
   assert.equal(subscriberWorkspace.services[0]?.id, installation.serviceId);
   assert.equal(subscriberWorkspace.services[0]?.status, 'active');
   assert.equal(subscriberWorkspace.services[0]?.installationStatus, 'completed');
+  assert.equal(subscriberWorkspace.services[0]?.accessTechnology, 'fiber');
+  assert.equal(subscriberWorkspace.services[0]?.downstreamMbps, 100);
+  assert.equal(subscriberWorkspace.services[0]?.upstreamMbps, 50);
+  assert.equal(subscriberWorkspace.services[0]?.quotaGb, 1000);
+  assert.equal(subscriberWorkspace.services[0]?.fupMode, 'throttle');
   assert.equal(subscriberWorkspace.invoices[0]?.id, firstBilling.invoiceId);
   assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 13_875);
 
@@ -668,6 +691,15 @@ try {
     nameEn: 'Business Fiber 200',
     nameAr: 'فايبر أعمال ٢٠٠',
     networkProfileReference: 'BIZ-FIBER-200',
+    accessTechnology: 'fiber',
+    downstreamMbps: 200,
+    upstreamMbps: 100,
+    quotaGb: 2000,
+    billingMode: 'postpaid',
+    prorationMode: 'daily',
+    fupPolicy: { mode: 'bill' },
+    includedAddons: [{ code: 'STATIC-IP', quantity: 1 }],
+    overagePerGbMinor: 100,
     version: 1,
     recurringAmountMinor: 19_000,
     currency: 'USD',
@@ -720,6 +752,10 @@ try {
   });
   assert.equal(lifecycleWorkspace.services[0]?.status, 'terminated');
   assert.equal(lifecycleWorkspace.services[0]?.planId, upgradedPlan.planId);
+  assert.equal(lifecycleWorkspace.services[0]?.downstreamMbps, 200);
+  assert.equal(lifecycleWorkspace.services[0]?.upstreamMbps, 100);
+  assert.equal(lifecycleWorkspace.services[0]?.quotaGb, 2000);
+  assert.equal(lifecycleWorkspace.services[0]?.fupMode, 'bill');
   assert.equal(lifecycleWorkspace.subscribers[0]?.status, 'closed');
   assert.equal(lifecycleWorkspace.serviceChanges.length, 4);
   assert.equal(lifecycleWorkspace.serviceChanges[0]?.action, 'terminate');

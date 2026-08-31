@@ -1078,6 +1078,21 @@ function PlanPublicationForm({
           nameEn: formText(form, 'nameEn'),
           nameAr: formText(form, 'nameAr'),
           networkProfileReference: formText(form, 'networkProfileReference'),
+          accessTechnology: formText(form, 'accessTechnology'),
+          downstreamMbps: Number(formText(form, 'downstreamMbps')),
+          upstreamMbps: Number(formText(form, 'upstreamMbps')),
+          ...(formText(form, 'quotaGb') ? { quotaGb: Number(formText(form, 'quotaGb')) } : {}),
+          billingMode: formText(form, 'billingMode'),
+          prorationMode: formText(form, 'prorationMode'),
+          fupPolicy: { mode: formText(form, 'fupMode') },
+          includedAddons: formText(form, 'includedAddons')
+            .split(',')
+            .map((code) => code.trim())
+            .filter(Boolean)
+            .map((code) => ({ code, quantity: 1 })),
+          ...(formText(form, 'fupMode') === 'bill'
+            ? { overagePerGbMinor: Number(formText(form, 'overagePerGbMinor')) }
+            : {}),
           version: 1,
           recurringAmountMinor: quote.recurringAmountMinor,
           currency: quote.currency,
@@ -1110,6 +1125,66 @@ function PlanPublicationForm({
       <label>
         <span>{isEnglish ? 'RouterOS profile reference' : 'مرجع ملف RouterOS'}</span>
         <input name="networkProfileReference" placeholder="profile-business-100" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Access technology' : 'تقنية الوصول'}</span>
+        <select name="accessTechnology" defaultValue="fiber">
+          <option value="fiber">Fiber</option>
+          <option value="wireless">Wireless</option>
+          <option value="dsl">DSL</option>
+          <option value="lte">LTE</option>
+        </select>
+      </label>
+      <label>
+        <span>{isEnglish ? 'Download Mbps' : 'سرعة التنزيل Mbps'}</span>
+        <input name="downstreamMbps" type="number" min="1" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Upload Mbps' : 'سرعة الرفع Mbps'}</span>
+        <input name="upstreamMbps" type="number" min="1" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Quota GB (blank = unlimited)' : 'الحصة GB (فارغ = غير محدودة)'}</span>
+        <input name="quotaGb" type="number" min="1" />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Billing mode' : 'نمط الفوترة'}</span>
+        <select name="billingMode" defaultValue="postpaid">
+          <option value="postpaid">Postpaid</option>
+          <option value="prepaid">Prepaid</option>
+        </select>
+      </label>
+      <label>
+        <span>{isEnglish ? 'Proration' : 'الاحتساب النسبي'}</span>
+        <select name="prorationMode" defaultValue="daily">
+          <option value="daily">Daily</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      <label>
+        <span>{isEnglish ? 'Fair-use action' : 'إجراء الاستخدام العادل'}</span>
+        <select name="fupMode" defaultValue="none">
+          <option value="none">None</option>
+          <option value="throttle">Throttle</option>
+          <option value="cap">Cap</option>
+          <option value="bill">Bill overage</option>
+        </select>
+      </label>
+      <label>
+        <span>
+          {isEnglish
+            ? 'Included add-on codes (comma-separated)'
+            : 'رموز الإضافات المشمولة (مفصولة بفواصل)'}
+        </span>
+        <input name="includedAddons" placeholder="STATIC-IP, PREMIUM-SUPPORT" />
+      </label>
+      <label>
+        <span>
+          {isEnglish
+            ? 'Overage per GB (minor units, if billed)'
+            : 'سعر التجاوز لكل GB (الوحدة الصغرى)'}
+        </span>
+        <input name="overagePerGbMinor" type="number" min="1" />
       </label>
       <Button type="submit" variant="secondary" disabled={busy}>
         {isEnglish ? 'Publish matched plan' : 'نشر الخطة المطابقة'}

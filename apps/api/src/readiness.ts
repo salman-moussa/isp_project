@@ -124,6 +124,12 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608310600_tenant_service_change_orders.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608310700_tenant_plan_rating_versions.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608310701_tenant_plan_rating_validator_permission.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -182,7 +188,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        subscriber_workspace.migration_ready AND subscriber_workspace.function_ready
          AS subscriber_workspace_ready,
        service_changes.migration_ready AND service_changes.history_ready
-         AND service_changes.audit_ready AND service_changes.guard_ready AS service_changes_ready
+         AND service_changes.audit_ready AND service_changes.guard_ready AS service_changes_ready,
+       plan_rating.migration_ready AND plan_rating.plan_columns_ready
+         AND plan_rating.invoice_snapshot_ready AS plan_rating_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
@@ -192,7 +200,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
      CROSS JOIN public.sales_first_billing_readiness() first_billing
      CROSS JOIN public.sales_order_exception_readiness() order_exceptions
      CROSS JOIN public.subscriber_workspace_readiness() subscriber_workspace
-     CROSS JOIN public.service_change_order_readiness() service_changes`,
+     CROSS JOIN public.service_change_order_readiness() service_changes
+     CROSS JOIN public.plan_rating_version_readiness() plan_rating`,
   );
   if (
     !state?.relations_ready ||
@@ -207,7 +216,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.sales_first_billing_ready ||
     !state.sales_order_exceptions_ready ||
     !state.subscriber_workspace_ready ||
-    !state.service_changes_ready
+    !state.service_changes_ready ||
+    !state.plan_rating_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

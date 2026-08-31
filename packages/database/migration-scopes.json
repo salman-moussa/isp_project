@@ -28,5 +28,7 @@
   "202608310300_tenant_order_first_billing.sql": "tenant",
   "202608310400_tenant_order_exception_commands.sql": "tenant",
   "202608310500_tenant_subscriber_workspace.sql": "tenant",
-  "202608310600_tenant_service_change_orders.sql": "tenant"
+  "202608310600_tenant_service_change_orders.sql": "tenant",
+  "202608310700_tenant_plan_rating_versions.sql": "tenant",
+  "202608310701_tenant_plan_rating_validator_permission.sql": "tenant"
 }

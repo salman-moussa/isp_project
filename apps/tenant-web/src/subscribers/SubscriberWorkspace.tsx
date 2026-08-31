@@ -333,6 +333,16 @@ function SubscriberDetail({
                     {money(service.recurringAmountMinor, service.currency, locale)} ·{' '}
                     {isEnglish ? 'anchor' : 'يوم الفوترة'} {service.billingAnchorDay}
                   </span>
+                  <span>
+                    {service.accessTechnology} · {service.downstreamMbps}/{service.upstreamMbps}{' '}
+                    Mbps ·{' '}
+                    {service.quotaGb
+                      ? `${service.quotaGb} GB`
+                      : isEnglish
+                        ? 'Unlimited quota'
+                        : 'حصة غير محدودة'}{' '}
+                    · {service.billingMode} · FUP {service.fupMode}
+                  </span>
                 </div>
                 <div>
                   <StatusBadge
@@ -555,7 +565,8 @@ function ServiceLifecycle({
                   .filter((plan) => plan.id !== service.planId)
                   .map((plan) => (
                     <option value={plan.id} key={plan.id}>
-                      {locale === 'en' ? plan.nameEn : plan.nameAr} ·{' '}
+                      {locale === 'en' ? plan.nameEn : plan.nameAr} · {plan.downstreamMbps}/
+                      {plan.upstreamMbps} Mbps ·{' '}
                       {money(plan.recurringAmountMinor, plan.currency, locale)}
                     </option>
                   ))}
@@ -566,7 +577,11 @@ function ServiceLifecycle({
             <span>{isEnglish ? 'Business reason' : 'سبب العمل'}</span>
             <textarea name="reason" minLength={8} maxLength={500} rows={2} required />
           </label>
-          <Button type="submit" variant={action === 'terminate' ? 'danger' : 'primary'} disabled={pending}>
+          <Button
+            type="submit"
+            variant={action === 'terminate' ? 'danger' : 'primary'}
+            disabled={pending}
+          >
             {pending
               ? isEnglish
                 ? 'Applying…'

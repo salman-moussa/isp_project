@@ -42,6 +42,14 @@ const serviceChangeMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310600_tenant_service_change_orders.sql',
 );
+const planRatingMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310700_tenant_plan_rating_versions.sql',
+);
+const planRatingPermissionMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310701_tenant_plan_rating_validator_permission.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -160,5 +168,21 @@ describe('sales and order migrations', () => {
     expect(migration).toContain('operations_service_change_orders_append_only');
     expect(migration).toContain('service_change_order_readiness');
     expect(migration).toContain('FORCE ROW LEVEL SECURITY');
+  });
+
+  it('versions plan rating policy and snapshots the policy used for invoice preparation', async () => {
+    const migration = await readFile(planRatingMigration, 'utf8');
+    expect(migration).toContain('ADD COLUMN access_technology');
+    expect(migration).toContain('ADD COLUMN fup_policy');
+    expect(migration).toContain('ADD COLUMN included_addons');
+    expect(migration).toContain('ADD COLUMN rating_snapshot');
+    expect(migration).toContain(
+      'subtotal_minor=base_amount_minor+addon_amount_minor+overage_amount_minor',
+    );
+    expect(migration).toContain('plan_rating_version_readiness');
+    const permissionMigration = await readFile(planRatingPermissionMigration, 'utf8');
+    expect(permissionMigration).toContain(
+      'GRANT EXECUTE ON FUNCTION operations_json_contains_secret_key(jsonb) TO orvex_runtime',
+    );
   });
 });

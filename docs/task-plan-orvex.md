@@ -61,15 +61,17 @@ enterprise capabilities are complete.
   reservation now decrements availability and unlocks installation. Linked service and field-work
   creation, scheduling, versioned progress, signal/equipment evidence, completion and network-task
   unlock now pass clean PostgreSQL 18 proof. Network-ready plan publication, durable activation,
-  worker-only verified terminal synchronization and first-billing unlock now pass. Effective
-  branch billing policy resolution, explicit VAT/rounding, immutable invoice posting, billing-run
-  linkage, exact replay, finance/operations audit and final order closure now pass a fresh
-  PostgreSQL 18 composed proof. Immutable exception commands, hold/resume replay, automatic fallout,
-  resolution retry and unsafe post-subscriber cancellation denial now pass live. Post-subscriber
-  termination and commercial/technical change-order handling remain open. A real permission-scoped,
-  read-audited bilingual Subscriber 360 workspace now reconciles identity, contacts, address,
-  services, plans, installation, activation, invoice balances and support history without creating
-  subscriber authentication.
+  worker-only verified terminal synchronization and first-billing unlock now pass. Effective branch
+  billing policy resolution, explicit VAT/rounding, immutable invoice posting, billing-run linkage,
+  exact replay, finance/operations audit and final order closure now pass a fresh PostgreSQL 18
+  composed proof. Immutable exception commands, hold/resume replay, automatic fallout, resolution
+  retry and unsafe post-subscriber cancellation denial now pass live. Post-subscriber plan change,
+  suspend, restore and termination now pass atomically with durable network jobs. The effective plan
+  version now carries speed, quota, billing mode, proration, FUP, included add-ons and overage
+  policy; the first invoice stores an exact base/add-on/overage and policy snapshot. A real
+  permission-scoped, read-audited bilingual Subscriber 360 workspace now reconciles identity,
+  contacts, address, services, plans, installation, activation, invoice balances and support history
+  without creating subscriber authentication.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused
@@ -133,3 +135,10 @@ enterprise capabilities are complete.
   restoration and termination. The command is exact-replay safe, synchronizes subscriber/service
   commercial state with the durable router job, retains append-only reason/history, and passed the
   composed PostgreSQL acceptance path through subscriber closure.
+- Catalogue/rating commercial truth now resolves service presentation and first billing from the
+  same effective immutable plan version. Guarded schema, runtime API and bilingual publication UI
+  cover technology, speed, quota, prepaid/postpaid, proration, FUP, included add-ons and overage;
+  invoice preparations retain exact rating-policy and amount-component snapshots. Focused API/UI,
+  schema and clean PostgreSQL 18 lead-to-billed-service/lifecycle evidence pass. Purchasable
+  add-ons, top-ups, usage balances and executable proration/overage rating remain the next bounded
+  unit.

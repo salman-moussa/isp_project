@@ -165,6 +165,15 @@ export interface PlanVersionInput extends OperationsRepositoryRequest {
   readonly nameEn: string;
   readonly nameAr: string;
   readonly networkProfileReference?: string;
+  readonly accessTechnology: string;
+  readonly downstreamMbps: number;
+  readonly upstreamMbps: number;
+  readonly quotaGb?: number;
+  readonly billingMode: 'prepaid' | 'postpaid';
+  readonly prorationMode: 'none' | 'daily';
+  readonly fupPolicy: Readonly<Record<string, unknown>>;
+  readonly includedAddons: readonly Readonly<Record<string, unknown>>[];
+  readonly overagePerGbMinor?: number;
   readonly version: number;
   readonly recurringAmountMinor: number;
   readonly currency: SupportedCurrency;

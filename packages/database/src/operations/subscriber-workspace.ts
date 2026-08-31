@@ -40,6 +40,12 @@ export interface SubscriberWorkspaceService {
   readonly recurringAmountMinor: number;
   readonly currency: SupportedCurrency;
   readonly billingAnchorDay: number;
+  readonly accessTechnology: string;
+  readonly downstreamMbps: number;
+  readonly upstreamMbps: number;
+  readonly quotaGb?: number;
+  readonly billingMode: 'prepaid' | 'postpaid';
+  readonly fupMode: 'none' | 'throttle' | 'cap' | 'bill';
   readonly installationStatus?: string;
   readonly activatedAt?: string;
   readonly terminatedAt?: string;
@@ -75,6 +81,12 @@ export interface SubscriberWorkspacePlan {
   readonly nameAr: string;
   readonly recurringAmountMinor: number;
   readonly currency: SupportedCurrency;
+  readonly accessTechnology: string;
+  readonly downstreamMbps: number;
+  readonly upstreamMbps: number;
+  readonly quotaGb?: number;
+  readonly billingMode: 'prepaid' | 'postpaid';
+  readonly fupMode: 'none' | 'throttle' | 'cap' | 'bill';
 }
 
 export interface SubscriberWorkspaceServiceChange {
@@ -107,7 +119,7 @@ export async function readSubscriberWorkspace(
     await transaction.execute(sql`SELECT audit_subscriber_workspace_read()`);
     const [subscribers, contacts, services, invoices, issues, plans, serviceChanges] =
       await Promise.all([
-      transaction.execute<SubscriberRow>(sql`
+        transaction.execute<SubscriberRow>(sql`
         SELECT subscriber.id,subscriber.subscriber_number,subscriber.display_name,subscriber.status,
           subscriber.created_at,household.reference_code AS household_reference,
           household.display_name AS household_name,location.id AS location_id,
@@ -127,21 +139,31 @@ export async function readSubscriberWorkspace(
         WHERE subscriber.tenant_id=${tenantId}
         ORDER BY subscriber.updated_at DESC LIMIT 500
       `),
-      transaction.execute<ContactRow>(sql`
+        transaction.execute<ContactRow>(sql`
         SELECT contact.subscriber_id,contact.contact_kind,contact.contact_value,contact.label,
           contact.is_primary
         FROM operations_contacts contact
         WHERE contact.tenant_id=${tenantId} AND contact.archived_at IS NULL
         ORDER BY contact.is_primary DESC,contact.created_at
       `),
-      transaction.execute<ServiceRow>(sql`
+        transaction.execute<ServiceRow>(sql`
         SELECT service.id,service.subscriber_id,service.service_number,service.status,
           service.plan_id,service.billing_anchor_day,service.activated_at,service.terminated_at,
           plan.code AS plan_code,plan.name_en AS plan_name_en,plan.name_ar AS plan_name_ar,
-          plan.recurring_amount_minor::text,plan.currency,
+          plan_version.recurring_amount_minor::text,plan_version.currency,
+          plan_version.access_technology,plan_version.downstream_mbps,
+          plan_version.upstream_mbps,plan_version.quota_gb::text,
+          plan_version.billing_mode,plan_version.fup_policy->>'mode' AS fup_mode,
           installation.status::text AS installation_status
         FROM operations_services service
         JOIN operations_plans plan ON plan.tenant_id=service.tenant_id AND plan.id=service.plan_id
+        JOIN LATERAL(
+          SELECT version.* FROM operations_plan_versions version
+          WHERE version.tenant_id=service.tenant_id AND version.plan_id=service.plan_id
+            AND version.effective_from<=current_date
+            AND (version.effective_to IS NULL OR version.effective_to>current_date)
+          ORDER BY version.version DESC LIMIT 1
+        ) plan_version ON true
         LEFT JOIN LATERAL(
           SELECT item.status FROM operations_installations item
           WHERE item.tenant_id=service.tenant_id AND item.service_id=service.id
@@ -150,7 +172,7 @@ export async function readSubscriberWorkspace(
         WHERE service.tenant_id=${tenantId}
         ORDER BY service.updated_at DESC LIMIT 750
       `),
-      transaction.execute<InvoiceRow>(sql`
+        transaction.execute<InvoiceRow>(sql`
         SELECT invoice.id,service.subscriber_id,preparation.service_id,invoice.document_number,
           invoice.amount_minor::text,invoice.currency,invoice.posted_at,
           coalesce(sum(CASE allocation.entry_kind
@@ -167,22 +189,33 @@ export async function readSubscriberWorkspace(
         GROUP BY invoice.id,service.subscriber_id,preparation.service_id
         ORDER BY invoice.posted_at DESC LIMIT 1000
       `),
-      transaction.execute<IssueRow>(sql`
+        transaction.execute<IssueRow>(sql`
         SELECT id,subscriber_id,service_id,issue_number,subject,priority,status,updated_at
         FROM operations_support_issues WHERE tenant_id=${tenantId}
         ORDER BY updated_at DESC LIMIT 500
       `),
-      transaction.execute<PlanRow>(sql`
-        SELECT id,code,name_en,name_ar,recurring_amount_minor::text,currency
-        FROM operations_plans WHERE tenant_id=${tenantId} AND active AND archived_at IS NULL
-        ORDER BY code LIMIT 250
+        transaction.execute<PlanRow>(sql`
+        SELECT plan.id,plan.code,plan.name_en,plan.name_ar,
+          version.recurring_amount_minor::text,version.currency,version.access_technology,
+          version.downstream_mbps,version.upstream_mbps,version.quota_gb::text,
+          version.billing_mode,version.fup_policy->>'mode' AS fup_mode
+        FROM operations_plans plan
+        JOIN LATERAL(
+          SELECT item.* FROM operations_plan_versions item
+          WHERE item.tenant_id=plan.tenant_id AND item.plan_id=plan.id
+            AND item.effective_from<=current_date
+            AND (item.effective_to IS NULL OR item.effective_to>current_date)
+          ORDER BY item.version DESC LIMIT 1
+        ) version ON true
+        WHERE plan.tenant_id=${tenantId} AND plan.active AND plan.archived_at IS NULL
+        ORDER BY plan.code LIMIT 250
       `),
-      transaction.execute<ServiceChangeRow>(sql`
+        transaction.execute<ServiceChangeRow>(sql`
         SELECT id,service_id,action,from_status,to_status,from_plan_id,to_plan_id,reason,effective_at
         FROM operations_service_change_orders WHERE tenant_id=${tenantId}
         ORDER BY effective_at DESC,id DESC LIMIT 1000
       `),
-    ]);
+      ]);
     return {
       subscribers: subscribers.map((row) => ({
         id: row.id,
@@ -219,6 +252,12 @@ export async function readSubscriberWorkspace(
         recurringAmountMinor: safeMinor(row.recurring_amount_minor),
         currency: row.currency,
         billingAnchorDay: row.billing_anchor_day,
+        accessTechnology: row.access_technology,
+        downstreamMbps: row.downstream_mbps,
+        upstreamMbps: row.upstream_mbps,
+        ...(row.quota_gb ? { quotaGb: safeMinor(row.quota_gb) } : {}),
+        billingMode: row.billing_mode,
+        fupMode: row.fup_mode,
         ...(row.installation_status ? { installationStatus: row.installation_status } : {}),
         ...(row.activated_at ? { activatedAt: timestamp(row.activated_at) } : {}),
         ...(row.terminated_at ? { terminatedAt: timestamp(row.terminated_at) } : {}),
@@ -255,6 +294,12 @@ export async function readSubscriberWorkspace(
         nameAr: row.name_ar,
         recurringAmountMinor: safeMinor(row.recurring_amount_minor),
         currency: row.currency,
+        accessTechnology: row.access_technology,
+        downstreamMbps: row.downstream_mbps,
+        upstreamMbps: row.upstream_mbps,
+        ...(row.quota_gb ? { quotaGb: safeMinor(row.quota_gb) } : {}),
+        billingMode: row.billing_mode,
+        fupMode: row.fup_mode,
       })),
       serviceChanges: serviceChanges.map((row) => ({
         id: row.id,
@@ -308,6 +353,12 @@ interface ServiceRow extends Record<string, unknown> {
   readonly recurring_amount_minor: string;
   readonly currency: SupportedCurrency;
   readonly installation_status: string | null;
+  readonly access_technology: string;
+  readonly downstream_mbps: number;
+  readonly upstream_mbps: number;
+  readonly quota_gb: string | null;
+  readonly billing_mode: 'prepaid' | 'postpaid';
+  readonly fup_mode: 'none' | 'throttle' | 'cap' | 'bill';
 }
 interface InvoiceRow extends Record<string, unknown> {
   readonly id: string;
@@ -336,6 +387,12 @@ interface PlanRow extends Record<string, unknown> {
   readonly name_ar: string;
   readonly recurring_amount_minor: string;
   readonly currency: SupportedCurrency;
+  readonly access_technology: string;
+  readonly downstream_mbps: number;
+  readonly upstream_mbps: number;
+  readonly quota_gb: string | null;
+  readonly billing_mode: 'prepaid' | 'postpaid';
+  readonly fup_mode: 'none' | 'throttle' | 'cap' | 'bill';
 }
 interface ServiceChangeRow extends Record<string, unknown> {
   readonly id: string;

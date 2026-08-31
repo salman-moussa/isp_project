@@ -152,11 +152,12 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue from the proven accepted-order, Subscriber 360, and atomic service-change path into the
-versioned product/rating model: quota, FUP, add-ons, top-ups, proration, billing eligibility and
-invoice explanation must all resolve from one effective commercial version. Preserve explicit USD
-and LBP amounts, immutable commercial and finance history, exact idempotency, scoped authority, and
-bilingual operator guidance. Relocation remains coupled to the later field/resource delivery tranche.
+Continue from the proven effective plan/rating version and exact first-invoice policy snapshot into
+purchasable add-ons and top-ups, metered usage ingestion, quota balances, and executable daily
+proration/overage/FUP decisions. Each resulting invoice line and balance change must explain the
+source version and event while preserving explicit USD/LBP amounts, immutable commercial/finance
+history, exact idempotency, scoped authority, and bilingual operator guidance. Relocation remains
+coupled to the later field/resource delivery tranche.
 
 Production identity activation additionally requires an approved OTP/notification provider.
 Development and test adapters may expose codes only in explicitly non-production environments.

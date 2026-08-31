@@ -252,6 +252,17 @@ const planVersionBody = z
     nameEn: z.string().trim().min(1).max(200),
     nameAr: z.string().trim().min(1).max(200),
     networkProfileReference: z.string().trim().min(1).max(200).optional(),
+    accessTechnology: z.string().trim().min(1).max(80),
+    downstreamMbps: z.number().int().positive().max(1_000_000),
+    upstreamMbps: z.number().int().positive().max(1_000_000),
+    quotaGb: z.number().int().positive().safe().optional(),
+    billingMode: z.enum(['prepaid', 'postpaid']),
+    prorationMode: z.enum(['none', 'daily']),
+    fupPolicy: z
+      .object({ mode: z.enum(['none', 'throttle', 'cap', 'bill']) })
+      .catchall(z.unknown()),
+    includedAddons: z.array(z.record(z.string(), z.unknown())).max(50),
+    overagePerGbMinor: z.number().int().positive().safe().optional(),
     version: z.number().int().positive(),
     recurringAmountMinor: z.number().int().positive().safe(),
     currency: z.enum(['USD', 'LBP']),
@@ -260,6 +271,10 @@ const planVersionBody = z
     effectiveTo: z.iso.date().optional(),
   })
   .strict()
+  .refine(
+    (body) => (body.fupPolicy.mode === 'bill') === (body.overagePerGbMinor !== undefined),
+    'Billable overage requires a positive per-GB price; other FUP modes must omit it.',
+  )
   .refine(
     (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
     'Plan version end must follow its start.',

@@ -49,6 +49,12 @@ export interface SubscriberWorkspaceService {
   readonly recurringAmountMinor: number;
   readonly currency: 'USD' | 'LBP';
   readonly billingAnchorDay: number;
+  readonly accessTechnology: string;
+  readonly downstreamMbps: number;
+  readonly upstreamMbps: number;
+  readonly quotaGb?: number;
+  readonly billingMode: 'prepaid' | 'postpaid';
+  readonly fupMode: 'none' | 'throttle' | 'cap' | 'bill';
   readonly installationStatus?: string;
   readonly activatedAt?: string;
   readonly terminatedAt?: string;
@@ -81,6 +87,12 @@ export interface SubscriberWorkspacePlan {
   readonly nameAr: string;
   readonly recurringAmountMinor: number;
   readonly currency: 'USD' | 'LBP';
+  readonly accessTechnology: string;
+  readonly downstreamMbps: number;
+  readonly upstreamMbps: number;
+  readonly quotaGb?: number;
+  readonly billingMode: 'prepaid' | 'postpaid';
+  readonly fupMode: 'none' | 'throttle' | 'cap' | 'bill';
 }
 export interface SubscriberWorkspaceServiceChange {
   readonly id: string;
