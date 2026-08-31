@@ -52,10 +52,13 @@ enterprise capabilities are complete.
 
 - H2 now has a governed first vertical from lead capture through immutable offer/qualification
   versions, controlled quote discount approval, acceptance evidence, and deterministic service-order
-  decomposition. The bilingual Sales & Orders workspace uses real authorized data. Focused strict
-  types, lint, builds, API/database/UI/accessibility tests, clean PostgreSQL 18 migrations, RLS
-  denial, approval separation and live lead-to-order proof pass. Activation, resource assignment,
-  installation and first-billing task execution remain in H3/H5 and prevent H2 verification.
+  decomposition. Its first dependency now atomically converts the accepted lead into governed
+  household, location, contact and subscriber records, links the order, and unlocks resource
+  reservation with exact idempotent replay. The bilingual Sales & Orders workspace uses real
+  authorized data. Focused strict types, lint, builds, API/database/UI/accessibility tests, clean
+  PostgreSQL 18 migrations, hierarchical RLS denial, approval separation and live
+  lead-to-subscriber-order proof pass. Resource assignment, installation, activation and
+  first-billing task execution remain in H3/H5 and prevent H2 verification.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

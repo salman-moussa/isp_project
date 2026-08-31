@@ -10,6 +10,7 @@ import {
   createSalesLead,
   createSalesOfferVersion,
   createSalesQuote,
+  convertSalesOrderSubscriber,
   inOperationsTransaction,
   qualifySalesLead,
   readSalesWorkspace,
@@ -75,7 +76,8 @@ try {
     VALUES (${actorId},'tenant',${`${actorId}@sales.invalid`},'Sales Manager','disabled-live-hash',true)`;
   await admin`INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope)
     VALUES (${tenantId},${actorId},'isp_administrator',ARRAY[
-      'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage','tenant.user.administer'
+      'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage',
+      'tenant.subscriber.create','tenant.user.administer'
     ],${JSON.stringify({ branchIds: [branchId], areaIds: [areaId], routeIds: [routeId] })}::jsonb)`;
   await admin`INSERT INTO operations_context_keys(key_id,secret,active_from)
     VALUES (${keyId},decode(${secret.toString('hex')},'hex'),clock_timestamp()-interval '1 minute')`;
@@ -222,6 +224,26 @@ try {
   assert.equal(order.tasks[0]?.status, 'completed');
   assert.equal(order.tasks[1]?.status, 'ready');
 
+  const conversionInput = {
+    authorization: authorization(
+      'tenant.subscriber.create' as const,
+      'tenant.subscriber.create',
+      'sales-order-subscriber-001',
+    ),
+    orderId: order.id,
+    subscriberNumber: `SUB-${randomUUID().slice(0, 8)}`,
+    householdReference: `HH-${randomUUID().slice(0, 8)}`,
+    locationLabel: 'Primary service location',
+    areaCode: 'BEY-HAM',
+    actorId,
+    idempotencyKey: 'sales-order-subscriber-001',
+  };
+  const conversion = await convertSalesOrderSubscriber(runtime.db, tenantId, conversionInput);
+  assert.equal(conversion.replayed, false);
+  const conversionReplay = await convertSalesOrderSubscriber(runtime.db, tenantId, conversionInput);
+  assert.equal(conversionReplay.replayed, true);
+  assert.equal(conversionReplay.subscriberId, conversion.subscriberId);
+
   const workspace = await readSalesWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.sales.view',
@@ -232,6 +254,9 @@ try {
   assert.equal(workspace.leads[0]?.status, 'won');
   assert.equal(workspace.quotes[0]?.status, 'accepted');
   assert.equal(workspace.orders[0]?.tasks.length, 6);
+  assert.equal(workspace.orders[0]?.subscriberId, conversion.subscriberId);
+  assert.equal(workspace.orders[0]?.tasks[1]?.status, 'completed');
+  assert.equal(workspace.orders[0]?.tasks[2]?.status, 'ready');
   assert.equal(workspace.scopes.routes[0]?.id, routeId);
 
   const [audit] = await admin`SELECT count(*)::integer AS count,
@@ -239,10 +264,10 @@ try {
     FROM operations_audit_outbox WHERE tenant_id=${tenantId}
       AND action IN ('tenant.sales.lead.create','tenant.sales.qualify','tenant.catalog.offer.version.create',
         'tenant.sales.quote.create','tenant.sales.quote.approve','tenant.sales.quote.accept',
-        'tenant.sales.workspace.read')`;
-  assert((audit?.count ?? 0) >= 13, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.sales.workspace.read','tenant.subscriber.create')`;
+  assert((audit?.count ?? 0) >= 20, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
-  console.log('Sales lead-to-order live checks passed');
+  console.log('Sales lead-to-subscriber-order live checks passed');
 } finally {
   await Promise.allSettled([admin.end(), runtime.client.end()]);
 }

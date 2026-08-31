@@ -104,6 +104,16 @@ export interface OperationsWriter {
       readonly ownerId?: string;
     },
   ): Promise<unknown>;
+  convertSalesOrderSubscriber(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly orderId: string;
+      readonly subscriberNumber: string;
+      readonly householdReference: string;
+      readonly locationLabel: string;
+      readonly areaCode?: string;
+    },
+  ): Promise<unknown>;
   createSubscriber(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

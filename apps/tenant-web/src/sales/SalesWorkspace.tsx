@@ -248,7 +248,7 @@ export function SalesWorkspace({
       ) : view === 'catalogue' ? (
         <Catalogue locale={locale} offers={data.offers} />
       ) : (
-        <Orders locale={locale} data={data} />
+        <Orders locale={locale} data={data} busy={busy} onMutate={mutate} />
       )}
     </div>
   );
@@ -631,60 +631,90 @@ function Catalogue({
   );
 }
 
-function Orders({ locale, data }: { readonly locale: Locale; readonly data: SalesWorkspaceData }) {
+function Orders({
+  locale,
+  data,
+  busy,
+  onMutate,
+}: {
+  readonly locale: Locale;
+  readonly data: SalesWorkspaceData;
+  readonly busy: boolean;
+  readonly onMutate: (path: string, payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
   const isEnglish = locale === 'en';
   return (
     <div className="sales-orders">
       {data.orders.length ? (
-        data.orders.map((order) => (
-          <Surface key={order.id} className="sales-order-card">
-            <div className="sales-order-card__header">
-              <div>
-                <small>{isEnglish ? 'Service order' : 'طلب خدمة'}</small>
-                <h2>{order.orderNumber}</h2>
-              </div>
-              <StatusBadge
-                tone={
-                  order.status === 'fallout'
-                    ? 'critical'
-                    : order.status === 'completed'
-                      ? 'positive'
-                      : 'primary'
-                }
-              >
-                {statusLabel(order.status, locale)}
-              </StatusBadge>
-            </div>
-            <ol>
-              {order.tasks.map((task) => (
-                <li key={task.key} className={`sales-task sales-task--${task.status}`}>
-                  <span aria-hidden="true" />
-                  <div>
-                    <strong>{taskLabel(task.type, locale)}</strong>
-                    <small>
-                      {task.dependsOn.length
-                        ? `${isEnglish ? 'After' : 'بعد'} ${task.dependsOn.join(', ')}`
-                        : isEnglish
-                          ? 'No dependency'
-                          : 'دون تبعية'}
-                    </small>
-                  </div>
-                  <StatusBadge
-                    tone={
-                      task.status === 'completed'
+        data.orders.map((order) => {
+          const lead = data.leads.find((candidate) => candidate.id === order.leadId);
+          const subscriberTask = order.tasks.find((task) => task.key === 'subscriber_creation');
+          return (
+            <Surface key={order.id} className="sales-order-card">
+              <div className="sales-order-card__header">
+                <div>
+                  <small>{isEnglish ? 'Service order' : 'طلب خدمة'}</small>
+                  <h2>{order.orderNumber}</h2>
+                </div>
+                <StatusBadge
+                  tone={
+                    order.status === 'fallout'
+                      ? 'critical'
+                      : order.status === 'completed'
                         ? 'positive'
-                        : task.status === 'blocked' || task.status === 'failed'
-                          ? 'critical'
-                          : 'neutral'
-                    }
-                  >
-                    {statusLabel(task.status, locale)}
-                  </StatusBadge>
-                </li>
-              ))}
-            </ol>
-          </Surface>
-        ))
+                        : 'primary'
+                  }
+                >
+                  {statusLabel(order.status, locale)}
+                </StatusBadge>
+              </div>
+              {order.subscriberId ? (
+                <p className="sales-order-card__link">
+                  <strong>{isEnglish ? 'Subscriber linked' : 'تم ربط المشترك'}</strong>
+                  <span>{order.subscriberId}</span>
+                </p>
+              ) : null}
+              <ol>
+                {order.tasks.map((task) => (
+                  <li key={task.key} className={`sales-task sales-task--${task.status}`}>
+                    <span aria-hidden="true" />
+                    <div>
+                      <strong>{taskLabel(task.type, locale)}</strong>
+                      <small>
+                        {task.dependsOn.length
+                          ? `${isEnglish ? 'After' : 'بعد'} ${task.dependsOn.join(', ')}`
+                          : isEnglish
+                            ? 'No dependency'
+                            : 'دون تبعية'}
+                      </small>
+                    </div>
+                    <StatusBadge
+                      tone={
+                        task.status === 'completed'
+                          ? 'positive'
+                          : task.status === 'blocked' || task.status === 'failed'
+                            ? 'critical'
+                            : 'neutral'
+                      }
+                    >
+                      {statusLabel(task.status, locale)}
+                    </StatusBadge>
+                  </li>
+                ))}
+              </ol>
+              {lead && subscriberTask?.status === 'ready' && !order.subscriberId ? (
+                <SubscriberConversionForm
+                  locale={locale}
+                  orderId={order.id}
+                  orderNumber={order.orderNumber}
+                  lead={lead}
+                  busy={busy}
+                  onSubmit={(payload) => onMutate('orders/subscriber', payload)}
+                />
+              ) : null}
+            </Surface>
+          );
+        })
       ) : (
         <StatePanel
           variant="empty"
@@ -697,6 +727,73 @@ function Orders({ locale, data }: { readonly locale: Locale; readonly data: Sale
         />
       )}
     </div>
+  );
+}
+
+function SubscriberConversionForm({
+  locale,
+  orderId,
+  orderNumber,
+  lead,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly lead: SalesLead;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          orderId,
+          subscriberNumber: formText(form, 'subscriberNumber'),
+          householdReference: formText(form, 'householdReference'),
+          locationLabel: formText(form, 'locationLabel'),
+          ...(formText(form, 'areaCode') ? { areaCode: formText(form, 'areaCode') } : {}),
+          reason: 'Accepted service order converted to a governed subscriber record',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Ready: create subscriber' : 'جاهز: إنشاء المشترك'}</strong>
+        <span>
+          {isEnglish
+            ? `${lead.displayName} and the accepted service address will be copied atomically from the order.`
+            : `سيتم نسخ ${lead.displayName} وعنوان الخدمة المقبول ذرياً من الطلب.`}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Subscriber number' : 'رقم المشترك'}</span>
+        <input name="subscriberNumber" defaultValue={`SUB-${orderNumber}`} required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Household / company reference' : 'مرجع المنزل / الشركة'}</span>
+        <input name="householdReference" defaultValue={`HH-${lead.leadNumber}`} required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Service location label' : 'اسم موقع الخدمة'}</span>
+        <input
+          name="locationLabel"
+          defaultValue={isEnglish ? 'Primary service location' : 'موقع الخدمة الرئيسي'}
+          required
+        />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Area code (optional)' : 'رمز المنطقة (اختياري)'}</span>
+        <input name="areaCode" />
+      </label>
+      <Button type="submit" variant="primary" disabled={busy}>
+        {isEnglish ? 'Create and link subscriber' : 'إنشاء المشترك وربطه'}
+      </Button>
+    </form>
   );
 }
 

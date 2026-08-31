@@ -254,6 +254,51 @@
 .sales-task small {
   color: var(--color-ink-muted);
 }
+.sales-order-card__link {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-teal) 35%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-teal) 7%, var(--color-surface));
+}
+.sales-order-card__link span {
+  color: var(--color-ink-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.sales-order-execution {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-block-start: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
+.sales-order-execution__intro {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--space-1);
+}
+.sales-order-execution__intro span {
+  color: var(--color-ink-muted);
+}
+.sales-order-execution label {
+  display: grid;
+  gap: var(--space-1);
+}
+.sales-order-execution label span {
+  color: var(--color-ink-muted);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.sales-order-execution .button {
+  align-self: end;
+}
 @media (max-width: 1000px) {
   .sales-editor form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -269,6 +314,9 @@
     grid-template-columns: 1fr;
   }
   .sales-editor form {
+    grid-template-columns: 1fr;
+  }
+  .sales-order-execution {
     grid-template-columns: 1fr;
   }
   .sales-editor__wide {

@@ -91,12 +91,14 @@ export interface SalesServiceOrder {
     | 'fallout'
     | 'completed'
     | 'cancelled';
+  readonly subscriberId?: string;
   readonly createdAt: string;
   readonly tasks: readonly {
     readonly key: string;
     readonly type: string;
     readonly dependsOn: readonly string[];
     readonly status: string;
+    readonly result?: Readonly<Record<string, unknown>>;
   }[];
 }
 

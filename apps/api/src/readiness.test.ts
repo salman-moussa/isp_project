@@ -20,6 +20,7 @@ describe('database readiness', () => {
           guard_and_outbox_invariants_ready: true,
           operations_ready: true,
           sales_ready: true,
+          sales_execution_ready: true,
         },
       ];
     });
@@ -38,6 +39,8 @@ describe('database readiness', () => {
     expect(query).toContain('operations_readiness');
     expect(query).toContain('sales_order_readiness');
     expect(query).toContain('202608300210_tenant_sales_order_core.sql');
+    expect(query).toContain('202608300230_tenant_order_subscriber_execution.sql');
+    expect(query).toContain('sales_order_execution_readiness');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {
@@ -70,6 +73,7 @@ describe('database readiness', () => {
           guard_and_outbox_invariants_ready: false,
           operations_ready: true,
           sales_ready: true,
+          sales_execution_ready: true,
         },
       ]),
     } as unknown as TenantClient;

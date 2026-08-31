@@ -98,6 +98,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608300210_tenant_sales_order_core.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608300230_tenant_order_subscriber_execution.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -139,16 +142,20 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) IS NOT NULL AS guard_and_outbox_invariants_ready,
        operations.context_key_ready
          AND operations.subscription_state_ready AS operations_ready,
-       sales.migration_ready AND sales.relations_ready AND sales.guards_ready AS sales_ready
+       sales.migration_ready AND sales.relations_ready AND sales.guards_ready AS sales_ready,
+       execution.migration_ready AND execution.columns_ready AND execution.guards_ready
+         AS sales_execution_ready
      FROM public.operations_readiness() operations
-     CROSS JOIN public.sales_order_readiness() sales`,
+     CROSS JOIN public.sales_order_readiness() sales
+     CROSS JOIN public.sales_order_execution_readiness() execution`,
   );
   if (
     !state?.relations_ready ||
     !state.migrations_ready ||
     !state.guard_and_outbox_invariants_ready ||
     !state.operations_ready ||
-    !state.sales_ready
+    !state.sales_ready ||
+    !state.sales_execution_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

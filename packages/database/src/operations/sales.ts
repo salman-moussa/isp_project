@@ -91,6 +91,7 @@ export interface SalesOrderTask {
     | 'blocked'
     | 'failed'
     | 'cancelled';
+  readonly result?: Readonly<Record<string, unknown>>;
 }
 
 export interface SalesServiceOrder {
@@ -106,6 +107,7 @@ export interface SalesServiceOrder {
     | 'fallout'
     | 'completed'
     | 'cancelled';
+  readonly subscriberId?: string;
   readonly createdAt: string;
   readonly tasks: readonly SalesOrderTask[];
 }
@@ -542,6 +544,153 @@ export async function acceptSalesQuote(
   });
 }
 
+export async function convertSalesOrderSubscriber(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly orderId: string;
+    readonly subscriberNumber: string;
+    readonly householdReference: string;
+    readonly locationLabel: string;
+    readonly areaCode?: string;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<{
+  readonly orderId: string;
+  readonly subscriberId: string;
+  readonly householdId: string;
+  readonly locationId: string;
+  readonly replayed: boolean;
+}> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:order-subscriber:${input.orderId}`},2305))
+    `);
+    const [replay] = await transaction.execute<{
+      readonly order_id: string;
+      readonly execution_fingerprint: string;
+      readonly result_reference: Record<string, unknown>;
+    }>(sql`
+      SELECT order_id,execution_fingerprint,result_reference FROM sales_order_tasks
+      WHERE tenant_id=${tenantId} AND execution_idempotency_key=${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (replay.order_id !== input.orderId || replay.execution_fingerprint !== fingerprint)
+        throw new OperationsConflictError();
+      return conversionResult(replay.order_id, replay.result_reference, true);
+    }
+
+    const [target] = await transaction.execute<{
+      readonly order_id: string;
+      readonly order_status: SalesServiceOrder['status'];
+      readonly subscriber_id: string | null;
+      readonly task_status: SalesOrderTask['status'];
+      readonly display_name: string;
+      readonly primary_phone: string | null;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+      readonly address_line: string;
+    }>(sql`
+      SELECT sales_order.id AS order_id,sales_order.status AS order_status,
+        sales_order.subscriber_id,task.status AS task_status,lead.display_name,lead.primary_phone,
+        lead.branch_id,lead.area_id,lead.route_id,lead.address_line
+      FROM sales_service_orders sales_order
+      JOIN sales_leads lead ON lead.tenant_id=sales_order.tenant_id AND lead.id=sales_order.lead_id
+      JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
+        AND task.order_id=sales_order.id AND task.task_key='subscriber_creation'
+      WHERE sales_order.tenant_id=${tenantId} AND sales_order.id=${input.orderId}
+      FOR UPDATE OF sales_order,task
+    `);
+    if (!target) throw new Error('The service order is unavailable in the authorized scope.');
+    if (target.subscriber_id || target.task_status === 'completed')
+      throw new OperationsConflictError('The service order already has a subscriber.');
+    if (
+      target.task_status !== 'ready' ||
+      !['accepted', 'validating', 'in_progress'].includes(target.order_status)
+    )
+      throw new OperationsConflictError('The subscriber task is not ready.');
+
+    const [insertedHousehold] = await transaction.execute<{
+      readonly id: string;
+      readonly branch_id: string;
+      readonly display_name: string;
+    }>(sql`
+      INSERT INTO operations_households(tenant_id,branch_id,reference_code,display_name)
+      VALUES (${tenantId},${target.branch_id},${input.householdReference},${target.display_name})
+      ON CONFLICT(tenant_id,reference_code) DO NOTHING
+      RETURNING id,branch_id,display_name
+    `);
+    const household =
+      insertedHousehold ??
+      (
+        await transaction.execute<{
+          readonly id: string;
+          readonly branch_id: string;
+          readonly display_name: string;
+        }>(sql`
+      SELECT id,branch_id,display_name FROM operations_households
+      WHERE tenant_id=${tenantId} AND reference_code=${input.householdReference} FOR SHARE
+    `)
+      )[0];
+    if (!household) throw new Error('Unable to create the subscriber household.');
+    if (household.branch_id !== target.branch_id || household.display_name !== target.display_name)
+      throw new OperationsConflictError(
+        'The household reference belongs to different customer data.',
+      );
+
+    const [location] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_locations(
+        tenant_id,household_id,branch_id,area_id,route_id,label,area_code,address_line
+      ) VALUES (
+        ${tenantId},${household.id},${target.branch_id},${target.area_id},${target.route_id},
+        ${input.locationLabel},${input.areaCode ?? null},${target.address_line}
+      ) RETURNING id
+    `);
+    if (!location) throw new Error('Unable to create the subscriber service location.');
+    const [subscriber] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_subscribers(
+        tenant_id,subscriber_number,idempotency_key,request_fingerprint,household_id,
+        primary_location_id,display_name,branch_id,area_id,route_id
+      ) VALUES (
+        ${tenantId},${input.subscriberNumber},${input.idempotencyKey},${fingerprint},${household.id},
+        ${location.id},${target.display_name},${target.branch_id},${target.area_id},${target.route_id}
+      ) RETURNING id
+    `);
+    if (!subscriber) throw new Error('Unable to convert the lead into a subscriber.');
+    if (target.primary_phone) {
+      await transaction.execute(sql`
+        INSERT INTO operations_contacts(
+          tenant_id,subscriber_id,contact_kind,contact_value,label,is_primary
+        ) VALUES (${tenantId},${subscriber.id},'phone',${target.primary_phone},'primary',true)
+      `);
+    }
+    const result = {
+      subscriberId: subscriber.id,
+      householdId: household.id,
+      locationId: location.id,
+    };
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='completed',attempts=attempts+1,last_error=NULL,
+        result_reference=${JSON.stringify(result)}::jsonb,execution_fingerprint=${fingerprint},
+        execution_idempotency_key=${input.idempotencyKey},completed_by=${input.actorId}
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key='subscriber_creation'
+    `);
+    await transaction.execute(sql`
+      UPDATE sales_service_orders SET subscriber_id=${subscriber.id},status='in_progress',
+        updated_at=clock_timestamp() WHERE tenant_id=${tenantId} AND id=${input.orderId}
+    `);
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='ready'
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId}
+        AND task_key='resource_reservation' AND status='pending'
+    `);
+    return { orderId: input.orderId, ...result, replayed: false };
+  });
+}
+
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function readOrderTasks(
@@ -630,6 +779,7 @@ interface SalesOrderRow extends Record<string, unknown> {
   readonly quote_id: string;
   readonly order_number: string;
   readonly status: SalesServiceOrder['status'];
+  readonly subscriber_id: string | null;
   readonly created_at: Date | string;
 }
 interface SalesOrderTaskRow extends Record<string, unknown> {
@@ -638,6 +788,7 @@ interface SalesOrderTaskRow extends Record<string, unknown> {
   readonly task_type: SalesOrderTask['type'];
   readonly depends_on_keys: string[];
   readonly status: SalesOrderTask['status'];
+  readonly result_reference: Record<string, unknown> | null;
 }
 interface SalesScopeRow extends Record<string, unknown> {
   readonly id: string;
@@ -730,6 +881,7 @@ function mapOrder(row: SalesOrderRow): Omit<SalesServiceOrder, 'tasks'> {
     quoteId: row.quote_id,
     orderNumber: row.order_number,
     status: row.status,
+    ...(row.subscriber_id ? { subscriberId: row.subscriber_id } : {}),
     createdAt: iso(row.created_at),
   };
 }
@@ -739,6 +891,7 @@ function mapTask(row: SalesOrderTaskRow): SalesOrderTask {
     type: row.task_type,
     dependsOn: row.depends_on_keys,
     status: row.status,
+    ...(row.result_reference ? { result: row.result_reference } : {}),
   };
 }
 function mapScope(row: SalesScopeRow): SalesScopeItem {
@@ -758,6 +911,23 @@ function date(value: Date | string): string {
 }
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function conversionResult(
+  orderId: string,
+  result: Readonly<Record<string, unknown>>,
+  replayed: boolean,
+) {
+  const subscriberId = result.subscriberId;
+  const householdId = result.householdId;
+  const locationId = result.locationId;
+  if (
+    typeof subscriberId !== 'string' ||
+    typeof householdId !== 'string' ||
+    typeof locationId !== 'string'
+  )
+    throw new Error('The subscriber conversion result is incomplete.');
+  return { orderId, subscriberId, householdId, locationId, replayed };
 }
 function digest(value: object, omitted: readonly string[]): string {
   const entries = Object.entries(value)

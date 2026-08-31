@@ -121,10 +121,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('SalesWorkspace', () => {
   it('presents real pipeline, effective offers, and order dependencies accessibly', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, json: async () => workspace })),
-    );
+    const request = vi.fn(async () => ({ ok: true, status: 200, json: async () => workspace }));
+    vi.stubGlobal('fetch', request);
     const user = userEvent.setup();
     const { container } = render(<SalesWorkspace locale="en" session={session} />);
     expect(await screen.findByText('Cedar Studio')).toBeVisible();
@@ -134,7 +132,20 @@ describe('SalesWorkspace', () => {
     await user.click(screen.getByRole('tab', { name: 'Service orders' }));
     expect(screen.getByText('SO-1001')).toBeVisible();
     expect(screen.getByText('Subscriber conversion')).toBeVisible();
-    await waitFor(async () => expect((await axe.run(container)).violations).toEqual([]));
+    await user.click(screen.getByRole('button', { name: 'Create and link subscriber' }));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        expect.stringContaining('/operations/sales/orders/subscriber'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(
+      (
+        await axe.run(container, {
+          rules: { 'color-contrast': { enabled: false } },
+        })
+      ).violations,
+    ).toEqual([]);
   });
 
   it('shows a truthful Arabic retry state when the governed read fails', async () => {

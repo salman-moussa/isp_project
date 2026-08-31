@@ -4,6 +4,7 @@ import {
   acceptSalesQuote,
   approveSalesQuote,
   configureOperations,
+  convertSalesOrderSubscriber,
   createBillingPolicyVersion,
   createSalesLead,
   createSalesOfferVersion,
@@ -45,6 +46,7 @@ export interface OperationsRepositoryAdapter {
   readonly createSalesQuote: typeof createSalesQuote;
   readonly approveSalesQuote: typeof approveSalesQuote;
   readonly acceptSalesQuote: typeof acceptSalesQuote;
+  readonly convertSalesOrderSubscriber: typeof convertSalesOrderSubscriber;
   readonly createSubscriber: typeof createSubscriber;
   readonly prepareRecurringInvoices: typeof prepareRecurringInvoices;
   readonly recordOfficePaymentRequest: typeof recordOfficePaymentRequest;
@@ -71,6 +73,7 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   createSalesQuote,
   approveSalesQuote,
   acceptSalesQuote,
+  convertSalesOrderSubscriber,
   createSubscriber,
   prepareRecurringInvoices,
   recordOfficePaymentRequest,
@@ -166,6 +169,16 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.acceptSalesQuote(this.database, tenantId, {
       ...input,
       ownerId: input.ownerId ?? input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public convertSalesOrderSubscriber(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'convertSalesOrderSubscriber'>,
+  ) {
+    return this.repository.convertSalesOrderSubscriber(this.database, tenantId, {
+      ...input,
       authorization: this.sign(tenantId, input),
     });
   }

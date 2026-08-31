@@ -102,6 +102,16 @@ const salesQuoteAcceptanceBody = z
     reason: businessReason,
   })
   .strict();
+const salesOrderSubscriberBody = z
+  .object({
+    orderId: uuid,
+    subscriberNumber: z.string().trim().min(1).max(80),
+    householdReference: z.string().trim().min(1).max(80),
+    locationLabel: z.string().trim().min(1).max(100),
+    areaCode: z.string().trim().min(1).max(80).optional(),
+    reason: businessReason,
+  })
+  .strict();
 
 const subscriberBody = z
   .object({
@@ -367,6 +377,7 @@ export const operationsRequestSchemas = {
   salesQuoteBody,
   salesQuoteApprovalBody,
   salesQuoteAcceptanceBody,
+  salesOrderSubscriberBody,
   subscriberBody,
   billingBody,
   officePaymentBody,
@@ -388,6 +399,7 @@ export const operationsRequestSchemas = {
 interface RouteSpec extends OperationsDefinition {
   readonly schema: z.ZodType;
   readonly requiresRecentMfa?: boolean;
+  readonly additionalPermissions?: readonly Permission[];
   readonly execute: (
     writer: OperationsWriter,
     tenantId: VerifiedTenantId,
@@ -461,6 +473,17 @@ export function registerTenantOperationsRoutes(
       salesQuoteAcceptanceBody,
       (w, id, v) => w.acceptSalesQuote(id, v as never),
       true,
+    ),
+    operation(
+      '/sales/orders/subscriber',
+      'convertSalesOrderSubscriber',
+      'tenant.subscriber.create',
+      'tenant.subscriber.create',
+      'sales_service_order',
+      salesOrderSubscriberBody,
+      (w, id, v) => w.convertSalesOrderSubscriber(id, v as never),
+      false,
+      ['tenant.order.manage'],
     ),
     operation(
       '/subscribers',
@@ -620,6 +643,7 @@ function operation(
   schema: z.ZodType,
   execute: RouteSpec['execute'],
   requiresRecentMfa = false,
+  additionalPermissions: readonly Permission[] = [],
 ): RouteSpec {
   return {
     path: `/v1/tenants/:tenantId/operations${path}`,
@@ -630,6 +654,7 @@ function operation(
     schema,
     execute,
     ...(requiresRecentMfa ? { requiresRecentMfa } : {}),
+    ...(additionalPermissions.length > 0 ? { additionalPermissions } : {}),
   };
 }
 
@@ -756,6 +781,9 @@ async function executeMutation(
       );
     }
     assertPermission(request.auth, spec.permission);
+    for (const permission of spec.additionalPermissions ?? []) {
+      assertPermission(request.auth, permission);
+    }
     if (spec.requiresRecentMfa) assertRecentMfa(request, options.now());
     assertBodyWithinClaimScope(request, body);
   } catch (error) {

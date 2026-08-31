@@ -10,6 +10,10 @@ const controlMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608300200_control_sales_permissions.sql',
 );
+const executionMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608300230_tenant_order_subscriber_execution.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -42,5 +46,19 @@ describe('sales and order migrations', () => {
     expect(migration).toContain('protect_sales_history');
     expect(migration).toContain('sales_order_readiness');
     expect(migration).not.toContain('GRANT UPDATE, DELETE');
+  });
+
+  it('executes subscriber conversion behind dependency, idempotency, RLS, and audit guards', async () => {
+    const migration = await readFile(executionMigration, 'utf8');
+    expect(migration).toContain('validate_sales_order_task_transition');
+    expect(migration).toContain('sales_order_tasks_execution_idempotency_idx');
+    expect(migration).toContain("context_row.action='tenant.subscriber.create'");
+    expect(migration).toContain("context_row.permission='tenant.subscriber.create'");
+    expect(migration).toContain('sales_order_execution_readiness');
+    expect(migration).toContain(
+      'FOR EACH ROW EXECUTE FUNCTION validate_sales_order_task_transition',
+    );
+    expect(migration).toContain('operations_hierarchy_scope_allows');
+    expect(migration).toContain('operations_households_insert_scope');
   });
 });
