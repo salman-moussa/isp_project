@@ -14,6 +14,10 @@ const executionMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608300230_tenant_order_subscriber_execution.sql',
 );
+const resourceMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310000_tenant_order_resource_execution.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -60,5 +64,16 @@ describe('sales and order migrations', () => {
     );
     expect(migration).toContain('operations_hierarchy_scope_allows');
     expect(migration).toContain('operations_households_insert_scope');
+  });
+
+  it('reserves scoped capacity behind dependency, idempotency, RLS, and audit guards', async () => {
+    const migration = await readFile(resourceMigration, 'utf8');
+    expect(migration).toContain('CREATE TABLE operations_capacity_resources');
+    expect(migration).toContain('CREATE TABLE sales_order_resource_reservations');
+    expect(migration).toContain('operations_capacity_resources_scope_links');
+    expect(migration).toContain("context_row.action='tenant.resource.reserve'");
+    expect(migration).toContain("context_row.permission='tenant.network.job.create'");
+    expect(migration).toContain('sales_resource_execution_readiness');
+    expect(migration).toContain('FORCE ROW LEVEL SECURITY');
   });
 });

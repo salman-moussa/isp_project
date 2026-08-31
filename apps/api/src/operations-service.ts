@@ -5,6 +5,7 @@ import {
   approveSalesQuote,
   configureOperations,
   convertSalesOrderSubscriber,
+  createCapacityResource,
   createBillingPolicyVersion,
   createSalesLead,
   createSalesOfferVersion,
@@ -22,6 +23,7 @@ import {
   recordOfficePaymentCorrection,
   recordOfficePaymentRequest,
   requestOperationsExport,
+  reserveSalesOrderResource,
   signOperationsAttestation,
   transitionInstallation,
   transitionSupportIssue,
@@ -47,6 +49,8 @@ export interface OperationsRepositoryAdapter {
   readonly approveSalesQuote: typeof approveSalesQuote;
   readonly acceptSalesQuote: typeof acceptSalesQuote;
   readonly convertSalesOrderSubscriber: typeof convertSalesOrderSubscriber;
+  readonly createCapacityResource: typeof createCapacityResource;
+  readonly reserveSalesOrderResource: typeof reserveSalesOrderResource;
   readonly createSubscriber: typeof createSubscriber;
   readonly prepareRecurringInvoices: typeof prepareRecurringInvoices;
   readonly recordOfficePaymentRequest: typeof recordOfficePaymentRequest;
@@ -74,6 +78,8 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   approveSalesQuote,
   acceptSalesQuote,
   convertSalesOrderSubscriber,
+  createCapacityResource,
+  reserveSalesOrderResource,
   createSubscriber,
   prepareRecurringInvoices,
   recordOfficePaymentRequest,
@@ -178,6 +184,26 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'convertSalesOrderSubscriber'>,
   ) {
     return this.repository.convertSalesOrderSubscriber(this.database, tenantId, {
+      ...input,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public createCapacityResource(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'createCapacityResource'>,
+  ) {
+    return this.repository.createCapacityResource(this.database, tenantId, {
+      ...input,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public reserveSalesOrderResource(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'reserveSalesOrderResource'>,
+  ) {
+    return this.repository.reserveSalesOrderResource(this.database, tenantId, {
       ...input,
       authorization: this.sign(tenantId, input),
     });

@@ -114,6 +114,35 @@ export interface OperationsWriter {
       readonly areaCode?: string;
     },
   ): Promise<unknown>;
+  createCapacityResource(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly type:
+        | 'pop'
+        | 'sector'
+        | 'olt'
+        | 'fiber_port'
+        | 'wireless_sector'
+        | 'access_node'
+        | 'capacity_pool';
+      readonly code: string;
+      readonly name: string;
+      readonly accessTechnology: string;
+      readonly totalUnits: number;
+      readonly branchId: string;
+      readonly areaId?: string;
+      readonly routeId?: string;
+      readonly metadata: Readonly<Record<string, unknown>>;
+    },
+  ): Promise<unknown>;
+  reserveSalesOrderResource(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly orderId: string;
+      readonly resourceId: string;
+      readonly units: number;
+    },
+  ): Promise<unknown>;
   createSubscriber(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

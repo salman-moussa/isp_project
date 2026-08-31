@@ -11,9 +11,11 @@ import {
   createSalesOfferVersion,
   createSalesQuote,
   convertSalesOrderSubscriber,
+  createCapacityResource,
   inOperationsTransaction,
   qualifySalesLead,
   readSalesWorkspace,
+  reserveSalesOrderResource,
   signOperationsAttestation,
 } from '../src/index.js';
 
@@ -77,7 +79,8 @@ try {
   await admin`INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope)
     VALUES (${tenantId},${actorId},'isp_administrator',ARRAY[
       'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage',
-      'tenant.subscriber.create','tenant.user.administer'
+      'tenant.subscriber.create','tenant.user.administer','tenant.network.view',
+      'tenant.network.job.create'
     ],${JSON.stringify({ branchIds: [branchId], areaIds: [areaId], routeIds: [routeId] })}::jsonb)`;
   await admin`INSERT INTO operations_context_keys(key_id,secret,active_from)
     VALUES (${keyId},decode(${secret.toString('hex')},'hex'),clock_timestamp()-interval '1 minute')`;
@@ -244,6 +247,43 @@ try {
   assert.equal(conversionReplay.replayed, true);
   assert.equal(conversionReplay.subscriberId, conversion.subscriberId);
 
+  const resource = await createCapacityResource(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.network.job.create',
+      'tenant.resource.create',
+      'sales-resource-001',
+    ),
+    type: 'fiber_port',
+    code: `OLT-${randomUUID().slice(0, 8)}`,
+    name: 'Beirut live-test fiber port',
+    accessTechnology: 'fiber',
+    totalUnits: 8,
+    branchId,
+    areaId,
+    metadata: { olt: 'BEY-LIVE-01' },
+    actorId,
+    idempotencyKey: 'sales-resource-001',
+  });
+  assert.equal(resource.availableUnits, 8);
+
+  const reservationInput = {
+    authorization: authorization(
+      'tenant.network.job.create' as const,
+      'tenant.resource.reserve',
+      'sales-resource-reserve-001',
+    ),
+    orderId: order.id,
+    resourceId: resource.id,
+    units: 1,
+    actorId,
+    idempotencyKey: 'sales-resource-reserve-001',
+  };
+  const reservation = await reserveSalesOrderResource(runtime.db, tenantId, reservationInput);
+  assert.equal(reservation.replayed, false);
+  const reservationReplay = await reserveSalesOrderResource(runtime.db, tenantId, reservationInput);
+  assert.equal(reservationReplay.replayed, true);
+  assert.equal(reservationReplay.reservationId, reservation.reservationId);
+
   const workspace = await readSalesWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.sales.view',
@@ -256,7 +296,10 @@ try {
   assert.equal(workspace.orders[0]?.tasks.length, 6);
   assert.equal(workspace.orders[0]?.subscriberId, conversion.subscriberId);
   assert.equal(workspace.orders[0]?.tasks[1]?.status, 'completed');
-  assert.equal(workspace.orders[0]?.tasks[2]?.status, 'ready');
+  assert.equal(workspace.orders[0]?.tasks[2]?.status, 'completed');
+  assert.equal(workspace.orders[0]?.tasks[3]?.status, 'ready');
+  assert.equal(workspace.resources[0]?.reservedUnits, 1);
+  assert.equal(workspace.resources[0]?.availableUnits, 7);
   assert.equal(workspace.scopes.routes[0]?.id, routeId);
 
   const [audit] = await admin`SELECT count(*)::integer AS count,
@@ -264,10 +307,11 @@ try {
     FROM operations_audit_outbox WHERE tenant_id=${tenantId}
       AND action IN ('tenant.sales.lead.create','tenant.sales.qualify','tenant.catalog.offer.version.create',
         'tenant.sales.quote.create','tenant.sales.quote.approve','tenant.sales.quote.accept',
-        'tenant.sales.workspace.read','tenant.subscriber.create')`;
-  assert((audit?.count ?? 0) >= 20, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.sales.workspace.read','tenant.subscriber.create','tenant.resource.create',
+        'tenant.resource.reserve')`;
+  assert((audit?.count ?? 0) >= 25, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
-  console.log('Sales lead-to-subscriber-order live checks passed');
+  console.log('Sales lead-to-resource-reservation live checks passed');
 } finally {
   await Promise.allSettled([admin.end(), runtime.client.end()]);
 }

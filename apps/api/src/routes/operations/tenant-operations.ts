@@ -112,6 +112,43 @@ const salesOrderSubscriberBody = z
     reason: businessReason,
   })
   .strict();
+const capacityResourceBody = z
+  .object({
+    type: z.enum([
+      'pop',
+      'sector',
+      'olt',
+      'fiber_port',
+      'wireless_sector',
+      'access_node',
+      'capacity_pool',
+    ]),
+    code: z.string().trim().min(1).max(80),
+    name: z.string().trim().min(1).max(200),
+    accessTechnology: z.enum([
+      'fiber',
+      'fixed_wireless',
+      'dsl',
+      'leased_line',
+      'satellite',
+      'other',
+    ]),
+    totalUnits: z.number().int().positive().max(1_000_000),
+    branchId: uuid,
+    areaId: uuid.optional(),
+    routeId: uuid.optional(),
+    metadata: z.record(z.string(), z.unknown()).default({}),
+    reason: businessReason,
+  })
+  .strict();
+const salesOrderResourceBody = z
+  .object({
+    orderId: uuid,
+    resourceId: uuid,
+    units: z.number().int().positive().max(1_000_000),
+    reason: businessReason,
+  })
+  .strict();
 
 const subscriberBody = z
   .object({
@@ -378,6 +415,8 @@ export const operationsRequestSchemas = {
   salesQuoteApprovalBody,
   salesQuoteAcceptanceBody,
   salesOrderSubscriberBody,
+  capacityResourceBody,
+  salesOrderResourceBody,
   subscriberBody,
   billingBody,
   officePaymentBody,
@@ -482,6 +521,26 @@ export function registerTenantOperationsRoutes(
       'sales_service_order',
       salesOrderSubscriberBody,
       (w, id, v) => w.convertSalesOrderSubscriber(id, v as never),
+      false,
+      ['tenant.order.manage'],
+    ),
+    operation(
+      '/sales/resources',
+      'createCapacityResource',
+      'tenant.network.job.create',
+      'tenant.resource.create',
+      'operations_capacity_resource',
+      capacityResourceBody,
+      (w, id, v) => w.createCapacityResource(id, v as never),
+    ),
+    operation(
+      '/sales/orders/resource',
+      'reserveSalesOrderResource',
+      'tenant.network.job.create',
+      'tenant.resource.reserve',
+      'sales_order_resource_reservation',
+      salesOrderResourceBody,
+      (w, id, v) => w.reserveSalesOrderResource(id, v as never),
       false,
       ['tenant.order.manage'],
     ),

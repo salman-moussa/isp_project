@@ -21,5 +21,6 @@
   "202608300100_control_tenant_staff_sessions.sql": "control",
   "202608300200_control_sales_permissions.sql": "control",
   "202608300210_tenant_sales_order_core.sql": "tenant",
-  "202608300230_tenant_order_subscriber_execution.sql": "tenant"
+  "202608300230_tenant_order_subscriber_execution.sql": "tenant",
+  "202608310000_tenant_order_resource_execution.sql": "tenant"
 }

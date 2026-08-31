@@ -11,6 +11,7 @@ import {
 import {
   readSalesWorkspace,
   submitSalesOperation,
+  type CapacityResource,
   type SalesLead,
   type SalesOfferVersion,
   type SalesQuote,
@@ -645,10 +646,30 @@ function Orders({
   const isEnglish = locale === 'en';
   return (
     <div className="sales-orders">
+      <CapacityRegister
+        locale={locale}
+        data={data}
+        busy={busy}
+        onSubmit={(payload) => onMutate('resources', payload)}
+      />
       {data.orders.length ? (
         data.orders.map((order) => {
           const lead = data.leads.find((candidate) => candidate.id === order.leadId);
           const subscriberTask = order.tasks.find((task) => task.key === 'subscriber_creation');
+          const resourceTask = order.tasks.find((task) => task.key === 'resource_reservation');
+          const quote = data.quotes.find((candidate) => candidate.id === order.quoteId);
+          const offer = data.offers.find((candidate) => candidate.id === quote?.offerVersionId);
+          const eligibleResources = data.resources.filter(
+            (resource) =>
+              lead &&
+              offer &&
+              resource.status === 'active' &&
+              resource.availableUnits > 0 &&
+              resource.accessTechnology === offer.accessTechnology &&
+              resource.branchId === lead.branchId &&
+              (!resource.areaId || resource.areaId === lead.areaId) &&
+              (!resource.routeId || resource.routeId === lead.routeId),
+          );
           return (
             <Surface key={order.id} className="sales-order-card">
               <div className="sales-order-card__header">
@@ -712,6 +733,15 @@ function Orders({
                   onSubmit={(payload) => onMutate('orders/subscriber', payload)}
                 />
               ) : null}
+              {resourceTask?.status === 'ready' ? (
+                <ResourceReservationForm
+                  locale={locale}
+                  orderId={order.id}
+                  resources={eligibleResources}
+                  busy={busy}
+                  onSubmit={(payload) => onMutate('orders/resource', payload)}
+                />
+              ) : null}
             </Surface>
           );
         })
@@ -727,6 +757,202 @@ function Orders({
         />
       )}
     </div>
+  );
+}
+
+function CapacityRegister({
+  locale,
+  data,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly data: SalesWorkspaceData;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  const [branchId, setBranchId] = useState(data.scopes.branches[0]?.id ?? '');
+  const areas = data.scopes.areas.filter((item) => item.parentId === branchId);
+  const [areaId, setAreaId] = useState('');
+  const routes = data.scopes.routes.filter((item) => item.parentId === areaId);
+  return (
+    <Surface className="sales-capacity">
+      <div className="surface__header">
+        <div>
+          <small>{isEnglish ? 'Network inventory' : 'مخزون الشبكة'}</small>
+          <h2>{isEnglish ? 'Service capacity register' : 'سجل سعة الخدمة'}</h2>
+          <p>
+            {isEnglish
+              ? 'Declare reservable ports, sectors, nodes, or shared capacity before assigning an accepted order.'
+              : 'عرّف المنافذ والقطاعات والعقد أو السعة المشتركة القابلة للحجز قبل إسناد الطلب المقبول.'}
+          </p>
+        </div>
+        <strong className="sales-capacity__summary">
+          {data.resources.reduce((total, resource) => total + resource.availableUnits, 0)}{' '}
+          <span>{isEnglish ? 'units available' : 'وحدة متاحة'}</span>
+        </strong>
+      </div>
+      {data.resources.length ? (
+        <div
+          className="sales-capacity__inventory"
+          aria-label={isEnglish ? 'Capacity inventory' : 'مخزون السعة'}
+        >
+          {data.resources.slice(0, 8).map((resource) => (
+            <div key={resource.id}>
+              <strong>{resource.code}</strong>
+              <span>{resource.name}</span>
+              <small>
+                {resource.accessTechnology.replaceAll('_', ' ')} · {resource.availableUnits}/
+                {resource.totalUnits} {isEnglish ? 'free' : 'متاحة'}
+              </small>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <form
+        className="sales-capacity__form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          void onSubmit({
+            type: formText(form, 'type'),
+            code: formText(form, 'code'),
+            name: formText(form, 'name'),
+            accessTechnology: formText(form, 'technology'),
+            totalUnits: Number(formText(form, 'totalUnits')),
+            branchId,
+            ...(areaId ? { areaId } : {}),
+            ...(formText(form, 'routeId') ? { routeId: formText(form, 'routeId') } : {}),
+            metadata: {},
+            reason: 'Reservable service capacity added to governed network inventory',
+          }).catch(() => undefined);
+        }}
+      >
+        <label>
+          <span>{isEnglish ? 'Resource type' : 'نوع المورد'}</span>
+          <select name="type">
+            <option value="fiber_port">{isEnglish ? 'Fiber port' : 'منفذ ألياف'}</option>
+            <option value="wireless_sector">{isEnglish ? 'Wireless sector' : 'قطاع لاسلكي'}</option>
+            <option value="olt">OLT</option>
+            <option value="pop">POP</option>
+            <option value="access_node">{isEnglish ? 'Access node' : 'عقدة وصول'}</option>
+            <option value="capacity_pool">{isEnglish ? 'Capacity pool' : 'مجموعة سعة'}</option>
+          </select>
+        </label>
+        <label>
+          <span>{isEnglish ? 'Code' : 'الرمز'}</span>
+          <input name="code" required placeholder="OLT-BEY-01" />
+        </label>
+        <label>
+          <span>{isEnglish ? 'Display name' : 'الاسم'}</span>
+          <input name="name" required />
+        </label>
+        <label>
+          <span>{isEnglish ? 'Technology' : 'التقنية'}</span>
+          <select name="technology">
+            <option value="fiber">Fiber</option>
+            <option value="fixed_wireless">Fixed wireless</option>
+            <option value="dsl">DSL</option>
+            <option value="leased_line">Leased line</option>
+          </select>
+        </label>
+        <label>
+          <span>{isEnglish ? 'Total units' : 'إجمالي الوحدات'}</span>
+          <input name="totalUnits" type="number" min="1" defaultValue="1" required />
+        </label>
+        <ScopeSelect
+          label={isEnglish ? 'Branch' : 'الفرع'}
+          items={data.scopes.branches}
+          locale={locale}
+          value={branchId}
+          onChange={(value) => {
+            setBranchId(value);
+            setAreaId('');
+          }}
+        />
+        <ScopeSelect
+          label={isEnglish ? 'Area (optional)' : 'المنطقة (اختياري)'}
+          items={areas}
+          locale={locale}
+          value={areaId}
+          onChange={setAreaId}
+          optional
+        />
+        <ScopeSelect
+          label={isEnglish ? 'Route (optional)' : 'المسار (اختياري)'}
+          items={routes}
+          locale={locale}
+          name="routeId"
+          optional
+        />
+        <Button type="submit" variant="secondary" disabled={busy || !branchId}>
+          {isEnglish ? 'Add capacity' : 'إضافة السعة'}
+        </Button>
+      </form>
+    </Surface>
+  );
+}
+
+function ResourceReservationForm({
+  locale,
+  orderId,
+  resources,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly resources: readonly CapacityResource[];
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          orderId,
+          resourceId: formText(form, 'resourceId'),
+          units: Number(formText(form, 'units')),
+          reason: 'Eligible service capacity reserved for accepted service order',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Ready: reserve network capacity' : 'جاهز: حجز سعة الشبكة'}</strong>
+        <span>
+          {resources.length
+            ? isEnglish
+              ? 'Only active capacity matching the order technology and service territory is shown.'
+              : 'تظهر فقط السعة الفعالة المطابقة لتقنية الطلب ونطاق الخدمة.'
+            : isEnglish
+              ? 'No eligible capacity is available. Add capacity for this technology and territory above.'
+              : 'لا توجد سعة مؤهلة. أضف سعة لهذه التقنية وهذا النطاق أعلاه.'}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Eligible resource' : 'المورد المؤهل'}</span>
+        <select name="resourceId" required disabled={!resources.length}>
+          {resources.map((resource) => (
+            <option key={resource.id} value={resource.id}>
+              {resource.code} · {resource.name} · {resource.availableUnits}{' '}
+              {isEnglish ? 'available' : 'متاحة'}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>{isEnglish ? 'Units' : 'الوحدات'}</span>
+        <input name="units" type="number" min="1" defaultValue="1" required />
+      </label>
+      <Button type="submit" variant="primary" disabled={busy || !resources.length}>
+        {isEnglish ? 'Reserve and continue installation' : 'حجز ومتابعة التركيب'}
+      </Button>
+    </form>
   );
 }
 
@@ -1084,6 +1310,7 @@ function ScopeSelect({
   value,
   onChange,
   name,
+  optional = false,
 }: {
   readonly label: string;
   readonly items: readonly TenantScopeItem[];
@@ -1091,13 +1318,14 @@ function ScopeSelect({
   readonly value?: string;
   readonly onChange?: (value: string) => void;
   readonly name?: string;
+  readonly optional?: boolean;
 }) {
   return (
     <label>
       <span>{label}</span>
       <select
         name={name}
-        required
+        required={!optional}
         value={onChange ? value : undefined}
         onChange={onChange ? (event) => onChange(event.target.value) : undefined}
       >

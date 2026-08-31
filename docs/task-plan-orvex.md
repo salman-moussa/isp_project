@@ -21,7 +21,7 @@ Status values: `Pending`, `In progress`, `Blocked`, `Verified`.
 | G    | Scale, security, DR, and release candidate                  | SRE + QA + Security             | C–F               | Load, DAST, restore, rollback, final review  | In progress |
 | H1   | Enterprise capability truth and tenant staff administration | Product + Identity + Web        | A5, D, E          | Capability map, staff/role/MFA/collector E2E | In progress |
 | H2   | CRM, catalogue, qualification, and service orders           | Sales + Operations              | H1                | Lead-to-activated-service E2E                | In progress |
-| H3   | Resource inventory, warehouse, field service, AAA and IPAM  | Network + Field + Inventory     | H2                | Order-to-resource-to-network E2E             | Pending     |
+| H3   | Resource inventory, warehouse, field service, AAA and IPAM  | Network + Field + Inventory     | H2                | Order-to-resource-to-network E2E             | In progress |
 | H4   | NOC, assurance, capacity, CPE, QoS and regulatory reporting | NOC + Compliance                | H3                | Alarm-to-impact-to-restoration E2E           | Pending     |
 | H5   | Rating, accounting, revenue assurance, channels and dealers | Finance + Revenue               | H2, H3            | Usage-to-ledger-to-settlement E2E            | Pending     |
 | H6   | Enterprise care, documents, people operations and analytics | Care + Administration           | H1–H5             | Complaint-to-close plus management close E2E | Pending     |
@@ -57,8 +57,9 @@ enterprise capabilities are complete.
   reservation with exact idempotent replay. The bilingual Sales & Orders workspace uses real
   authorized data. Focused strict types, lint, builds, API/database/UI/accessibility tests, clean
   PostgreSQL 18 migrations, hierarchical RLS denial, approval separation and live
-  lead-to-subscriber-order proof pass. Resource assignment, installation, activation and
-  first-billing task execution remain in H3/H5 and prevent H2 verification.
+  lead-to-subscriber-order proof pass. Scoped capacity registration and exact-replay-safe resource
+  reservation now decrement availability and unlock installation with clean PostgreSQL 18 proof.
+  Installation, activation and first-billing execution remain in H3/H5 and prevent H2 verification.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

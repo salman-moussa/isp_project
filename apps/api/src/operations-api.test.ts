@@ -44,6 +44,8 @@ function writerMocks() {
     approveSalesQuote: vi.fn(async () => ({ id: 'quote-a', status: 'approved' })),
     acceptSalesQuote: vi.fn(async () => ({ id: 'order-a' })),
     convertSalesOrderSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
+    createCapacityResource: vi.fn(async () => ({ id: 'resource-a' })),
+    reserveSalesOrderResource: vi.fn(async () => ({ id: 'reservation-a' })),
     createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
     recordOfficePayment: vi.fn(async () => ({ id: 'payment-a' })),
@@ -216,6 +218,47 @@ describe('tenant operations API route plugin', () => {
         orderId: payload.orderId,
         permission: 'tenant.subscriber.create',
         auditAction: 'tenant.subscriber.create',
+      }),
+    );
+    await app.close();
+  });
+
+  it('requires network execution and order authority for capacity reservation', async () => {
+    const payload = {
+      orderId: '80000000-0000-4000-8000-000000000001',
+      resourceId: '90000000-0000-4000-8000-000000000001',
+      units: 1,
+      reason: 'Eligible capacity assigned to the accepted service order',
+    };
+    const withoutOrderPermission = {
+      ...claims,
+      permissions: claims.permissions.filter((permission) => permission !== 'tenant.order.manage'),
+    };
+    const { app: deniedApp } = await makeApp(withoutOrderPermission, writer);
+    const denied = await deniedApp.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/resource`,
+      headers: { 'idempotency-key': 'order-resource-001' },
+      payload,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.reserveSalesOrderResource).not.toHaveBeenCalled();
+    await deniedApp.close();
+
+    const { app } = await makeApp(claims, writer);
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/resource`,
+      headers: { 'idempotency-key': 'order-resource-001' },
+      payload,
+    });
+    expect(allowed.statusCode).toBe(201);
+    expect(writer.reserveSalesOrderResource).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        orderId: payload.orderId,
+        permission: 'tenant.network.job.create',
+        auditAction: 'tenant.resource.reserve',
       }),
     );
     await app.close();

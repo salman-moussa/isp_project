@@ -103,6 +103,20 @@ const workspace = {
       ],
     },
   ],
+  resources: [
+    {
+      id: '90000000-0000-4000-8000-000000000001',
+      type: 'fiber_port',
+      code: 'OLT-BEY-01-P01',
+      name: 'Beirut OLT port 1',
+      accessTechnology: 'fiber',
+      totalUnits: 1,
+      reservedUnits: 0,
+      availableUnits: 1,
+      branchId: '20000000-0000-4000-8000-000000000001',
+      status: 'active',
+    },
+  ],
   scopes: {
     branches: [
       {
@@ -131,6 +145,7 @@ describe('SalesWorkspace', () => {
     expect(screen.getByText('Business Fiber 100')).toBeVisible();
     await user.click(screen.getByRole('tab', { name: 'Service orders' }));
     expect(screen.getByText('SO-1001')).toBeVisible();
+    expect(screen.getByText('OLT-BEY-01-P01')).toBeVisible();
     expect(screen.getByText('Subscriber conversion')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Create and link subscriber' }));
     await waitFor(() =>

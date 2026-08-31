@@ -102,12 +102,35 @@ export interface SalesServiceOrder {
   }[];
 }
 
+export interface CapacityResource {
+  readonly id: string;
+  readonly type:
+    | 'pop'
+    | 'sector'
+    | 'olt'
+    | 'fiber_port'
+    | 'wireless_sector'
+    | 'access_node'
+    | 'capacity_pool';
+  readonly code: string;
+  readonly name: string;
+  readonly accessTechnology: string;
+  readonly totalUnits: number;
+  readonly reservedUnits: number;
+  readonly availableUnits: number;
+  readonly branchId: string;
+  readonly areaId?: string;
+  readonly routeId?: string;
+  readonly status: 'active' | 'maintenance' | 'retired';
+}
+
 export interface SalesWorkspaceData {
   readonly leads: readonly SalesLead[];
   readonly offers: readonly SalesOfferVersion[];
   readonly qualifications: readonly SalesQualification[];
   readonly quotes: readonly SalesQuote[];
   readonly orders: readonly SalesServiceOrder[];
+  readonly resources: readonly CapacityResource[];
   readonly scopes: TenantScopeCatalogue;
 }
 

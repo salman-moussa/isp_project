@@ -118,11 +118,34 @@ export interface SalesWorkspace {
   readonly qualifications: readonly SalesQualification[];
   readonly quotes: readonly SalesQuote[];
   readonly orders: readonly SalesServiceOrder[];
+  readonly resources: readonly CapacityResource[];
   readonly scopes: {
     readonly branches: readonly SalesScopeItem[];
     readonly areas: readonly SalesScopeItem[];
     readonly routes: readonly SalesScopeItem[];
   };
+}
+
+export interface CapacityResource {
+  readonly id: string;
+  readonly type:
+    | 'pop'
+    | 'sector'
+    | 'olt'
+    | 'fiber_port'
+    | 'wireless_sector'
+    | 'access_node'
+    | 'capacity_pool';
+  readonly code: string;
+  readonly name: string;
+  readonly accessTechnology: string;
+  readonly totalUnits: number;
+  readonly reservedUnits: number;
+  readonly availableUnits: number;
+  readonly branchId: string;
+  readonly areaId?: string;
+  readonly routeId?: string;
+  readonly status: 'active' | 'maintenance' | 'retired';
 }
 
 export interface SalesScopeItem {
@@ -140,49 +163,63 @@ export async function readSalesWorkspace(
 ): Promise<SalesWorkspace> {
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
     await transaction.execute(sql`SELECT audit_sales_workspace_read()`);
-    const [leads, offers, qualifications, quotes, orders, tasks, branches, areas, routes] =
-      await Promise.all([
-        transaction.execute<SalesLeadRow>(sql`
+    const [
+      leads,
+      offers,
+      qualifications,
+      quotes,
+      orders,
+      tasks,
+      resources,
+      branches,
+      areas,
+      routes,
+    ] = await Promise.all([
+      transaction.execute<SalesLeadRow>(sql`
         SELECT * FROM sales_leads WHERE tenant_id=${tenantId}
         ORDER BY updated_at DESC LIMIT 100
       `),
-        transaction.execute<SalesOfferRow>(sql`
+      transaction.execute<SalesOfferRow>(sql`
         SELECT * FROM sales_offer_versions WHERE tenant_id=${tenantId} AND published
           AND effective_from<=current_date AND (effective_to IS NULL OR effective_to>current_date)
         ORDER BY code,version DESC LIMIT 100
       `),
-        transaction.execute<SalesQualificationRow>(sql`
+      transaction.execute<SalesQualificationRow>(sql`
         SELECT DISTINCT ON (lead_id) * FROM sales_qualifications WHERE tenant_id=${tenantId}
         ORDER BY lead_id,version DESC
       `),
-        transaction.execute<SalesQuoteRow>(sql`
+      transaction.execute<SalesQuoteRow>(sql`
         SELECT * FROM sales_quotes WHERE tenant_id=${tenantId}
         ORDER BY updated_at DESC LIMIT 100
       `),
-        transaction.execute<SalesOrderRow>(sql`
+      transaction.execute<SalesOrderRow>(sql`
         SELECT * FROM sales_service_orders WHERE tenant_id=${tenantId}
         ORDER BY updated_at DESC LIMIT 100
       `),
-        transaction.execute<SalesOrderTaskRow>(sql`
+      transaction.execute<SalesOrderTaskRow>(sql`
         SELECT task.* FROM sales_order_tasks task
         JOIN sales_service_orders sales_order ON sales_order.tenant_id=task.tenant_id
           AND sales_order.id=task.order_id
         WHERE task.tenant_id=${tenantId}
         ORDER BY task.order_id,task.created_at
       `),
-        transaction.execute<SalesScopeRow>(sql`
+      transaction.execute<CapacityResourceRow>(sql`
+          SELECT * FROM operations_capacity_resources WHERE tenant_id=${tenantId}
+          ORDER BY status,code LIMIT 250
+        `),
+      transaction.execute<SalesScopeRow>(sql`
           SELECT id,NULL::uuid AS parent_id,code,name_en,name_ar
           FROM operations_branches WHERE tenant_id=${tenantId} AND active ORDER BY code
         `),
-        transaction.execute<SalesScopeRow>(sql`
+      transaction.execute<SalesScopeRow>(sql`
           SELECT id,branch_id AS parent_id,code,name_en,name_ar
           FROM operations_areas WHERE tenant_id=${tenantId} AND active ORDER BY code
         `),
-        transaction.execute<SalesScopeRow>(sql`
+      transaction.execute<SalesScopeRow>(sql`
           SELECT id,area_id AS parent_id,code,name_en,name_ar
           FROM operations_routes WHERE tenant_id=${tenantId} AND active ORDER BY code
         `),
-      ]);
+    ]);
     return {
       leads: leads.map(mapLead),
       offers: offers.map(mapOffer),
@@ -192,6 +229,7 @@ export async function readSalesWorkspace(
         ...mapOrder(order),
         tasks: tasks.filter((task) => task.order_id === order.id).map(mapTask),
       })),
+      resources: resources.map(mapResource),
       scopes: {
         branches: branches.map(mapScope),
         areas: areas.map(mapScope),
@@ -691,6 +729,154 @@ export async function convertSalesOrderSubscriber(
   });
 }
 
+export async function createCapacityResource(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly type: CapacityResource['type'];
+    readonly code: string;
+    readonly name: string;
+    readonly accessTechnology: string;
+    readonly totalUnits: number;
+    readonly branchId: string;
+    readonly areaId?: string;
+    readonly routeId?: string;
+    readonly metadata: Readonly<Record<string, unknown>>;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<CapacityResource & { readonly replayed: boolean }> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [inserted] = await transaction.execute<CapacityResourceRow>(sql`
+      INSERT INTO operations_capacity_resources(
+        tenant_id,resource_type,code,name,access_technology,total_units,branch_id,area_id,route_id,
+        metadata,created_by,idempotency_key,request_fingerprint
+      ) VALUES(
+        ${tenantId},${input.type},${input.code},${input.name},${input.accessTechnology},
+        ${input.totalUnits},${input.branchId},${input.areaId ?? null},${input.routeId ?? null},
+        ${JSON.stringify(input.metadata)}::jsonb,${input.actorId},${input.idempotencyKey},${fingerprint}
+      ) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING *
+    `);
+    if (inserted) return { ...mapResource(inserted), replayed: false };
+    const [existing] = await transaction.execute<CapacityResourceRow>(sql`
+      SELECT * FROM operations_capacity_resources
+      WHERE tenant_id=${tenantId} AND idempotency_key=${input.idempotencyKey}
+    `);
+    if (!existing || existing.request_fingerprint !== fingerprint)
+      throw new OperationsConflictError();
+    return { ...mapResource(existing), replayed: true };
+  });
+}
+
+export async function reserveSalesOrderResource(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly orderId: string;
+    readonly resourceId: string;
+    readonly units: number;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<{
+  readonly orderId: string;
+  readonly reservationId: string;
+  readonly resourceId: string;
+  readonly units: number;
+  readonly replayed: boolean;
+}> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [replay] = await transaction.execute<{
+      readonly id: string;
+      readonly order_id: string;
+      readonly resource_id: string;
+      readonly units: number;
+      readonly request_fingerprint: string;
+    }>(sql`
+      SELECT id,order_id,resource_id,units,request_fingerprint
+      FROM sales_order_resource_reservations
+      WHERE tenant_id=${tenantId} AND idempotency_key=${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (replay.order_id !== input.orderId || replay.request_fingerprint !== fingerprint)
+        throw new OperationsConflictError();
+      return {
+        orderId: replay.order_id,
+        reservationId: replay.id,
+        resourceId: replay.resource_id,
+        units: replay.units,
+        replayed: true,
+      };
+    }
+    const [target] = await transaction.execute<{
+      readonly subscriber_id: string | null;
+      readonly task_status: SalesOrderTask['status'];
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+      readonly access_technology: string;
+    }>(sql`
+      SELECT sales_order.subscriber_id,task.status AS task_status,lead.branch_id,lead.area_id,
+        lead.route_id,offer.access_technology
+      FROM sales_service_orders sales_order
+      JOIN sales_leads lead ON lead.tenant_id=sales_order.tenant_id AND lead.id=sales_order.lead_id
+      JOIN sales_quotes quote ON quote.tenant_id=sales_order.tenant_id AND quote.id=sales_order.quote_id
+      JOIN sales_offer_versions offer ON offer.tenant_id=quote.tenant_id AND offer.id=quote.offer_version_id
+      JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
+        AND task.order_id=sales_order.id AND task.task_key='resource_reservation'
+      WHERE sales_order.tenant_id=${tenantId} AND sales_order.id=${input.orderId}
+      FOR UPDATE OF sales_order,task
+    `);
+    if (!target?.subscriber_id || target.task_status !== 'ready')
+      throw new OperationsConflictError('The resource task is not ready.');
+    const [resource] = await transaction.execute<CapacityResourceRow>(sql`
+      SELECT * FROM operations_capacity_resources
+      WHERE tenant_id=${tenantId} AND id=${input.resourceId} FOR UPDATE
+    `);
+    if (
+      !resource ||
+      resource.status !== 'active' ||
+      resource.access_technology !== target.access_technology ||
+      resource.branch_id !== target.branch_id ||
+      (resource.area_id !== null && resource.area_id !== target.area_id) ||
+      (resource.route_id !== null && resource.route_id !== target.route_id)
+    )
+      throw new OperationsConflictError('The resource is not eligible for this service order.');
+    if (resource.total_units - resource.reserved_units < input.units)
+      throw new OperationsConflictError(
+        'The selected resource has insufficient available capacity.',
+      );
+    const [reservation] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO sales_order_resource_reservations(
+        tenant_id,order_id,resource_id,subscriber_id,units,reserved_by,idempotency_key,request_fingerprint
+      ) VALUES(
+        ${tenantId},${input.orderId},${resource.id},${target.subscriber_id},${input.units},
+        ${input.actorId},${input.idempotencyKey},${fingerprint}
+      ) RETURNING id
+    `);
+    if (!reservation) throw new Error('Unable to reserve the selected capacity resource.');
+    await transaction.execute(sql`
+      UPDATE operations_capacity_resources SET reserved_units=reserved_units+${input.units},
+        updated_at=clock_timestamp() WHERE tenant_id=${tenantId} AND id=${resource.id}
+    `);
+    const result = { reservationId: reservation.id, resourceId: resource.id, units: input.units };
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='completed',attempts=attempts+1,last_error=NULL,
+        result_reference=${JSON.stringify(result)}::jsonb,execution_fingerprint=${fingerprint},
+        execution_idempotency_key=${input.idempotencyKey},completed_by=${input.actorId}
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key='resource_reservation'
+    `);
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='ready'
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId}
+        AND task_key='installation' AND status='pending'
+    `);
+    return { orderId: input.orderId, ...result, replayed: false };
+  });
+}
+
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function readOrderTasks(
@@ -797,6 +983,20 @@ interface SalesScopeRow extends Record<string, unknown> {
   readonly name_en: string;
   readonly name_ar: string;
 }
+interface CapacityResourceRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly resource_type: CapacityResource['type'];
+  readonly code: string;
+  readonly name: string;
+  readonly access_technology: string;
+  readonly total_units: number;
+  readonly reserved_units: number;
+  readonly branch_id: string;
+  readonly area_id: string | null;
+  readonly route_id: string | null;
+  readonly status: CapacityResource['status'];
+  readonly request_fingerprint: string;
+}
 
 function mapLead(row: SalesLeadRow): SalesLead {
   return {
@@ -901,6 +1101,22 @@ function mapScope(row: SalesScopeRow): SalesScopeItem {
     code: row.code,
     nameEn: row.name_en,
     nameAr: row.name_ar,
+  };
+}
+function mapResource(row: CapacityResourceRow): CapacityResource {
+  return {
+    id: row.id,
+    type: row.resource_type,
+    code: row.code,
+    name: row.name,
+    accessTechnology: row.access_technology,
+    totalUnits: row.total_units,
+    reservedUnits: row.reserved_units,
+    availableUnits: row.total_units - row.reserved_units,
+    branchId: row.branch_id,
+    ...(row.area_id ? { areaId: row.area_id } : {}),
+    ...(row.route_id ? { routeId: row.route_id } : {}),
+    status: row.status,
   };
 }
 function iso(value: Date | string): string {
