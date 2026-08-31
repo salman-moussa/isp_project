@@ -61,9 +61,10 @@ enterprise capabilities are complete.
   reservation now decrements availability and unlocks installation. Linked service and field-work
   creation, scheduling, versioned progress, signal/equipment evidence, completion and network-task
   unlock now pass clean PostgreSQL 18 proof. Network-ready plan publication, durable activation,
-  worker-only verified terminal synchronization, exact replay, audit evidence and first-billing
-  unlock now pass a fresh PostgreSQL 18 composed proof. First invoice posting and final order
-  completion remain open.
+  worker-only verified terminal synchronization and first-billing unlock now pass. Effective
+  branch billing policy resolution, explicit VAT/rounding, immutable invoice posting, billing-run
+  linkage, exact replay, finance/operations audit and final order closure now pass a fresh
+  PostgreSQL 18 composed proof. Governed fallout/retry/cancel/change handling remains open.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

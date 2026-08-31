@@ -118,6 +118,7 @@ const workspace = {
     },
   ],
   plans: [],
+  billingPolicies: [],
   installations: [],
   scopes: {
     branches: [

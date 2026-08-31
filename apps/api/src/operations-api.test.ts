@@ -49,6 +49,7 @@ function writerMocks() {
     reserveSalesOrderResource: vi.fn(async () => ({ id: 'reservation-a' })),
     createSalesOrderInstallation: vi.fn(async () => ({ id: 'installation-a' })),
     enqueueSalesOrderActivation: vi.fn(async () => ({ id: 'network-job-a' })),
+    postSalesOrderFirstInvoice: vi.fn(async () => ({ id: 'invoice-a' })),
     createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
     recordOfficePayment: vi.fn(async () => ({ id: 'payment-a' })),
@@ -343,6 +344,55 @@ describe('tenant operations API route plugin', () => {
         orderId: payload.orderId,
         permission: 'tenant.network.job.create',
         auditAction: 'tenant.network.job.create',
+      }),
+    );
+    await app.close();
+  });
+
+  it('requires invoice post, invoice create, and order authority for first billing', async () => {
+    const payload = {
+      orderId: '80000000-0000-4000-8000-000000000001',
+      documentNumber: 'INV-SO-1001-001',
+      periodStart: '2026-08-11',
+      periodEnd: '2026-09-11',
+      reason: 'First service invoice posted after verified network activation',
+    };
+    const withoutCreatePermission = {
+      ...claims,
+      permissions: [
+        ...claims.permissions.filter((permission) => permission !== 'tenant.invoice.create'),
+        'tenant.invoice.post' as const,
+      ],
+    };
+    const { app: deniedApp } = await makeApp(withoutCreatePermission, writer);
+    const denied = await deniedApp.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/billing`,
+      headers: { 'idempotency-key': 'order-billing-001' },
+      payload,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.postSalesOrderFirstInvoice).not.toHaveBeenCalled();
+    await deniedApp.close();
+
+    const billingClaims = {
+      ...claims,
+      permissions: [...claims.permissions, 'tenant.invoice.post' as const],
+    };
+    const { app } = await makeApp(billingClaims, writer);
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/sales/orders/billing`,
+      headers: { 'idempotency-key': 'order-billing-001' },
+      payload,
+    });
+    expect(allowed.statusCode).toBe(201);
+    expect(writer.postSalesOrderFirstInvoice).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        orderId: payload.orderId,
+        permission: 'tenant.invoice.post',
+        auditAction: 'tenant.order.first_invoice.post',
       }),
     );
     await app.close();

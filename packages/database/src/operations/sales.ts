@@ -108,6 +108,9 @@ export interface SalesServiceOrder {
     | 'completed'
     | 'cancelled';
   readonly subscriberId?: string;
+  readonly firstInvoiceId?: string;
+  readonly firstInvoicePeriodStart?: string;
+  readonly firstInvoicePeriodEnd?: string;
   readonly createdAt: string;
   readonly tasks: readonly SalesOrderTask[];
 }
@@ -120,6 +123,7 @@ export interface SalesWorkspace {
   readonly orders: readonly SalesServiceOrder[];
   readonly resources: readonly CapacityResource[];
   readonly plans: readonly SalesPlan[];
+  readonly billingPolicies: readonly SalesBillingPolicy[];
   readonly installations: readonly SalesInstallation[];
   readonly scopes: {
     readonly branches: readonly SalesScopeItem[];
@@ -161,6 +165,16 @@ export interface SalesPlan {
   readonly branchId?: string;
 }
 
+export interface SalesBillingPolicy {
+  readonly id: string;
+  readonly branchId?: string;
+  readonly version: number;
+  readonly vatRateBasisPoints: number;
+  readonly roundingMode: 'half_up' | 'down' | 'up';
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+}
+
 export interface SalesInstallation {
   readonly id: string;
   readonly orderId: string;
@@ -177,6 +191,7 @@ export interface SalesInstallation {
   readonly scheduledFor?: string;
   readonly installerUserId?: string;
   readonly blockerReason?: string;
+  readonly serviceActivatedAt?: string;
 }
 
 export interface SalesScopeItem {
@@ -203,6 +218,7 @@ export async function readSalesWorkspace(
       tasks,
       resources,
       plans,
+      billingPolicies,
       installations,
       branches,
       areas,
@@ -246,12 +262,21 @@ export async function readSalesWorkspace(
           FROM operations_plans WHERE tenant_id=${tenantId} AND active
           ORDER BY code LIMIT 250
         `),
+      transaction.execute<SalesBillingPolicyRow>(sql`
+          SELECT id,branch_id,version,vat_rate_basis_points,rounding_mode,
+            effective_from,effective_to
+          FROM operations_billing_policies WHERE tenant_id=${tenantId}
+          ORDER BY branch_id NULLS FIRST,version DESC LIMIT 250
+        `),
       transaction.execute<SalesInstallationRow>(sql`
-          SELECT id,sales_order_id,service_id,status,version,scheduled_for,installer_user_id,
-            blocker_reason
-          FROM operations_installations
-          WHERE tenant_id=${tenantId} AND sales_order_id IS NOT NULL
-          ORDER BY updated_at DESC LIMIT 100
+          SELECT installation.id,installation.sales_order_id,installation.service_id,
+            installation.status,installation.version,installation.scheduled_for,
+            installation.installer_user_id,installation.blocker_reason,service.activated_at
+          FROM operations_installations installation
+          JOIN operations_services service ON service.tenant_id=installation.tenant_id
+            AND service.id=installation.service_id
+          WHERE installation.tenant_id=${tenantId} AND installation.sales_order_id IS NOT NULL
+          ORDER BY installation.updated_at DESC LIMIT 100
         `),
       transaction.execute<SalesScopeRow>(sql`
           SELECT id,NULL::uuid AS parent_id,code,name_en,name_ar
@@ -277,6 +302,7 @@ export async function readSalesWorkspace(
       })),
       resources: resources.map(mapResource),
       plans: plans.map(mapPlan),
+      billingPolicies: billingPolicies.map(mapBillingPolicy),
       installations: installations.map(mapInstallation),
       scopes: {
         branches: branches.map(mapScope),
@@ -1126,6 +1152,214 @@ export async function enqueueSalesOrderActivation(
   });
 }
 
+export async function postSalesOrderFirstInvoice(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: AuthorizedSalesRequest & {
+    readonly orderId: string;
+    readonly documentNumber: string;
+    readonly periodStart: string;
+    readonly periodEnd: string;
+    readonly actorId: string;
+    readonly idempotencyKey: string;
+  },
+): Promise<{
+  readonly orderId: string;
+  readonly invoiceId: string;
+  readonly amountMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly replayed: boolean;
+}> {
+  const fingerprint = digest(input, ['authorization']);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${tenantId}:order-first-billing:${input.orderId}`},0)
+    )`);
+    const [replay] = await transaction.execute<{
+      readonly order_id: string;
+      readonly execution_fingerprint: string | null;
+      readonly result_reference: Record<string, unknown> | null;
+    }>(sql`
+      SELECT order_id,execution_fingerprint,result_reference FROM sales_order_tasks
+      WHERE tenant_id=${tenantId} AND task_key='first_billing'
+        AND execution_idempotency_key=${input.idempotencyKey}
+    `);
+    if (replay) {
+      if (replay.order_id !== input.orderId || replay.execution_fingerprint !== fingerprint)
+        throw new OperationsConflictError();
+      return firstBillingResult(replay.order_id, replay.result_reference, true);
+    }
+
+    const [target] = await transaction.execute<{
+      readonly service_id: string;
+      readonly branch_id: string;
+      readonly area_id: string;
+      readonly route_id: string;
+      readonly task_status: SalesOrderTask['status'];
+      readonly activated_on: Date | string;
+      readonly plan_version_id: string;
+      readonly billing_policy_id: string;
+      readonly subtotal_minor: string;
+      readonly vat_rate_basis_points: number;
+      readonly vat_minor: string;
+      readonly total_minor: string;
+      readonly currency: SupportedCurrency;
+    }>(sql`
+      SELECT service.id AS service_id,service.branch_id,service.area_id,service.route_id,
+        task.status AS task_status,service.activated_at::date AS activated_on,
+        plan_version.id AS plan_version_id,billing_policy.id AS billing_policy_id,
+        plan_version.recurring_amount_minor::text AS subtotal_minor,
+        billing_policy.vat_rate_basis_points,
+        (CASE billing_policy.rounding_mode
+          WHEN 'down' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points)/10000
+          WHEN 'up' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+9999)/10000
+          ELSE (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+5000)/10000
+        END)::text AS vat_minor,
+        (plan_version.recurring_amount_minor+CASE billing_policy.rounding_mode
+          WHEN 'down' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points)/10000
+          WHEN 'up' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+9999)/10000
+          ELSE (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+5000)/10000
+        END)::text AS total_minor,plan_version.currency
+      FROM sales_service_orders sales_order
+      JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
+        AND task.order_id=sales_order.id AND task.task_key='first_billing'
+      JOIN sales_order_tasks network_task ON network_task.tenant_id=sales_order.tenant_id
+        AND network_task.order_id=sales_order.id AND network_task.task_key='network_activation'
+        AND network_task.status='completed'
+      JOIN operations_installations installation ON installation.tenant_id=sales_order.tenant_id
+        AND installation.sales_order_id=sales_order.id AND installation.status='completed'
+      JOIN operations_services service ON service.tenant_id=installation.tenant_id
+        AND service.id=installation.service_id AND service.status='active'
+      JOIN LATERAL(
+        SELECT version.* FROM operations_plan_versions version
+        WHERE version.tenant_id=service.tenant_id AND version.plan_id=service.plan_id
+          AND version.effective_from<=${input.periodStart}::date
+          AND (version.effective_to IS NULL OR version.effective_to>${input.periodStart}::date)
+        ORDER BY version.version DESC LIMIT 1
+      ) plan_version ON true
+      JOIN LATERAL(
+        SELECT policy.* FROM operations_billing_policies policy
+        WHERE policy.tenant_id=service.tenant_id
+          AND (policy.branch_id=service.branch_id OR policy.branch_id IS NULL)
+          AND policy.effective_from<=${input.periodStart}::date
+          AND (policy.effective_to IS NULL OR policy.effective_to>${input.periodStart}::date)
+        ORDER BY (policy.branch_id IS NOT NULL) DESC,policy.version DESC LIMIT 1
+      ) billing_policy ON true
+      WHERE sales_order.tenant_id=${tenantId} AND sales_order.id=${input.orderId}
+      FOR UPDATE OF sales_order,task
+    `);
+    if (!target || target.task_status !== 'ready')
+      throw new OperationsConflictError(
+        'First billing requires verified activation and an effective billing policy.',
+      );
+    if (date(target.activated_on) !== input.periodStart)
+      throw new OperationsConflictError('The first billing period must begin on activation day.');
+    const amountMinor = safeMinor(target.total_minor);
+    const subtotalMinor = safeMinor(target.subtotal_minor);
+    const vatMinor = safeNonnegativeMinor(target.vat_minor);
+
+    const [existingInvoice] = await transaction.execute<{ readonly id: string }>(sql`
+      SELECT id FROM finance_invoices
+      WHERE tenant_id=${tenantId} AND idempotency_key=${input.idempotencyKey}
+    `);
+    if (existingInvoice) throw new OperationsConflictError();
+
+    const [context] = await transaction.execute<{
+      readonly actor_id: string;
+      readonly session_id: string;
+      readonly support_grant_id: string | null;
+      readonly request_id: string;
+      readonly ip_address: string;
+      readonly user_agent: string | null;
+      readonly reason: string;
+    }>(sql`SELECT actor_id,session_id,support_grant_id,request_id,ip_address,user_agent,reason
+      FROM operations_current_context()`);
+    if (!context || context.actor_id !== input.actorId)
+      throw new Error('The signed billing actor does not match the request.');
+    for (const [name, value] of [
+      ['app.finance_actor_id', context.actor_id],
+      ['app.finance_session_id', context.session_id],
+      ['app.finance_support_grant_id', context.support_grant_id ?? ''],
+      ['app.finance_action', 'tenant.invoice.post'],
+      ['app.finance_request_id', context.request_id],
+      ['app.finance_ip_address', context.ip_address],
+      ['app.finance_user_agent', context.user_agent ?? ''],
+      ['app.finance_permission', 'tenant.invoice.post'],
+      ['app.finance_reason', context.reason],
+    ] as const) {
+      await transaction.execute(sql`SELECT set_config(${name},${value},true)`);
+    }
+
+    const [billingRun] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO operations_billing_runs(
+        tenant_id,idempotency_key,period_start,period_end,status,requested_by,
+        scope_branch_ids,scope_area_ids,scope_route_ids
+      ) VALUES(
+        ${tenantId},${input.idempotencyKey},${input.periodStart}::date,${input.periodEnd}::date,
+        'running',${input.actorId},ARRAY[${target.branch_id}::uuid],
+        ARRAY[${target.area_id}::uuid],ARRAY[${target.route_id}::uuid]
+      ) RETURNING id
+    `);
+    if (!billingRun) throw new Error('Unable to open the first billing run.');
+    const [invoice] = await transaction.execute<{ readonly id: string }>(sql`
+      INSERT INTO finance_invoices(
+        tenant_id,document_number,entry_kind,amount_minor,currency,idempotency_key,actor_id,posted_at
+      ) VALUES(
+        ${tenantId},${input.documentNumber},'posted',${amountMinor},${target.currency},
+        ${input.idempotencyKey},${input.actorId},clock_timestamp()
+      ) RETURNING id
+    `);
+    if (!invoice) throw new Error('Unable to post the immutable first invoice.');
+    await transaction.execute(sql`
+      INSERT INTO operations_invoice_preparations(
+        tenant_id,billing_run_id,service_id,subtotal_minor,vat_rate_basis_points,vat_minor,
+        currency,posting_status,finance_invoice_id,branch_id,area_id,route_id,billing_date,
+        period_start,period_end,plan_version_id,billing_policy_id
+      ) VALUES(
+        ${tenantId},${billingRun.id},${target.service_id},${subtotalMinor},
+        ${target.vat_rate_basis_points},${vatMinor},${target.currency},'posted',${invoice.id},
+        ${target.branch_id},${target.area_id},${target.route_id},${input.periodStart}::date,
+        ${input.periodStart}::date,${input.periodEnd}::date,${target.plan_version_id},
+        ${target.billing_policy_id}
+      )
+    `);
+    const result = {
+      invoiceId: invoice.id,
+      documentNumber: input.documentNumber,
+      serviceId: target.service_id,
+      amountMinor,
+      currency: target.currency,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      billingRunId: billingRun.id,
+    };
+    await transaction.execute(sql`
+      UPDATE sales_order_tasks SET status='completed',last_error=NULL,completed_by=${input.actorId},
+        result_reference=${JSON.stringify(result)}::jsonb,execution_fingerprint=${fingerprint},
+        execution_idempotency_key=${input.idempotencyKey}
+      WHERE tenant_id=${tenantId} AND order_id=${input.orderId} AND task_key='first_billing'
+    `);
+    await transaction.execute(sql`
+      UPDATE sales_service_orders SET status='completed',first_invoice_id=${invoice.id},
+        first_invoice_period_start=${input.periodStart}::date,
+        first_invoice_period_end=${input.periodEnd}::date,completed_at=clock_timestamp(),
+        updated_at=clock_timestamp()
+      WHERE tenant_id=${tenantId} AND id=${input.orderId}
+    `);
+    await transaction.execute(sql`
+      UPDATE operations_billing_runs SET status='succeeded',completed_at=clock_timestamp()
+      WHERE tenant_id=${tenantId} AND id=${billingRun.id}
+    `);
+    return {
+      orderId: input.orderId,
+      invoiceId: invoice.id,
+      amountMinor,
+      currency: target.currency,
+      replayed: false,
+    };
+  });
+}
+
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 async function readOrderTasks(
@@ -1215,6 +1449,9 @@ interface SalesOrderRow extends Record<string, unknown> {
   readonly order_number: string;
   readonly status: SalesServiceOrder['status'];
   readonly subscriber_id: string | null;
+  readonly first_invoice_id: string | null;
+  readonly first_invoice_period_start: Date | string | null;
+  readonly first_invoice_period_end: Date | string | null;
   readonly created_at: Date | string;
 }
 interface SalesOrderTaskRow extends Record<string, unknown> {
@@ -1256,6 +1493,15 @@ interface SalesPlanRow extends Record<string, unknown> {
   readonly currency: SupportedCurrency;
   readonly branch_id: string | null;
 }
+interface SalesBillingPolicyRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly branch_id: string | null;
+  readonly version: number;
+  readonly vat_rate_basis_points: number;
+  readonly rounding_mode: SalesBillingPolicy['roundingMode'];
+  readonly effective_from: Date | string;
+  readonly effective_to: Date | string | null;
+}
 interface SalesInstallationRow extends Record<string, unknown> {
   readonly id: string;
   readonly sales_order_id: string;
@@ -1265,6 +1511,7 @@ interface SalesInstallationRow extends Record<string, unknown> {
   readonly scheduled_for: Date | string | null;
   readonly installer_user_id: string | null;
   readonly blocker_reason: string | null;
+  readonly activated_at: Date | string | null;
 }
 
 function mapLead(row: SalesLeadRow): SalesLead {
@@ -1351,6 +1598,13 @@ function mapOrder(row: SalesOrderRow): Omit<SalesServiceOrder, 'tasks'> {
     orderNumber: row.order_number,
     status: row.status,
     ...(row.subscriber_id ? { subscriberId: row.subscriber_id } : {}),
+    ...(row.first_invoice_id ? { firstInvoiceId: row.first_invoice_id } : {}),
+    ...(row.first_invoice_period_start
+      ? { firstInvoicePeriodStart: date(row.first_invoice_period_start) }
+      : {}),
+    ...(row.first_invoice_period_end
+      ? { firstInvoicePeriodEnd: date(row.first_invoice_period_end) }
+      : {}),
     createdAt: iso(row.created_at),
   };
 }
@@ -1402,6 +1656,17 @@ function mapPlan(row: SalesPlanRow): SalesPlan {
     ...(row.branch_id ? { branchId: row.branch_id } : {}),
   };
 }
+function mapBillingPolicy(row: SalesBillingPolicyRow): SalesBillingPolicy {
+  return {
+    id: row.id,
+    ...(row.branch_id ? { branchId: row.branch_id } : {}),
+    version: row.version,
+    vatRateBasisPoints: row.vat_rate_basis_points,
+    roundingMode: row.rounding_mode,
+    effectiveFrom: date(row.effective_from),
+    ...(row.effective_to ? { effectiveTo: date(row.effective_to) } : {}),
+  };
+}
 function mapInstallation(row: SalesInstallationRow): SalesInstallation {
   return {
     id: row.id,
@@ -1412,6 +1677,7 @@ function mapInstallation(row: SalesInstallationRow): SalesInstallation {
     ...(row.scheduled_for ? { scheduledFor: iso(row.scheduled_for) } : {}),
     ...(row.installer_user_id ? { installerUserId: row.installer_user_id } : {}),
     ...(row.blocker_reason ? { blockerReason: row.blocker_reason } : {}),
+    ...(row.activated_at ? { serviceActivatedAt: iso(row.activated_at) } : {}),
   };
 }
 function iso(value: Date | string): string {
@@ -1439,6 +1705,40 @@ function conversionResult(
   )
     throw new Error('The subscriber conversion result is incomplete.');
   return { orderId, subscriberId, householdId, locationId, replayed };
+}
+function firstBillingResult(
+  orderId: string,
+  result: Readonly<Record<string, unknown>> | null,
+  replayed: boolean,
+): {
+  readonly orderId: string;
+  readonly invoiceId: string;
+  readonly amountMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly replayed: boolean;
+} {
+  const invoiceId = result?.invoiceId;
+  const amountMinor = result?.amountMinor;
+  const currency = result?.currency;
+  if (
+    typeof invoiceId !== 'string' ||
+    typeof amountMinor !== 'number' ||
+    (currency !== 'USD' && currency !== 'LBP')
+  )
+    throw new Error('The first billing result is incomplete.');
+  return { orderId, invoiceId, amountMinor, currency, replayed };
+}
+function safeMinor(value: string): number {
+  const converted = Number(value);
+  if (!Number.isSafeInteger(converted) || converted <= 0)
+    throw new RangeError('The billed amount is outside the safe monetary range.');
+  return converted;
+}
+function safeNonnegativeMinor(value: string): number {
+  const converted = Number(value);
+  if (!Number.isSafeInteger(converted) || converted < 0)
+    throw new RangeError('The tax amount is outside the safe monetary range.');
+  return converted;
 }
 function digest(value: object, omitted: readonly string[]): string {
   const entries = Object.entries(value)

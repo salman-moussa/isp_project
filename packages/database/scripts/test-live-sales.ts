@@ -7,6 +7,7 @@ import {
   acceptSalesQuote,
   approveSalesQuote,
   createDatabase,
+  createBillingPolicyVersion,
   createOperationsPlanVersion,
   createSalesLead,
   createSalesOfferVersion,
@@ -17,6 +18,7 @@ import {
   enqueueSalesOrderActivation,
   inOperationsTransaction,
   qualifySalesLead,
+  postSalesOrderFirstInvoice,
   readSalesWorkspace,
   reserveSalesOrderResource,
   signOperationsAttestation,
@@ -88,6 +90,7 @@ try {
       'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage',
       'tenant.subscriber.create','tenant.user.administer','tenant.network.view',
       'tenant.network.job.create','tenant.invoice.create','tenant.installation.manage',
+      'tenant.invoice.post',
       'tenant.installation.view'
     ],${JSON.stringify({ branchIds: [branchId], areaIds: [areaId], routeIds: [routeId] })}::jsonb)`;
   await admin`INSERT INTO operations_context_keys(key_id,secret,active_from)
@@ -481,6 +484,76 @@ try {
   assert.equal(workspace.plans[0]?.id, plan.planId);
   assert.equal(workspace.scopes.routes[0]?.id, routeId);
 
+  const activationDate = workspace.installations[0]?.serviceActivatedAt?.slice(0, 10);
+  assert(activationDate, 'verified activation must expose the immutable service activation date');
+  const billingPolicy = await createBillingPolicyVersion(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.billing.policy.version.create',
+      'sales-billing-policy-001',
+      { branchIds: [branchId] },
+    ),
+    branchId,
+    version: 1,
+    vatRateBasisPoints: 1100,
+    roundingMode: 'half_up',
+    effectiveFrom: activationDate,
+    createdBy: actorId,
+    idempotencyKey: 'sales-billing-policy-001',
+  });
+  assert.equal(billingPolicy.replayed, false);
+  const billingPeriodEnd = new Date(`${activationDate}T00:00:00.000Z`);
+  billingPeriodEnd.setUTCDate(billingPeriodEnd.getUTCDate() + 30);
+  const firstBillingInput = {
+    authorization: authorization(
+      'tenant.invoice.post' as const,
+      'tenant.order.first_invoice.post',
+      'sales-first-billing-001',
+    ),
+    orderId: order.id,
+    documentNumber: `INV-${order.orderNumber}-001`,
+    periodStart: activationDate,
+    periodEnd: billingPeriodEnd.toISOString().slice(0, 10),
+    actorId,
+    idempotencyKey: 'sales-first-billing-001',
+  };
+  const firstBilling = await postSalesOrderFirstInvoice(runtime.db, tenantId, firstBillingInput);
+  assert.equal(firstBilling.replayed, false);
+  assert.equal(firstBilling.amountMinor, 13_875);
+  const firstBillingReplay = await postSalesOrderFirstInvoice(
+    runtime.db,
+    tenantId,
+    firstBillingInput,
+  );
+  assert.equal(firstBillingReplay.replayed, true);
+  assert.equal(firstBillingReplay.invoiceId, firstBilling.invoiceId);
+
+  const completedWorkspace = await readSalesWorkspace(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.sales.view',
+      'tenant.sales.workspace.read',
+      'sales-read-completed-001',
+    ),
+  });
+  assert.equal(completedWorkspace.orders[0]?.status, 'completed');
+  assert.equal(completedWorkspace.orders[0]?.tasks[5]?.status, 'completed');
+  assert.equal(completedWorkspace.orders[0]?.firstInvoiceId, firstBilling.invoiceId);
+  assert.equal(completedWorkspace.billingPolicies[0]?.id, billingPolicy.id);
+  const [posted] =
+    await admin`SELECT invoice.entry_kind,invoice.amount_minor::integer AS amount_minor,
+    preparation.posting_status,run.status AS run_status,preparation.service_id
+    FROM finance_invoices invoice
+    JOIN operations_invoice_preparations preparation
+      ON preparation.tenant_id=invoice.tenant_id AND preparation.finance_invoice_id=invoice.id
+    JOIN operations_billing_runs run
+      ON run.tenant_id=preparation.tenant_id AND run.id=preparation.billing_run_id
+    WHERE invoice.tenant_id=${tenantId} AND invoice.id=${firstBilling.invoiceId}`;
+  assert.equal(posted?.entry_kind, 'posted');
+  assert.equal(posted?.amount_minor, 13_875);
+  assert.equal(posted?.posting_status, 'posted');
+  assert.equal(posted?.run_status, 'succeeded');
+  assert.equal(posted?.service_id, installation.serviceId);
+
   const [audit] = await admin`SELECT count(*)::integer AS count,
     bool_and(actor_id=${actorId}::text) AS actor_matches
     FROM operations_audit_outbox WHERE tenant_id=${tenantId}
@@ -488,10 +561,17 @@ try {
         'tenant.sales.quote.create','tenant.sales.quote.approve','tenant.sales.quote.accept',
         'tenant.sales.workspace.read','tenant.subscriber.create','tenant.resource.create',
         'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
-        'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete')`;
-  assert((audit?.count ?? 0) >= 44, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete',
+        'tenant.billing.policy.version.create','tenant.order.first_invoice.post')`;
+  assert((audit?.count ?? 0) >= 53, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
-  console.log('Sales lead-to-verified-network-activation live checks passed');
+  const [financeAudit] = await admin`SELECT count(*)::integer AS count,
+    bool_and(actor_id=${actorId}::text) AS actor_matches
+    FROM finance_audit_outbox WHERE tenant_id=${tenantId}
+      AND action='tenant.invoice.post' AND permission='tenant.invoice.post'`;
+  assert((financeAudit?.count ?? 0) >= 1, 'first billing must emit immutable finance evidence');
+  assert.equal(financeAudit?.actor_matches, true);
+  console.log('Sales lead-to-activated-and-billed-order live checks passed');
 } finally {
   await Promise.allSettled([admin.end(), runtime.client.end(), networkWorker.end()]);
 }

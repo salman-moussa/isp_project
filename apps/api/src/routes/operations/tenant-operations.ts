@@ -159,6 +159,27 @@ const salesOrderInstallationBody = z
   })
   .strict();
 const salesOrderNetworkBody = z.object({ orderId: uuid, reason: businessReason }).strict();
+const salesOrderFirstBillingBody = z
+  .object({
+    orderId: uuid,
+    documentNumber: z.string().trim().min(1).max(100),
+    periodStart: z.iso.date(),
+    periodEnd: z.iso.date(),
+    reason: businessReason,
+  })
+  .strict()
+  .superRefine((body, context) => {
+    const start = new Date(`${body.periodStart}T00:00:00.000Z`);
+    const end = new Date(`${body.periodEnd}T00:00:00.000Z`);
+    const days = (end.getTime() - start.getTime()) / 86_400_000;
+    if (days < 1 || days > 31) {
+      context.addIssue({
+        code: 'custom',
+        path: ['periodEnd'],
+        message: 'First billing period must contain between 1 and 31 days.',
+      });
+    }
+  });
 
 const subscriberBody = z
   .object({
@@ -577,6 +598,17 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueSalesOrderActivation(id, v as never),
       false,
       ['tenant.order.manage'],
+    ),
+    operation(
+      '/sales/orders/billing',
+      'postSalesOrderFirstInvoice',
+      'tenant.invoice.post',
+      'tenant.order.first_invoice.post',
+      'finance_invoice',
+      salesOrderFirstBillingBody,
+      (w, id, v) => w.postSalesOrderFirstInvoice(id, v as never),
+      false,
+      ['tenant.order.manage', 'tenant.invoice.create'],
     ),
     operation(
       '/subscribers',

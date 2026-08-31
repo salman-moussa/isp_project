@@ -24,6 +24,7 @@ describe('database readiness', () => {
           sales_resource_execution_ready: true,
           sales_installation_execution_ready: true,
           sales_network_execution_ready: true,
+          sales_first_billing_ready: true,
         },
       ];
     });
@@ -50,6 +51,8 @@ describe('database readiness', () => {
     expect(query).toContain('sales_installation_execution_readiness');
     expect(query).toContain('202608310200_tenant_order_network_execution.sql');
     expect(query).toContain('sales_network_execution_readiness');
+    expect(query).toContain('202608310300_tenant_order_first_billing.sql');
+    expect(query).toContain('sales_first_billing_readiness');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {

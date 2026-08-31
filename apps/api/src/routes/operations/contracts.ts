@@ -156,6 +156,15 @@ export interface OperationsWriter {
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly orderId: string },
   ): Promise<unknown>;
+  postSalesOrderFirstInvoice(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly orderId: string;
+      readonly documentNumber: string;
+      readonly periodStart: string;
+      readonly periodEnd: string;
+    },
+  ): Promise<unknown>;
   createSubscriber(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

@@ -110,6 +110,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608310200_tenant_order_network_execution.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202608310300_tenant_order_first_billing.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -159,13 +162,16 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        installation_execution.migration_ready AND installation_execution.column_ready
          AND installation_execution.sync_ready AS sales_installation_execution_ready,
        network_execution.migration_ready AND network_execution.sync_ready
-         AND network_execution.worker_bridge_ready AS sales_network_execution_ready
+         AND network_execution.worker_bridge_ready AS sales_network_execution_ready,
+       first_billing.migration_ready AND first_billing.columns_ready
+         AND first_billing.audit_ready AS sales_first_billing_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
      CROSS JOIN public.sales_resource_execution_readiness() resource_execution
      CROSS JOIN public.sales_installation_execution_readiness() installation_execution
-     CROSS JOIN public.sales_network_execution_readiness() network_execution`,
+     CROSS JOIN public.sales_network_execution_readiness() network_execution
+     CROSS JOIN public.sales_first_billing_readiness() first_billing`,
   );
   if (
     !state?.relations_ready ||
@@ -176,7 +182,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.sales_execution_ready ||
     !state.sales_resource_execution_ready ||
     !state.sales_installation_execution_ready ||
-    !state.sales_network_execution_ready
+    !state.sales_network_execution_ready ||
+    !state.sales_first_billing_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

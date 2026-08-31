@@ -13,6 +13,7 @@ import {
   submitSalesOperation,
   submitTenantOperation,
   type CapacityResource,
+  type SalesBillingPolicy,
   type SalesLead,
   type SalesInstallation,
   type SalesOfferVersion,
@@ -687,6 +688,7 @@ function Orders({
           const resourceTask = order.tasks.find((task) => task.key === 'resource_reservation');
           const installationTask = order.tasks.find((task) => task.key === 'installation');
           const networkTask = order.tasks.find((task) => task.key === 'network_activation');
+          const firstBillingTask = order.tasks.find((task) => task.key === 'first_billing');
           const installation = data.installations.find(
             (candidate) => candidate.orderId === order.id,
           );
@@ -699,6 +701,14 @@ function Orders({
               (!plan.branchId || plan.branchId === lead?.branchId) &&
               plan.recurringAmountMinor === quote.recurringAmountMinor &&
               plan.currency === quote.currency,
+          );
+          const activationDate = installation?.serviceActivatedAt?.slice(0, 10);
+          const effectiveBillingPolicies = data.billingPolicies.filter(
+            (policy) =>
+              activationDate &&
+              (!policy.branchId || policy.branchId === lead?.branchId) &&
+              policy.effectiveFrom <= activationDate &&
+              (!policy.effectiveTo || policy.effectiveTo > activationDate),
           );
           const eligibleResources = data.resources.filter(
             (resource) =>
@@ -734,6 +744,15 @@ function Orders({
                 <p className="sales-order-card__link">
                   <strong>{isEnglish ? 'Subscriber linked' : 'تم ربط المشترك'}</strong>
                   <span>{order.subscriberId}</span>
+                </p>
+              ) : null}
+              {order.firstInvoiceId ? (
+                <p className="sales-order-card__link">
+                  <strong>{isEnglish ? 'First invoice posted' : 'تم ترحيل الفاتورة الأولى'}</strong>
+                  <span>
+                    {order.firstInvoiceId} · {order.firstInvoicePeriodStart} →{' '}
+                    {order.firstInvoicePeriodEnd}
+                  </span>
                 </p>
               ) : null}
               <ol>
@@ -820,6 +839,35 @@ function Orders({
                   busy={busy}
                   onSubmit={(payload) => onMutate('orders/network', payload)}
                 />
+              ) : null}
+              {firstBillingTask?.status === 'ready' && activationDate && lead ? (
+                effectiveBillingPolicies.length ? (
+                  <FirstBillingForm
+                    locale={locale}
+                    orderId={order.id}
+                    orderNumber={order.orderNumber}
+                    activationDate={activationDate}
+                    policy={effectiveBillingPolicies[0]}
+                    busy={busy}
+                    onSubmit={(payload) => onMutate('orders/billing', payload)}
+                  />
+                ) : (
+                  <BillingPolicyPublicationForm
+                    locale={locale}
+                    branchId={lead.branchId}
+                    effectiveFrom={activationDate}
+                    nextVersion={
+                      Math.max(
+                        0,
+                        ...data.billingPolicies
+                          .filter((policy) => policy.branchId === lead.branchId)
+                          .map((policy) => policy.version),
+                      ) + 1
+                    }
+                    busy={busy}
+                    onSubmit={(payload) => onOperate('billing-policy-versions', payload)}
+                  />
+                )
               ) : null}
             </Surface>
           );
@@ -940,6 +988,132 @@ function NetworkActivationForm({
       </div>
       <Button type="submit" variant="primary" disabled={busy}>
         {isEnglish ? 'Queue verified activation' : 'إرسال التفعيل المتحقق'}
+      </Button>
+    </form>
+  );
+}
+
+function BillingPolicyPublicationForm({
+  locale,
+  branchId,
+  effectiveFrom,
+  nextVersion,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly branchId: string;
+  readonly effectiveFrom: string;
+  readonly nextVersion: number;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          branchId,
+          version: nextVersion,
+          vatRateBasisPoints: Number(formText(form, 'vatRateBasisPoints')),
+          roundingMode: formText(form, 'roundingMode'),
+          effectiveFrom,
+          reason: 'Owner-approved branch billing policy published before first service invoice',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Billing policy required' : 'سياسة الفوترة مطلوبة'}</strong>
+        <span>
+          {isEnglish
+            ? 'Confirm the branch tax rate and rounding rule. Orvex will not invent a legal tax policy.'
+            : 'أكد معدل الضريبة وقاعدة التقريب للفرع. لا تفترض Orvex سياسة ضريبية قانونية.'}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'VAT basis points (0–10000)' : 'نقاط أساس الضريبة (٠–١٠٠٠٠)'}</span>
+        <input name="vatRateBasisPoints" type="number" min="0" max="10000" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Rounding rule' : 'قاعدة التقريب'}</span>
+        <select name="roundingMode" defaultValue="half_up">
+          <option value="half_up">{isEnglish ? 'Half up' : 'نصف للأعلى'}</option>
+          <option value="down">{isEnglish ? 'Down' : 'للأسفل'}</option>
+          <option value="up">{isEnglish ? 'Up' : 'للأعلى'}</option>
+        </select>
+      </label>
+      <Button type="submit" variant="secondary" disabled={busy}>
+        {isEnglish ? 'Publish billing policy' : 'نشر سياسة الفوترة'}
+      </Button>
+    </form>
+  );
+}
+
+function FirstBillingForm({
+  locale,
+  orderId,
+  orderNumber,
+  activationDate,
+  policy,
+  busy,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly activationDate: string;
+  readonly policy: SalesBillingPolicy;
+  readonly busy: boolean;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  return (
+    <form
+      className="sales-order-execution"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSubmit({
+          orderId,
+          documentNumber: formText(form, 'documentNumber'),
+          periodStart: activationDate,
+          periodEnd: formText(form, 'periodEnd'),
+          reason: 'First immutable service invoice posted after verified network activation',
+        }).catch(() => undefined);
+      }}
+    >
+      <div className="sales-order-execution__intro">
+        <strong>{isEnglish ? 'Ready: post first invoice' : 'جاهز: ترحيل الفاتورة الأولى'}</strong>
+        <span>
+          {isEnglish
+            ? `Activation ${activationDate} · VAT ${(policy.vatRateBasisPoints / 100).toFixed(2)}% · ${policy.roundingMode.replaceAll('_', ' ')}`
+            : `التفعيل ${activationDate} · الضريبة ${(policy.vatRateBasisPoints / 100).toFixed(2)}٪ · ${policy.roundingMode}`}
+        </span>
+      </div>
+      <label>
+        <span>{isEnglish ? 'Invoice number' : 'رقم الفاتورة'}</span>
+        <input
+          name="documentNumber"
+          defaultValue={`INV-${orderNumber}-001`.slice(0, 100)}
+          required
+        />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Period end' : 'نهاية الفترة'}</span>
+        <input
+          name="periodEnd"
+          type="date"
+          min={nextDay(activationDate)}
+          max={addDays(activationDate, 31)}
+          defaultValue={addMonth(activationDate)}
+          required
+        />
+      </label>
+      <Button type="submit" variant="primary" disabled={busy}>
+        {isEnglish ? 'Post invoice and complete order' : 'ترحيل الفاتورة وإكمال الطلب'}
       </Button>
     </form>
   );
@@ -1710,6 +1884,23 @@ function scopeName(item: TenantScopeItem, locale: Locale) {
 function formText(data: FormData, field: string) {
   const value = data.get(field);
   return typeof value === 'string' ? value.trim() : '';
+}
+function addDays(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+function nextDay(dateValue: string) {
+  return addDays(dateValue, 1);
+}
+function addMonth(dateValue: string) {
+  const source = new Date(`${dateValue}T00:00:00.000Z`);
+  const targetYear = source.getUTCFullYear() + (source.getUTCMonth() === 11 ? 1 : 0);
+  const targetMonth = (source.getUTCMonth() + 1) % 12;
+  const lastTargetDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(targetYear, targetMonth, Math.min(source.getUTCDate(), lastTargetDay)))
+    .toISOString()
+    .slice(0, 10);
 }
 function money(minor: number, currency: 'USD' | 'LBP', locale: Locale) {
   return new Intl.NumberFormat(locale === 'en' ? 'en-LB' : 'ar-LB', {

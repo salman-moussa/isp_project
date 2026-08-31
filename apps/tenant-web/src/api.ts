@@ -92,6 +92,9 @@ export interface SalesServiceOrder {
     | 'completed'
     | 'cancelled';
   readonly subscriberId?: string;
+  readonly firstInvoiceId?: string;
+  readonly firstInvoicePeriodStart?: string;
+  readonly firstInvoicePeriodEnd?: string;
   readonly createdAt: string;
   readonly tasks: readonly {
     readonly key: string;
@@ -135,6 +138,16 @@ export interface SalesPlan {
   readonly branchId?: string;
 }
 
+export interface SalesBillingPolicy {
+  readonly id: string;
+  readonly branchId?: string;
+  readonly version: number;
+  readonly vatRateBasisPoints: number;
+  readonly roundingMode: 'half_up' | 'down' | 'up';
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+}
+
 export interface SalesInstallation {
   readonly id: string;
   readonly orderId: string;
@@ -151,6 +164,7 @@ export interface SalesInstallation {
   readonly scheduledFor?: string;
   readonly installerUserId?: string;
   readonly blockerReason?: string;
+  readonly serviceActivatedAt?: string;
 }
 
 export interface SalesWorkspaceData {
@@ -161,6 +175,7 @@ export interface SalesWorkspaceData {
   readonly orders: readonly SalesServiceOrder[];
   readonly resources: readonly CapacityResource[];
   readonly plans: readonly SalesPlan[];
+  readonly billingPolicies: readonly SalesBillingPolicy[];
   readonly installations: readonly SalesInstallation[];
   readonly scopes: TenantScopeCatalogue;
 }

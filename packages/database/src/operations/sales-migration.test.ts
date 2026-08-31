@@ -26,6 +26,10 @@ const networkExecutionMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310200_tenant_order_network_execution.sql',
 );
+const firstBillingMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310300_tenant_order_first_billing.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -104,5 +108,16 @@ describe('sales and order migrations', () => {
     expect(migration).toContain("task_key='first_billing'");
     expect(migration).toContain('FROM PUBLIC,orvex_runtime,orvex_network_worker');
     expect(migration).toContain('sales_network_execution_readiness');
+  });
+
+  it('posts first billing through immutable finance and closes the order atomically', async () => {
+    const migration = await readFile(firstBillingMigration, 'utf8');
+    expect(migration).toContain('sales_orders_first_invoice_fk');
+    expect(migration).toContain("base_action='tenant.order.first_invoice.post'");
+    expect(migration).toContain("context_row.permission='tenant.invoice.post'");
+    expect(migration).toContain('sales_first_billing_readiness');
+    expect(migration).toContain('first_invoice_period_end>first_invoice_period_start');
+    expect(migration).toContain('operations_plan_versions_first_billing_read');
+    expect(migration).toContain('operations_billing_policies_sales_workspace_read');
   });
 });
