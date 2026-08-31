@@ -20,6 +20,10 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  readSubscriberWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
   readSalesWorkspace(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,

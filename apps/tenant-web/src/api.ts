@@ -8,6 +8,71 @@ export interface TenantSummary {
   readonly collections: { readonly USD: number; readonly LBP: number };
 }
 
+export interface SubscriberWorkspaceData {
+  readonly subscribers: readonly SubscriberWorkspaceSubscriber[];
+  readonly services: readonly SubscriberWorkspaceService[];
+  readonly invoices: readonly SubscriberWorkspaceInvoice[];
+  readonly issues: readonly SubscriberWorkspaceIssue[];
+}
+export interface SubscriberWorkspaceSubscriber {
+  readonly id: string;
+  readonly subscriberNumber: string;
+  readonly displayName: string;
+  readonly status: 'lead' | 'active' | 'suspended' | 'closed';
+  readonly householdReference: string;
+  readonly householdName: string;
+  readonly locationId: string;
+  readonly locationLabel: string;
+  readonly addressLine: string;
+  readonly branchCode: string;
+  readonly areaCode: string;
+  readonly routeCode: string;
+  readonly createdAt: string;
+  readonly contacts: readonly {
+    readonly kind: 'phone' | 'email' | 'whatsapp' | 'other';
+    readonly value: string;
+    readonly label?: string;
+    readonly primary: boolean;
+  }[];
+}
+export interface SubscriberWorkspaceService {
+  readonly id: string;
+  readonly subscriberId: string;
+  readonly serviceNumber: string;
+  readonly status: 'draft' | 'pending_installation' | 'active' | 'suspended' | 'terminated';
+  readonly planId: string;
+  readonly planCode: string;
+  readonly planNameEn: string;
+  readonly planNameAr: string;
+  readonly recurringAmountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly billingAnchorDay: number;
+  readonly installationStatus?: string;
+  readonly activatedAt?: string;
+  readonly terminatedAt?: string;
+}
+export interface SubscriberWorkspaceInvoice {
+  readonly id: string;
+  readonly subscriberId: string;
+  readonly serviceId: string;
+  readonly documentNumber: string;
+  readonly amountMinor: number;
+  readonly allocatedMinor: number;
+  readonly outstandingMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly postedAt: string;
+}
+export interface SubscriberWorkspaceIssue {
+  readonly id: string;
+  readonly subscriberId?: string;
+  readonly serviceId?: string;
+  readonly issueNumber: string;
+  readonly subject: string;
+  readonly priority: 'low' | 'normal' | 'high' | 'urgent';
+  readonly status: 'open' | 'triaged' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
+  readonly updatedAt: string;
+}
+
 export interface SalesLead {
   readonly id: string;
   readonly leadNumber: string;
@@ -435,6 +500,19 @@ export async function readSalesWorkspace(session: ApiSession): Promise<SalesWork
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Sales workspace');
   return (await response.json()) as SalesWorkspaceData;
+}
+
+export async function readSubscriberWorkspace(
+  session: ApiSession,
+): Promise<SubscriberWorkspaceData> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/subscribers/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Subscriber workspace');
+  return (await response.json()) as SubscriberWorkspaceData;
 }
 
 export async function submitSalesOperation(

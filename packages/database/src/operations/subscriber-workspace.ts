@@ -1,0 +1,294 @@
+import type { SupportedCurrency, VerifiedTenantId } from '@isp/contracts';
+import { sql } from 'drizzle-orm';
+import type { Database } from '../client.js';
+import { inOperationsTransaction } from './context.js';
+import type { SignedOperationsDatabaseContext } from './types.js';
+
+export interface SubscriberWorkspaceContact {
+  readonly kind: 'phone' | 'email' | 'whatsapp' | 'other';
+  readonly value: string;
+  readonly label?: string;
+  readonly primary: boolean;
+}
+
+export interface SubscriberWorkspaceSubscriber {
+  readonly id: string;
+  readonly subscriberNumber: string;
+  readonly displayName: string;
+  readonly status: 'lead' | 'active' | 'suspended' | 'closed';
+  readonly householdReference: string;
+  readonly householdName: string;
+  readonly locationId: string;
+  readonly locationLabel: string;
+  readonly addressLine: string;
+  readonly branchCode: string;
+  readonly areaCode: string;
+  readonly routeCode: string;
+  readonly createdAt: string;
+  readonly contacts: readonly SubscriberWorkspaceContact[];
+}
+
+export interface SubscriberWorkspaceService {
+  readonly id: string;
+  readonly subscriberId: string;
+  readonly serviceNumber: string;
+  readonly status: 'draft' | 'pending_installation' | 'active' | 'suspended' | 'terminated';
+  readonly planId: string;
+  readonly planCode: string;
+  readonly planNameEn: string;
+  readonly planNameAr: string;
+  readonly recurringAmountMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly billingAnchorDay: number;
+  readonly installationStatus?: string;
+  readonly activatedAt?: string;
+  readonly terminatedAt?: string;
+}
+
+export interface SubscriberWorkspaceInvoice {
+  readonly id: string;
+  readonly subscriberId: string;
+  readonly serviceId: string;
+  readonly documentNumber: string;
+  readonly amountMinor: number;
+  readonly allocatedMinor: number;
+  readonly outstandingMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly postedAt: string;
+}
+
+export interface SubscriberWorkspaceIssue {
+  readonly id: string;
+  readonly subscriberId?: string;
+  readonly serviceId?: string;
+  readonly issueNumber: string;
+  readonly subject: string;
+  readonly priority: 'low' | 'normal' | 'high' | 'urgent';
+  readonly status: 'open' | 'triaged' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
+  readonly updatedAt: string;
+}
+
+export interface SubscriberWorkspace {
+  readonly subscribers: readonly SubscriberWorkspaceSubscriber[];
+  readonly services: readonly SubscriberWorkspaceService[];
+  readonly invoices: readonly SubscriberWorkspaceInvoice[];
+  readonly issues: readonly SubscriberWorkspaceIssue[];
+}
+
+export async function readSubscriberWorkspace(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: { readonly authorization: SignedOperationsDatabaseContext },
+): Promise<SubscriberWorkspace> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`SELECT audit_subscriber_workspace_read()`);
+    const [subscribers, contacts, services, invoices, issues] = await Promise.all([
+      transaction.execute<SubscriberRow>(sql`
+        SELECT subscriber.id,subscriber.subscriber_number,subscriber.display_name,subscriber.status,
+          subscriber.created_at,household.reference_code AS household_reference,
+          household.display_name AS household_name,location.id AS location_id,
+          location.label AS location_label,location.address_line,branch.code AS branch_code,
+          area.code AS area_code,route.code AS route_code
+        FROM operations_subscribers subscriber
+        JOIN operations_households household ON household.tenant_id=subscriber.tenant_id
+          AND household.id=subscriber.household_id
+        JOIN operations_locations location ON location.tenant_id=subscriber.tenant_id
+          AND location.id=subscriber.primary_location_id
+        JOIN operations_branches branch ON branch.tenant_id=subscriber.tenant_id
+          AND branch.id=subscriber.branch_id
+        JOIN operations_areas area ON area.tenant_id=subscriber.tenant_id
+          AND area.id=subscriber.area_id
+        JOIN operations_routes route ON route.tenant_id=subscriber.tenant_id
+          AND route.id=subscriber.route_id
+        WHERE subscriber.tenant_id=${tenantId}
+        ORDER BY subscriber.updated_at DESC LIMIT 500
+      `),
+      transaction.execute<ContactRow>(sql`
+        SELECT contact.subscriber_id,contact.contact_kind,contact.contact_value,contact.label,
+          contact.is_primary
+        FROM operations_contacts contact
+        WHERE contact.tenant_id=${tenantId} AND contact.archived_at IS NULL
+        ORDER BY contact.is_primary DESC,contact.created_at
+      `),
+      transaction.execute<ServiceRow>(sql`
+        SELECT service.id,service.subscriber_id,service.service_number,service.status,
+          service.plan_id,service.billing_anchor_day,service.activated_at,service.terminated_at,
+          plan.code AS plan_code,plan.name_en AS plan_name_en,plan.name_ar AS plan_name_ar,
+          plan.recurring_amount_minor::text,plan.currency,
+          installation.status::text AS installation_status
+        FROM operations_services service
+        JOIN operations_plans plan ON plan.tenant_id=service.tenant_id AND plan.id=service.plan_id
+        LEFT JOIN LATERAL(
+          SELECT item.status FROM operations_installations item
+          WHERE item.tenant_id=service.tenant_id AND item.service_id=service.id
+          ORDER BY item.created_at DESC LIMIT 1
+        ) installation ON true
+        WHERE service.tenant_id=${tenantId}
+        ORDER BY service.updated_at DESC LIMIT 750
+      `),
+      transaction.execute<InvoiceRow>(sql`
+        SELECT invoice.id,service.subscriber_id,preparation.service_id,invoice.document_number,
+          invoice.amount_minor::text,invoice.currency,invoice.posted_at,
+          coalesce(sum(CASE allocation.entry_kind
+            WHEN 'allocation' THEN allocation.amount_minor ELSE -allocation.amount_minor END),0)::text
+            AS allocated_minor
+        FROM operations_invoice_preparations preparation
+        JOIN operations_services service ON service.tenant_id=preparation.tenant_id
+          AND service.id=preparation.service_id
+        JOIN finance_invoices invoice ON invoice.tenant_id=preparation.tenant_id
+          AND invoice.id=preparation.finance_invoice_id AND invoice.entry_kind='posted'
+        LEFT JOIN finance_payment_allocations allocation ON allocation.tenant_id=invoice.tenant_id
+          AND allocation.invoice_id=invoice.id
+        WHERE preparation.tenant_id=${tenantId} AND preparation.posting_status='posted'
+        GROUP BY invoice.id,service.subscriber_id,preparation.service_id
+        ORDER BY invoice.posted_at DESC LIMIT 1000
+      `),
+      transaction.execute<IssueRow>(sql`
+        SELECT id,subscriber_id,service_id,issue_number,subject,priority,status,updated_at
+        FROM operations_support_issues WHERE tenant_id=${tenantId}
+        ORDER BY updated_at DESC LIMIT 500
+      `),
+    ]);
+    return {
+      subscribers: subscribers.map((row) => ({
+        id: row.id,
+        subscriberNumber: row.subscriber_number,
+        displayName: row.display_name,
+        status: row.status,
+        householdReference: row.household_reference,
+        householdName: row.household_name,
+        locationId: row.location_id,
+        locationLabel: row.location_label,
+        addressLine: row.address_line,
+        branchCode: row.branch_code,
+        areaCode: row.area_code,
+        routeCode: row.route_code,
+        createdAt: timestamp(row.created_at),
+        contacts: contacts
+          .filter((contact) => contact.subscriber_id === row.id)
+          .map((contact) => ({
+            kind: contact.contact_kind,
+            value: contact.contact_value,
+            ...(contact.label ? { label: contact.label } : {}),
+            primary: contact.is_primary,
+          })),
+      })),
+      services: services.map((row) => ({
+        id: row.id,
+        subscriberId: row.subscriber_id,
+        serviceNumber: row.service_number,
+        status: row.status,
+        planId: row.plan_id,
+        planCode: row.plan_code,
+        planNameEn: row.plan_name_en,
+        planNameAr: row.plan_name_ar,
+        recurringAmountMinor: safeMinor(row.recurring_amount_minor),
+        currency: row.currency,
+        billingAnchorDay: row.billing_anchor_day,
+        ...(row.installation_status ? { installationStatus: row.installation_status } : {}),
+        ...(row.activated_at ? { activatedAt: timestamp(row.activated_at) } : {}),
+        ...(row.terminated_at ? { terminatedAt: timestamp(row.terminated_at) } : {}),
+      })),
+      invoices: invoices.map((row) => {
+        const amountMinor = safeMinor(row.amount_minor);
+        const allocatedMinor = safeNonnegativeMinor(row.allocated_minor);
+        return {
+          id: row.id,
+          subscriberId: row.subscriber_id,
+          serviceId: row.service_id,
+          documentNumber: row.document_number,
+          amountMinor,
+          allocatedMinor,
+          outstandingMinor: Math.max(0, amountMinor - allocatedMinor),
+          currency: row.currency,
+          postedAt: timestamp(row.posted_at),
+        };
+      }),
+      issues: issues.map((row) => ({
+        id: row.id,
+        ...(row.subscriber_id ? { subscriberId: row.subscriber_id } : {}),
+        ...(row.service_id ? { serviceId: row.service_id } : {}),
+        issueNumber: row.issue_number,
+        subject: row.subject,
+        priority: row.priority,
+        status: row.status,
+        updatedAt: timestamp(row.updated_at),
+      })),
+    };
+  });
+}
+
+interface SubscriberRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly subscriber_number: string;
+  readonly display_name: string;
+  readonly status: SubscriberWorkspaceSubscriber['status'];
+  readonly created_at: Date | string;
+  readonly household_reference: string;
+  readonly household_name: string;
+  readonly location_id: string;
+  readonly location_label: string;
+  readonly address_line: string;
+  readonly branch_code: string;
+  readonly area_code: string;
+  readonly route_code: string;
+}
+interface ContactRow extends Record<string, unknown> {
+  readonly subscriber_id: string;
+  readonly contact_kind: SubscriberWorkspaceContact['kind'];
+  readonly contact_value: string;
+  readonly label: string | null;
+  readonly is_primary: boolean;
+}
+interface ServiceRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly subscriber_id: string;
+  readonly service_number: string;
+  readonly status: SubscriberWorkspaceService['status'];
+  readonly plan_id: string;
+  readonly billing_anchor_day: number;
+  readonly activated_at: Date | string | null;
+  readonly terminated_at: Date | string | null;
+  readonly plan_code: string;
+  readonly plan_name_en: string;
+  readonly plan_name_ar: string;
+  readonly recurring_amount_minor: string;
+  readonly currency: SupportedCurrency;
+  readonly installation_status: string | null;
+}
+interface InvoiceRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly subscriber_id: string;
+  readonly service_id: string;
+  readonly document_number: string;
+  readonly amount_minor: string;
+  readonly allocated_minor: string;
+  readonly currency: SupportedCurrency;
+  readonly posted_at: Date | string;
+}
+interface IssueRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly subscriber_id: string | null;
+  readonly service_id: string | null;
+  readonly issue_number: string;
+  readonly subject: string;
+  readonly priority: SubscriberWorkspaceIssue['priority'];
+  readonly status: SubscriberWorkspaceIssue['status'];
+  readonly updated_at: Date | string;
+}
+
+function timestamp(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+function safeMinor(value: string): number {
+  const converted = Number(value);
+  if (!Number.isSafeInteger(converted) || converted <= 0)
+    throw new RangeError('Subscriber finance amount is outside the safe monetary range.');
+  return converted;
+}
+function safeNonnegativeMinor(value: string): number {
+  const converted = Number(value);
+  if (!Number.isSafeInteger(converted) || converted < 0)
+    throw new RangeError('Subscriber allocation amount is outside the safe monetary range.');
+  return converted;
+}

@@ -34,6 +34,10 @@ const orderExceptionMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310400_tenant_order_exception_commands.sql',
 );
+const subscriberWorkspaceMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310500_tenant_subscriber_workspace.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -133,5 +137,13 @@ describe('sales and order migrations', () => {
     expect(migration).toContain("context_row.action='tenant.order.command'");
     expect(migration).toContain('sales_order_exception_readiness');
     expect(migration).toContain('FORCE ROW LEVEL SECURITY');
+  });
+
+  it('audits the internal subscriber workspace without creating subscriber authentication', async () => {
+    const migration = await readFile(subscriberWorkspaceMigration, 'utf8');
+    expect(migration).toContain('audit_subscriber_workspace_read');
+    expect(migration).toContain("context_row.permission<>'tenant.subscriber.view'");
+    expect(migration).toContain('subscriber_workspace_readiness');
+    expect(migration).not.toMatch(/password|credential|session token/i);
   });
 });

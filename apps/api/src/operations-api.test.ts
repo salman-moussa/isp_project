@@ -23,6 +23,7 @@ const claims: SessionClaims = {
   areaIds: [areaId],
   routeIds: [routeId],
   permissions: [
+    'tenant.subscriber.view',
     'tenant.subscriber.create',
     'tenant.invoice.create',
     'tenant.collection.reconcile',
@@ -37,6 +38,7 @@ const claims: SessionClaims = {
 
 function writerMocks() {
   return {
+    readSubscriberWorkspace: vi.fn(async () => ({ subscribers: [], services: [] })),
     readSalesWorkspace: vi.fn(async () => ({ leads: [], offers: [], quotes: [], orders: [] })),
     createSalesLead: vi.fn(async () => ({ id: 'lead-a' })),
     createSalesOfferVersion: vi.fn(async () => ({ id: 'offer-a' })),
@@ -184,6 +186,26 @@ describe('tenant operations API route plugin', () => {
       expect.objectContaining({ permission: 'tenant.catalog.manage' }),
     );
     await mfaApp.close();
+  });
+
+  it('reads the internal subscriber workspace with scoped view authority', async () => {
+    const { app } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/subscribers/workspace`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(writer.readSubscriberWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.subscriber.view',
+        auditAction: 'tenant.subscriber.workspace.read',
+        branchIds: [branchId],
+        areaIds: [areaId],
+        routeIds: [routeId],
+      }),
+    );
+    await app.close();
   });
 
   it('requires subscriber-create and order-manage authority for order conversion', async () => {

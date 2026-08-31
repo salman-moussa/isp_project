@@ -26,6 +26,7 @@ describe('database readiness', () => {
           sales_network_execution_ready: true,
           sales_first_billing_ready: true,
           sales_order_exceptions_ready: true,
+          subscriber_workspace_ready: true,
         },
       ];
     });
@@ -55,6 +56,7 @@ describe('database readiness', () => {
     expect(query).toContain('202608310300_tenant_order_first_billing.sql');
     expect(query).toContain('sales_first_billing_readiness');
     expect(query).toContain('sales_order_exception_readiness');
+    expect(query).toContain('subscriber_workspace_readiness');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {

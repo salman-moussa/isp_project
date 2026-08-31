@@ -22,6 +22,7 @@ import {
   prepareRecurringInvoices,
   qualifySalesLead,
   readSalesWorkspace,
+  readSubscriberWorkspace,
   reconcileCollector,
   recordCollectorEvidence,
   recordOfficePaymentCorrection,
@@ -46,6 +47,7 @@ export interface OperationsContextAuthorityConfig {
 
 export interface OperationsRepositoryAdapter {
   readonly readSalesWorkspace: typeof readSalesWorkspace;
+  readonly readSubscriberWorkspace: typeof readSubscriberWorkspace;
   readonly createSalesLead: typeof createSalesLead;
   readonly createSalesOfferVersion: typeof createSalesOfferVersion;
   readonly qualifySalesLead: typeof qualifySalesLead;
@@ -79,6 +81,7 @@ export interface OperationsRepositoryAdapter {
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readSalesWorkspace,
+  readSubscriberWorkspace,
   createSalesLead,
   createSalesOfferVersion,
   qualifySalesLead,
@@ -137,6 +140,15 @@ export class PostgresOperationsService implements OperationsWriter {
 
   public readSalesWorkspace(tenantId: VerifiedTenantId, input: WriterInput<'readSalesWorkspace'>) {
     return this.repository.readSalesWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readSubscriberWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readSubscriberWorkspace'>,
+  ) {
+    return this.repository.readSubscriberWorkspace(this.database, tenantId, {
       authorization: this.sign(tenantId, input),
     });
   }

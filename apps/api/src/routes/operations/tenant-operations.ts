@@ -781,7 +781,39 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueNetworkAction(id, v as never),
     ),
   ];
-  registerSalesWorkspaceRead(app, options);
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/sales/workspace',
+      operationId: 'readSalesWorkspace',
+      permission: 'tenant.sales.view',
+      action: 'tenant.sales.workspace.read',
+      resourceType: 'sales_workspace',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readSalesWorkspace(tenantId, input as never),
+    },
+    'Tenant sales',
+    'sales-read',
+    'Authorized sales workspace read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/subscribers/workspace',
+      operationId: 'readSubscriberWorkspace',
+      permission: 'tenant.subscriber.view',
+      action: 'tenant.subscriber.workspace.read',
+      resourceType: 'subscriber_workspace',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) =>
+        writer.readSubscriberWorkspace(tenantId, input as never),
+    },
+    'Tenant subscribers',
+    'subscriber-read',
+    'Authorized subscriber workspace read',
+  );
   for (const spec of routes) registerMutation(app, options, spec);
 }
 
@@ -809,19 +841,14 @@ function operation(
   };
 }
 
-function registerSalesWorkspaceRead(
+function registerWorkspaceRead(
   app: FastifyInstance,
   options: TenantOperationsRouteOptions,
+  spec: RouteSpec,
+  tag: string,
+  idempotencyPrefix: string,
+  reason: string,
 ): void {
-  const spec: RouteSpec = {
-    path: '/v1/tenants/:tenantId/operations/sales/workspace',
-    operationId: 'readSalesWorkspace',
-    permission: 'tenant.sales.view',
-    action: 'tenant.sales.workspace.read',
-    resourceType: 'sales_workspace',
-    schema: z.object({}).strict(),
-    execute: (writer, tenantId, input) => writer.readSalesWorkspace(tenantId, input as never),
-  };
   app.get(
     spec.path,
     {
@@ -829,7 +856,7 @@ function registerSalesWorkspaceRead(
       config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
       schema: {
         operationId: spec.operationId,
-        tags: ['Tenant sales'],
+        tags: [tag],
         security: [{ bearerAuth: [] }],
         response: {
           200: { type: 'object', additionalProperties: true },
@@ -842,19 +869,19 @@ function registerSalesWorkspaceRead(
     },
     async (request, reply) => {
       const { tenantId: requestedTenantId } = tenantParams.parse(request.params);
-      const idempotencyKey = `sales-read:${request.id}`;
+      const idempotencyKey = `${idempotencyPrefix}:${request.id}`;
       let context: ReturnType<typeof assertTenantContext>;
       try {
         context = assertTenantContext(request.auth, requestedTenantId, options.now());
         if (request.auth.supportGrant) {
-          throw new AuthorizationDeniedError('Support sessions cannot read the sales workspace.');
+          throw new AuthorizationDeniedError('Support sessions cannot read this tenant workspace.');
         }
         assertPermission(request.auth, spec.permission);
       } catch (error) {
         await auditDenial(request, options, spec, requestedTenantId, idempotencyKey, error);
         throw error;
       }
-      const result = await options.writer.readSalesWorkspace(context.tenantId, {
+      const result = await spec.execute(options.writer, context.tenantId, {
         actorId: request.auth.sub,
         sessionId: request.auth.sessionId,
         idempotencyKey,
@@ -863,7 +890,7 @@ function registerSalesWorkspaceRead(
         ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
         permission: spec.permission,
         auditAction: spec.action,
-        reason: 'Authorized sales workspace read',
+        reason,
         ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
         ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
         ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),

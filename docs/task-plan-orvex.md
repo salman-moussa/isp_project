@@ -66,7 +66,10 @@ enterprise capabilities are complete.
   linkage, exact replay, finance/operations audit and final order closure now pass a fresh
   PostgreSQL 18 composed proof. Immutable exception commands, hold/resume replay, automatic fallout,
   resolution retry and unsafe post-subscriber cancellation denial now pass live. Post-subscriber
-  termination and commercial/technical change-order handling remain open.
+  termination and commercial/technical change-order handling remain open. A real permission-scoped,
+  read-audited bilingual Subscriber 360 workspace now reconciles identity, contacts, address,
+  services, plans, installation, activation, invoice balances and support history without creating
+  subscriber authentication.
 - H1 now includes a real Staff & Access Center with canonical role presets, signed governed scope
   lookup, recent-MFA step-up, opaque one-time invitation acceptance, explicit revocation, role/scope
   editing, suspend/restore, last-owner/self protections, and tenant-session invalidation. Focused

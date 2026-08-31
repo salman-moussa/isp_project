@@ -152,10 +152,9 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue Wave 2 from the proven accepted-order path—which now includes governed fallout/retry,
-hold/resume, safe pre-side-effect cancellation and reconciled activated/invoiced closure—into the
-internal subscriber/service workspaces, post-subscriber termination, and commercial/technical
-change orders. Preserve idempotency, explicit dependency state, tenant/branch/area/route scope,
+Continue Wave 2 from the proven accepted-order path and real internal Subscriber 360 workspace into
+governed service suspension/restoration/termination, plan changes, post-subscriber termination, and
+commercial/technical change orders. Preserve idempotency, explicit dependency state, tenant/branch/area/route scope,
 recent-MFA approvals, immutable commercial and finance history, and bilingual operator guidance.
 Router and subscriber-service bindings remain a privileged provisioning prerequisite and must not
 expose credential material to the application runtime.

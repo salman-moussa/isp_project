@@ -21,6 +21,7 @@ import {
   qualifySalesLead,
   postSalesOrderFirstInvoice,
   readSalesWorkspace,
+  readSubscriberWorkspace,
   reserveSalesOrderResource,
   signOperationsAttestation,
   transitionInstallation,
@@ -89,7 +90,7 @@ try {
   await admin`INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope)
     VALUES (${tenantId},${actorId},'isp_administrator',ARRAY[
       'tenant.sales.view','tenant.sales.manage','tenant.catalog.manage','tenant.order.manage',
-      'tenant.subscriber.create','tenant.user.administer','tenant.network.view',
+      'tenant.subscriber.view','tenant.subscriber.create','tenant.user.administer','tenant.network.view',
       'tenant.network.job.create','tenant.invoice.create','tenant.installation.manage',
       'tenant.invoice.post',
       'tenant.installation.view'
@@ -637,6 +638,21 @@ try {
   assert.equal(posted?.posting_status, 'posted');
   assert.equal(posted?.run_status, 'succeeded');
   assert.equal(posted?.service_id, installation.serviceId);
+  const subscriberWorkspace = await readSubscriberWorkspace(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.subscriber.view',
+      'tenant.subscriber.workspace.read',
+      'subscriber-workspace-read-001',
+    ),
+  });
+  assert.equal(subscriberWorkspace.subscribers[0]?.id, conversion.subscriberId);
+  assert.equal(subscriberWorkspace.subscribers[0]?.routeCode, 'HAM-01');
+  assert.equal(subscriberWorkspace.subscribers[0]?.contacts[0]?.kind, 'phone');
+  assert.equal(subscriberWorkspace.services[0]?.id, installation.serviceId);
+  assert.equal(subscriberWorkspace.services[0]?.status, 'active');
+  assert.equal(subscriberWorkspace.services[0]?.installationStatus, 'completed');
+  assert.equal(subscriberWorkspace.invoices[0]?.id, firstBilling.invoiceId);
+  assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 13_875);
 
   const [audit] = await admin`SELECT count(*)::integer AS count,
     bool_and(actor_id=${actorId}::text) AS actor_matches
@@ -647,8 +663,8 @@ try {
         'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
         'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete',
         'tenant.billing.policy.version.create','tenant.order.first_invoice.post',
-        'tenant.order.command')`;
-  assert((audit?.count ?? 0) >= 62, 'the sales vertical must emit atomic record and read evidence');
+        'tenant.order.command','tenant.subscriber.workspace.read')`;
+  assert((audit?.count ?? 0) >= 63, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
   const [financeAudit] = await admin`SELECT count(*)::integer AS count,
     bool_and(actor_id=${actorId}::text) AS actor_matches
