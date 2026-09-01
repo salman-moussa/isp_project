@@ -183,6 +183,98 @@
   background: color-mix(in srgb, var(--color-surface) 96%, var(--color-primary-soft));
   overflow: hidden;
 }
+.service-usage {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-primary-soft) 35%, var(--color-surface));
+  overflow: hidden;
+}
+.service-usage summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+.service-usage summary::-webkit-details-marker {
+  display: none;
+}
+.service-usage summary > span:first-child,
+.usage-balance > div,
+.service-addon-history li > span:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+.service-usage small,
+.service-usage__body > p,
+.usage-balance span,
+.service-addon-history small {
+  color: var(--color-ink-muted);
+}
+.service-usage__body {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border-block-start: 1px solid var(--color-border);
+}
+.usage-balance {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.usage-balance > div {
+  padding: 0.75rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.usage-balance progress {
+  grid-column: 1 / -1;
+  inline-size: 100%;
+  block-size: 0.65rem;
+  accent-color: var(--color-primary);
+}
+.service-rating-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.service-rating-actions form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.service-rating-actions form > strong,
+.service-rating-actions form > button {
+  grid-column: 1 / -1;
+}
+.service-rating-actions form > button {
+  justify-self: start;
+}
+.service-rating-actions label {
+  display: grid;
+  gap: 0.3rem;
+  font-weight: 700;
+}
+.service-addon-history {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.service-addon-history li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.65rem;
+  border-block-start: 1px solid var(--color-border);
+}
 .service-lifecycle summary {
   display: flex;
   align-items: center;
@@ -305,6 +397,11 @@
     justify-items: start;
   }
   .service-change-form {
+    grid-template-columns: 1fr;
+  }
+  .usage-balance,
+  .service-rating-actions,
+  .service-rating-actions form {
     grid-template-columns: 1fr;
   }
   .service-change-history li {

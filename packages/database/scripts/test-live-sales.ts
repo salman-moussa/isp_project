@@ -7,6 +7,7 @@ import {
   acceptSalesQuote,
   applyServiceChangeOrder,
   approveSalesQuote,
+  createAddonVersion,
   createDatabase,
   createBillingPolicyVersion,
   createOperationsPlanVersion,
@@ -21,8 +22,10 @@ import {
   inOperationsTransaction,
   qualifySalesLead,
   postSalesOrderFirstInvoice,
+  purchaseServiceAddon,
   readSalesWorkspace,
   readSubscriberWorkspace,
+  recordServiceUsage,
   reserveSalesOrderResource,
   signOperationsAttestation,
   transitionInstallation,
@@ -399,8 +402,9 @@ try {
     quotaGb: 1000,
     billingMode: 'postpaid',
     prorationMode: 'daily',
-    fupPolicy: { mode: 'throttle', thresholdPercent: 100, profile: 'FUP-10M' },
+    fupPolicy: { mode: 'bill' },
     includedAddons: [{ code: 'STATIC-IP', quantity: 1 }],
+    overagePerGbMinor: 100,
     version: 1,
     recurringAmountMinor: 12_500,
     currency: 'USD',
@@ -599,6 +603,69 @@ try {
   assert.equal(billingPolicy.replayed, false);
   const billingPeriodEnd = new Date(`${activationDate}T00:00:00.000Z`);
   billingPeriodEnd.setUTCDate(billingPeriodEnd.getUTCDate() + 30);
+  const billingPeriodEndDate = billingPeriodEnd.toISOString().slice(0, 10);
+  const topup = await createAddonVersion(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.addon.version.create',
+      'sales-addon-version-001',
+      { branchIds: [branchId] },
+    ),
+    branchId,
+    code: `TOPUP-${randomUUID().slice(0, 6)}`,
+    version: 1,
+    nameEn: '100 GB quota top-up',
+    nameAr: 'إضافة حصة ١٠٠ جيجابايت',
+    kind: 'quota_topup',
+    amountMinor: 500,
+    currency: 'USD',
+    quotaGb: 100,
+    effectiveFrom: activationDate,
+    createdBy: actorId,
+    idempotencyKey: 'sales-addon-version-001',
+  });
+  assert.equal(topup.replayed, false);
+  const purchaseInput = {
+    authorization: authorization(
+      'tenant.subscriber.edit' as const,
+      'tenant.service.addon.purchase',
+      'sales-addon-purchase-001',
+    ),
+    serviceId: installation.serviceId,
+    addonVersionId: topup.id,
+    quantity: 1,
+    appliesFrom: activationDate,
+    appliesTo: billingPeriodEndDate,
+    purchasedBy: actorId,
+    idempotencyKey: 'sales-addon-purchase-001',
+  };
+  const purchase = await purchaseServiceAddon(runtime.db, tenantId, purchaseInput);
+  assert.equal(purchase.totalAmountMinor, 500);
+  assert.equal(purchase.totalQuotaGb, 100);
+  assert.equal(purchase.replayed, false);
+  assert.equal(
+    (await purchaseServiceAddon(runtime.db, tenantId, purchaseInput)).replayed,
+    true,
+  );
+  const usageInput = {
+    authorization: authorization(
+      'tenant.invoice.create' as const,
+      'tenant.usage.record',
+      'sales-usage-event-001',
+    ),
+    serviceId: installation.serviceId,
+    source: 'radius',
+    eventReference: `acct-${randomUUID()}`,
+    occurredAt: `${activationDate}T12:00:00.000Z`,
+    downloadBytes: 1_100_000_000_000,
+    uploadBytes: 50_000_000_000,
+    recordedBy: actorId,
+    idempotencyKey: 'sales-usage-event-001',
+  };
+  const usage = await recordServiceUsage(runtime.db, tenantId, usageInput);
+  assert.equal(usage.totalBytes, 1_150_000_000_000);
+  assert.equal(usage.replayed, false);
+  assert.equal((await recordServiceUsage(runtime.db, tenantId, usageInput)).replayed, true);
   const firstBillingInput = {
     authorization: authorization(
       'tenant.invoice.post' as const,
@@ -608,13 +675,13 @@ try {
     orderId: order.id,
     documentNumber: `INV-${order.orderNumber}-001`,
     periodStart: activationDate,
-    periodEnd: billingPeriodEnd.toISOString().slice(0, 10),
+    periodEnd: billingPeriodEndDate,
     actorId,
     idempotencyKey: 'sales-first-billing-001',
   };
   const firstBilling = await postSalesOrderFirstInvoice(runtime.db, tenantId, firstBillingInput);
   assert.equal(firstBilling.replayed, false);
-  assert.equal(firstBilling.amountMinor, 13_875);
+  assert.equal(firstBilling.amountMinor, 19_980);
   const firstBillingReplay = await postSalesOrderFirstInvoice(
     runtime.db,
     tenantId,
@@ -648,16 +715,20 @@ try {
       ON run.tenant_id=preparation.tenant_id AND run.id=preparation.billing_run_id
     WHERE invoice.tenant_id=${tenantId} AND invoice.id=${firstBilling.invoiceId}`;
   assert.equal(posted?.entry_kind, 'posted');
-  assert.equal(posted?.amount_minor, 13_875);
+  assert.equal(posted?.amount_minor, 19_980);
   assert.equal(posted?.posting_status, 'posted');
   assert.equal(posted?.run_status, 'succeeded');
   assert.equal(posted?.service_id, installation.serviceId);
   assert.equal(posted?.base_amount_minor, 12_500);
-  assert.equal(posted?.addon_amount_minor, 0);
-  assert.equal(posted?.overage_amount_minor, 0);
+  assert.equal(posted?.addon_amount_minor, 500);
+  assert.equal(posted?.overage_amount_minor, 5_000);
   assert.equal(posted?.rating_snapshot.accessTechnology, 'fiber');
   assert.equal(posted?.rating_snapshot.quotaGb, 1000);
-  assert.equal(posted?.rating_snapshot.fupPolicy.mode, 'throttle');
+  assert.equal(posted?.rating_snapshot.fupPolicy.mode, 'bill');
+  assert.equal(posted?.rating_snapshot.usage.usedBytes, 1_150_000_000_000);
+  assert.equal(posted?.rating_snapshot.usage.topupQuotaGb, 100);
+  assert.equal(posted?.rating_snapshot.usage.overageGb, 50);
+  assert.equal(posted?.rating_snapshot.purchasedAddons[0].code, topup.code);
   const subscriberWorkspace = await readSubscriberWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.subscriber.view',
@@ -675,9 +746,15 @@ try {
   assert.equal(subscriberWorkspace.services[0]?.downstreamMbps, 100);
   assert.equal(subscriberWorkspace.services[0]?.upstreamMbps, 50);
   assert.equal(subscriberWorkspace.services[0]?.quotaGb, 1000);
-  assert.equal(subscriberWorkspace.services[0]?.fupMode, 'throttle');
+  assert.equal(subscriberWorkspace.services[0]?.fupMode, 'bill');
   assert.equal(subscriberWorkspace.invoices[0]?.id, firstBilling.invoiceId);
-  assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 13_875);
+  assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 19_980);
+  assert.equal(subscriberWorkspace.addons[0]?.id, topup.id);
+  assert.equal(subscriberWorkspace.addonPurchases[0]?.id, purchase.id);
+  assert.equal(subscriberWorkspace.usageBalances[0]?.usedBytes, 1_150_000_000_000);
+  assert.equal(subscriberWorkspace.usageBalances[0]?.topupQuotaGb, 100);
+  assert.equal(subscriberWorkspace.usageBalances[0]?.overageGb, 50);
+  assert.equal(subscriberWorkspace.usageBalances[0]?.projectedOverageMinor, 5_000);
 
   const upgradedPlan = await createOperationsPlanVersion(runtime.db, tenantId, {
     authorization: authorization(

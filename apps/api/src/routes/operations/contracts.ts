@@ -36,6 +36,43 @@ export interface OperationsWriter {
       readonly targetPlanId?: string;
     },
   ): Promise<unknown>;
+  createAddonVersion(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly branchId?: string;
+      readonly code: string;
+      readonly version: number;
+      readonly nameEn: string;
+      readonly nameAr: string;
+      readonly kind: 'recurring' | 'one_time' | 'quota_topup';
+      readonly amountMinor: number;
+      readonly currency: SupportedCurrency;
+      readonly quotaGb?: number;
+      readonly effectiveFrom: string;
+      readonly effectiveTo?: string;
+    },
+  ): Promise<unknown>;
+  purchaseServiceAddon(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly serviceId: string;
+      readonly addonVersionId: string;
+      readonly quantity: number;
+      readonly appliesFrom: string;
+      readonly appliesTo: string;
+    },
+  ): Promise<unknown>;
+  recordServiceUsage(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly serviceId: string;
+      readonly source: string;
+      readonly eventReference: string;
+      readonly occurredAt: string;
+      readonly downloadBytes: number;
+      readonly uploadBytes: number;
+    },
+  ): Promise<unknown>;
   createSalesLead(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {

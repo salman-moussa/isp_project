@@ -42,6 +42,9 @@ function writerMocks() {
     readSubscriberWorkspace: vi.fn(async () => ({ subscribers: [], services: [] })),
     readSalesWorkspace: vi.fn(async () => ({ leads: [], offers: [], quotes: [], orders: [] })),
     applyServiceChangeOrder: vi.fn(async () => ({ id: 'change-order-a' })),
+    createAddonVersion: vi.fn(async () => ({ id: 'addon-version-a' })),
+    purchaseServiceAddon: vi.fn(async () => ({ id: 'addon-purchase-a' })),
+    recordServiceUsage: vi.fn(async () => ({ id: 'usage-event-a' })),
     createSalesLead: vi.fn(async () => ({ id: 'lead-a' })),
     createSalesOfferVersion: vi.fn(async () => ({ id: 'offer-a' })),
     qualifySalesLead: vi.fn(async () => ({ id: 'qualification-a' })),
@@ -522,6 +525,75 @@ describe('tenant operations API route plugin', () => {
         permission: 'tenant.subscriber.edit',
         auditAction: 'tenant.service.change.apply',
       }),
+    );
+    await app.close();
+  });
+
+  it('governs add-on publication, purchase, and usage ingestion with focused permissions', async () => {
+    const { app } = await makeApp(claims, writer);
+    const addonVersionId = '50000000-0000-4000-8000-000000000005';
+    const published = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/addon-versions`,
+      headers: { 'idempotency-key': 'addon-version-001' },
+      payload: {
+        branchId,
+        code: 'TOPUP-100',
+        version: 1,
+        nameEn: '100 GB top-up',
+        nameAr: 'إضافة ١٠٠ جيجابايت',
+        kind: 'quota_topup',
+        amountMinor: 500,
+        currency: 'USD',
+        quotaGb: 100,
+        effectiveFrom: '2026-09-01',
+        reason: 'Approved quota top-up catalogue publication.',
+      },
+    });
+    expect(published.statusCode).toBe(201);
+    expect(writer.createAddonVersion).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.invoice.create', code: 'TOPUP-100' }),
+    );
+    const purchased = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/services/addons`,
+      headers: { 'idempotency-key': 'addon-purchase-001' },
+      payload: {
+        serviceId,
+        addonVersionId,
+        quantity: 1,
+        appliesFrom: '2026-09-01',
+        appliesTo: '2026-10-01',
+        reason: 'Subscriber approved the quota top-up purchase.',
+      },
+    });
+    expect(purchased.statusCode).toBe(201);
+    expect(writer.purchaseServiceAddon).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.subscriber.edit',
+        auditAction: 'tenant.service.addon.purchase',
+      }),
+    );
+    const usage = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/usage-events`,
+      headers: { 'idempotency-key': 'usage-event-001' },
+      payload: {
+        serviceId,
+        source: 'radius',
+        eventReference: 'acct-session-001',
+        occurredAt: '2026-09-12T10:00:00.000Z',
+        downloadBytes: 1_100_000_000,
+        uploadBytes: 100_000_000,
+        reason: 'Authorized RADIUS accounting mediation event.',
+      },
+    });
+    expect(usage.statusCode).toBe(201);
+    expect(writer.recordServiceUsage).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.invoice.create', source: 'radius' }),
     );
     await app.close();
   });

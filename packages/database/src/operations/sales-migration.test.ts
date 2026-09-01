@@ -50,6 +50,10 @@ const planRatingPermissionMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310701_tenant_plan_rating_validator_permission.sql',
 );
+const usageRatingMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202608310800_tenant_usage_addon_rating.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -184,5 +188,16 @@ describe('sales and order migrations', () => {
     expect(permissionMigration).toContain(
       'GRANT EXECUTE ON FUNCTION operations_json_contains_secret_key(jsonb) TO orvex_runtime',
     );
+  });
+
+  it('records immutable add-on purchases and mediated usage behind tenant scope', async () => {
+    const migration = await readFile(usageRatingMigration, 'utf8');
+    expect(migration).toContain('CREATE TABLE operations_addon_versions');
+    expect(migration).toContain('CREATE TABLE operations_service_addon_purchases');
+    expect(migration).toContain('CREATE TABLE operations_usage_events');
+    expect(migration).toContain('operations_service_addon_purchases_scope');
+    expect(migration).toContain('operations_usage_events_scope');
+    expect(migration).toContain('operations_reject_append_only_mutation');
+    expect(migration).toContain('usage_addon_rating_readiness');
   });
 });

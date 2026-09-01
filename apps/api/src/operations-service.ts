@@ -7,6 +7,7 @@ import {
   configureOperations,
   convertSalesOrderSubscriber,
   createCapacityResource,
+  createAddonVersion,
   createBillingPolicyVersion,
   createSalesLead,
   createSalesOfferVersion,
@@ -14,6 +15,7 @@ import {
   enqueueSalesOrderActivation,
   executeSalesOrderCommand,
   postSalesOrderFirstInvoice,
+  purchaseServiceAddon,
   createSalesQuote,
   createOperationsPlanVersion,
   createServiceInstallation,
@@ -24,6 +26,7 @@ import {
   qualifySalesLead,
   readSalesWorkspace,
   readSubscriberWorkspace,
+  recordServiceUsage,
   reconcileCollector,
   recordCollectorEvidence,
   recordOfficePaymentCorrection,
@@ -50,6 +53,9 @@ export interface OperationsRepositoryAdapter {
   readonly readSalesWorkspace: typeof readSalesWorkspace;
   readonly readSubscriberWorkspace: typeof readSubscriberWorkspace;
   readonly applyServiceChangeOrder: typeof applyServiceChangeOrder;
+  readonly createAddonVersion: typeof createAddonVersion;
+  readonly purchaseServiceAddon: typeof purchaseServiceAddon;
+  readonly recordServiceUsage: typeof recordServiceUsage;
   readonly createSalesLead: typeof createSalesLead;
   readonly createSalesOfferVersion: typeof createSalesOfferVersion;
   readonly qualifySalesLead: typeof qualifySalesLead;
@@ -85,6 +91,9 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readSalesWorkspace,
   readSubscriberWorkspace,
   applyServiceChangeOrder,
+  createAddonVersion,
+  purchaseServiceAddon,
+  recordServiceUsage,
   createSalesLead,
   createSalesOfferVersion,
   qualifySalesLead,
@@ -163,6 +172,33 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.applyServiceChangeOrder(this.database, tenantId, {
       ...input,
       requestedBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public createAddonVersion(tenantId: VerifiedTenantId, input: WriterInput<'createAddonVersion'>) {
+    return this.repository.createAddonVersion(this.database, tenantId, {
+      ...input,
+      createdBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public purchaseServiceAddon(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'purchaseServiceAddon'>,
+  ) {
+    return this.repository.purchaseServiceAddon(this.database, tenantId, {
+      ...input,
+      purchasedBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public recordServiceUsage(tenantId: VerifiedTenantId, input: WriterInput<'recordServiceUsage'>) {
+    return this.repository.recordServiceUsage(this.database, tenantId, {
+      ...input,
+      recordedBy: input.actorId,
       authorization: this.sign(tenantId, input),
     });
   }

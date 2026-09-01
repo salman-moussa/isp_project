@@ -11,6 +11,7 @@ Status: planned journeys; mark evidence only after execution.
 | E2E-P05 | Support request, independent approval, scoped session, revoke/expire | Both webs/API               | Banner, least privilege, every access audited, no refresh/silent extension          |
 | E2E-T01 | Subscriber onboarding and installation activation                    | Tenant/API/network fake     | Scoped auth, package price history, audit and safe activation handoff               |
 | E2E-T02 | Recurring billing and retry failed subscribers                       | Tenant/API/jobs             | No duplicates, USD/LBP separate, optional VAT, progress and retry subset            |
+| E2E-T02A | Add-on, usage, quota and overage rating                             | Tenant/API/database         | Exact replay, effective version, quota top-up, explainable FUP and immutable totals |
 | E2E-T03 | Cashier office payment, receipt and linked correction                | Tenant/API/PDF              | Idempotency, allocation, immutable posted chain, Arabic/English receipt             |
 | E2E-T04 | Collector handover and per-currency reconciliation                   | Tenant/mobile/API           | Expected/declared/difference per method/currency, approvals and audit               |
 | E2E-M01 | Full collector day online                                            | Mobile/API/printer fake     | Assignment scope, payments/visits/receipts, close shift                             |

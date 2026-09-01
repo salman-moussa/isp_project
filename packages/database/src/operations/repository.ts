@@ -201,68 +201,126 @@ export async function prepareRecurringInvoices(
       );
     }
     await transaction.execute(sql`
-      INSERT INTO operations_invoice_preparations
-        (tenant_id, billing_run_id, service_id, subtotal_minor, vat_rate_basis_points, vat_minor,
-         currency, branch_id, area_id, route_id, billing_date, period_start, period_end,
-         plan_version_id, billing_policy_id,base_amount_minor,addon_amount_minor,
-         overage_amount_minor,rating_snapshot)
-      SELECT
-        s.tenant_id, ${run.id}, s.id, pv.recurring_amount_minor, bp.vat_rate_basis_points,
-        CASE bp.rounding_mode
-          WHEN 'down' THEN (pv.recurring_amount_minor * bp.vat_rate_basis_points) / 10000
-          WHEN 'up' THEN (pv.recurring_amount_minor * bp.vat_rate_basis_points + 9999) / 10000
-          ELSE (pv.recurring_amount_minor * bp.vat_rate_basis_points + 5000) / 10000
-        END,
-        pv.currency, s.branch_id, s.area_id, s.route_id, due.billing_date,
-        ${input.periodStart}::date, ${input.periodEnd}::date, pv.id, bp.id,
-        pv.recurring_amount_minor,0,0,
+      WITH source AS (
+        SELECT s.tenant_id,s.id AS service_id,s.branch_id,s.area_id,s.route_id,due.billing_date,
+          pv.*,bp.id AS billing_policy_id,bp.vat_rate_basis_points,bp.rounding_mode,
+          greatest(1,${input.periodEnd}::date-${input.periodStart}::date)::bigint AS period_days,
+          greatest(0,
+            least(${input.periodEnd}::date,coalesce(s.terminated_at::date+1,${input.periodEnd}::date))
+            - greatest(${input.periodStart}::date,coalesce(s.activated_at::date,${input.periodStart}::date))
+          )::bigint AS eligible_days,
+          coalesce(addons.addon_amount_minor,0)::bigint AS addon_amount_minor,
+          coalesce(addons.topup_quota_gb,0)::bigint AS topup_quota_gb,
+          coalesce(addons.purchases,'[]'::jsonb) AS addon_purchases,
+          coalesce(usage.used_bytes,0)::bigint AS used_bytes
+        FROM operations_services s
+        JOIN operations_plans p ON p.tenant_id=s.tenant_id AND p.id=s.plan_id
+        CROSS JOIN LATERAL(
+          SELECT day_value::date AS billing_date
+          FROM generate_series(${input.periodStart}::date,${input.periodEnd}::date-1,interval '1 day') day_value
+          WHERE extract(day FROM day_value)::integer=s.billing_anchor_day
+          ORDER BY day_value LIMIT 1
+        ) due
+        JOIN LATERAL(
+          SELECT version.* FROM operations_plan_versions version
+          WHERE version.tenant_id=s.tenant_id AND version.plan_id=s.plan_id
+            AND version.effective_from<=due.billing_date
+            AND (version.effective_to IS NULL OR version.effective_to>due.billing_date)
+          ORDER BY version.version DESC LIMIT 1
+        ) pv ON true
+        JOIN LATERAL(
+          SELECT policy.* FROM operations_billing_policies policy
+          WHERE policy.tenant_id=s.tenant_id
+            AND (policy.branch_id=s.branch_id OR policy.branch_id IS NULL)
+            AND policy.effective_from<=due.billing_date
+            AND (policy.effective_to IS NULL OR policy.effective_to>due.billing_date)
+          ORDER BY (policy.branch_id IS NOT NULL) DESC,policy.version DESC LIMIT 1
+        ) bp ON true
+        LEFT JOIN LATERAL(
+          SELECT coalesce(sum(purchase.total_amount_minor),0)::bigint AS addon_amount_minor,
+            coalesce(sum(purchase.total_quota_gb),0)::bigint AS topup_quota_gb,
+            coalesce(jsonb_agg(jsonb_build_object(
+              'purchaseId',purchase.id,'addonVersionId',purchase.addon_version_id,
+              'code',purchase.addon_code,'kind',purchase.addon_kind,'quantity',purchase.quantity,
+              'amountMinor',purchase.total_amount_minor,'quotaGb',purchase.total_quota_gb
+            ) ORDER BY purchase.purchased_at,purchase.id),'[]'::jsonb) AS purchases
+          FROM operations_service_addon_purchases purchase
+          WHERE purchase.tenant_id=s.tenant_id AND purchase.service_id=s.id
+            AND purchase.applies_from<${input.periodEnd}::date
+            AND purchase.applies_to>${input.periodStart}::date
+            AND purchase.currency=pv.currency
+        ) addons ON true
+        LEFT JOIN LATERAL(
+          SELECT coalesce(sum(event.total_bytes),0)::bigint AS used_bytes
+          FROM operations_usage_events event
+          WHERE event.tenant_id=s.tenant_id AND event.service_id=s.id
+            AND event.occurred_at>=${input.periodStart}::date::timestamptz
+            AND event.occurred_at<${input.periodEnd}::date::timestamptz
+        ) usage ON true
+        WHERE s.tenant_id=${tenantId} AND s.status='active' AND p.active
+          AND (s.activated_at IS NULL OR s.activated_at::date<=due.billing_date)
+          AND (s.terminated_at IS NULL OR s.terminated_at::date>due.billing_date)
+          AND ((extract(year FROM age(due.billing_date,s.activated_at::date))::integer*12
+            + extract(month FROM age(due.billing_date,s.activated_at::date))::integer)
+            % pv.billing_interval_months=0)
+          AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id=ANY(${uuidArray(input.branchIds)}))
+          AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id=ANY(${uuidArray(input.areaIds)}))
+          AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id=ANY(${uuidArray(input.routeIds)}))
+      ), rated AS (
+        SELECT source.*,
+          CASE source.proration_mode WHEN 'daily' THEN
+            (source.recurring_amount_minor*source.eligible_days+source.period_days-1)/source.period_days
+            ELSE source.recurring_amount_minor END::bigint AS base_amount_minor,
+          CASE WHEN source.quota_gb IS NULL THEN 0 ELSE greatest(
+            source.used_bytes-(source.quota_gb+source.topup_quota_gb)*1000000000,0)
+          END::bigint AS excess_bytes,
+          CASE WHEN source.quota_gb IS NULL THEN 0 ELSE
+            (greatest(source.used_bytes-(source.quota_gb+source.topup_quota_gb)*1000000000,0)
+              +999999999)/1000000000 END::bigint AS overage_gb
+        FROM source
+      ), amounts AS (
+        SELECT rated.*,
+          CASE WHEN rated.fup_policy->>'mode'='bill'
+            THEN rated.overage_gb*rated.overage_per_gb_minor ELSE 0 END::bigint
+            AS overage_amount_minor
+        FROM rated
+      )
+      INSERT INTO operations_invoice_preparations(
+        tenant_id,billing_run_id,service_id,subtotal_minor,vat_rate_basis_points,vat_minor,
+        currency,branch_id,area_id,route_id,billing_date,period_start,period_end,
+        plan_version_id,billing_policy_id,base_amount_minor,addon_amount_minor,
+        overage_amount_minor,rating_snapshot)
+      SELECT amounts.tenant_id,${run.id},amounts.service_id,
+        amounts.base_amount_minor+amounts.addon_amount_minor+amounts.overage_amount_minor,
+        amounts.vat_rate_basis_points,
+        CASE amounts.rounding_mode
+          WHEN 'down' THEN ((amounts.base_amount_minor+amounts.addon_amount_minor
+            +amounts.overage_amount_minor)*amounts.vat_rate_basis_points)/10000
+          WHEN 'up' THEN ((amounts.base_amount_minor+amounts.addon_amount_minor
+            +amounts.overage_amount_minor)*amounts.vat_rate_basis_points+9999)/10000
+          ELSE ((amounts.base_amount_minor+amounts.addon_amount_minor
+            +amounts.overage_amount_minor)*amounts.vat_rate_basis_points+5000)/10000 END,
+        amounts.currency,amounts.branch_id,amounts.area_id,amounts.route_id,amounts.billing_date,
+        ${input.periodStart}::date,${input.periodEnd}::date,amounts.id,amounts.billing_policy_id,
+        amounts.base_amount_minor,amounts.addon_amount_minor,amounts.overage_amount_minor,
         jsonb_build_object(
-          'planVersionId',pv.id,'planVersion',pv.version,'accessTechnology',pv.access_technology,
-          'downstreamMbps',pv.downstream_mbps,'upstreamMbps',pv.upstream_mbps,
-          'quotaGb',pv.quota_gb,'billingMode',pv.billing_mode,'prorationMode',pv.proration_mode,
-          'fupPolicy',pv.fup_policy,'includedAddons',pv.included_addons,
-          'baseAmountMinor',pv.recurring_amount_minor,'addonAmountMinor',0,
-          'overageAmountMinor',0,'currency',pv.currency,'billingDate',due.billing_date
+          'planVersionId',amounts.id,'planVersion',amounts.version,
+          'accessTechnology',amounts.access_technology,'downstreamMbps',amounts.downstream_mbps,
+          'upstreamMbps',amounts.upstream_mbps,'quotaGb',amounts.quota_gb,
+          'billingMode',amounts.billing_mode,'prorationMode',amounts.proration_mode,
+          'proration',jsonb_build_object('periodDays',amounts.period_days,
+            'eligibleDays',amounts.eligible_days),
+          'fupPolicy',amounts.fup_policy,'includedAddons',amounts.included_addons,
+          'purchasedAddons',amounts.addon_purchases,
+          'usage',jsonb_build_object('usedBytes',amounts.used_bytes,
+            'baseQuotaGb',amounts.quota_gb,'topupQuotaGb',amounts.topup_quota_gb,
+            'excessBytes',amounts.excess_bytes,'overageGb',amounts.overage_gb),
+          'baseAmountMinor',amounts.base_amount_minor,
+          'addonAmountMinor',amounts.addon_amount_minor,
+          'overageAmountMinor',amounts.overage_amount_minor,
+          'currency',amounts.currency,'billingDate',amounts.billing_date
         )
-      FROM operations_services s
-      JOIN operations_plans p ON p.tenant_id = s.tenant_id AND p.id = s.plan_id
-      CROSS JOIN LATERAL (
-        SELECT day_value::date AS billing_date
-        FROM generate_series(
-          ${input.periodStart}::date,
-          ${input.periodEnd}::date - 1,
-          interval '1 day'
-        ) day_value
-        WHERE extract(day FROM day_value)::integer = s.billing_anchor_day
-        ORDER BY day_value
-        LIMIT 1
-      ) due
-      JOIN LATERAL (
-        SELECT version.* FROM operations_plan_versions version
-        WHERE version.tenant_id = s.tenant_id AND version.plan_id = s.plan_id
-          AND version.effective_from <= due.billing_date
-          AND (version.effective_to IS NULL OR version.effective_to > due.billing_date)
-        ORDER BY version.version DESC LIMIT 1
-      ) pv ON true
-      JOIN LATERAL (
-        SELECT policy.* FROM operations_billing_policies policy
-        WHERE policy.tenant_id = s.tenant_id
-          AND (policy.branch_id = s.branch_id OR policy.branch_id IS NULL)
-          AND policy.effective_from <= due.billing_date
-          AND (policy.effective_to IS NULL OR policy.effective_to > due.billing_date)
-        ORDER BY (policy.branch_id IS NOT NULL) DESC, policy.version DESC LIMIT 1
-      ) bp ON true
-      WHERE s.tenant_id = ${tenantId} AND s.status = 'active' AND p.active
-        AND (s.activated_at IS NULL OR s.activated_at::date <= due.billing_date)
-        AND (s.terminated_at IS NULL OR s.terminated_at::date > due.billing_date)
-        AND (
-          (extract(year FROM age(due.billing_date, s.activated_at::date))::integer * 12
-            + extract(month FROM age(due.billing_date, s.activated_at::date))::integer)
-          % pv.billing_interval_months = 0
-        )
-        AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id = ANY(${uuidArray(input.branchIds)}))
-        AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id = ANY(${uuidArray(input.areaIds)}))
-        AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id = ANY(${uuidArray(input.routeIds)}))
+      FROM amounts
     `);
     await transaction.execute(sql`
       UPDATE operations_billing_runs

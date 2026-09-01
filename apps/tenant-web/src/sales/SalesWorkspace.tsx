@@ -37,7 +37,7 @@ export function SalesWorkspace({
   const [data, setData] = useState<SalesWorkspaceData>();
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [view, setView] = useState<SalesView>('pipeline');
-  const [panel, setPanel] = useState<'lead' | 'offer' | null>(null);
+  const [panel, setPanel] = useState<'lead' | 'offer' | 'addon' | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
   const [mfaChallengeId, setMfaChallengeId] = useState<string>();
@@ -158,6 +158,9 @@ export function SalesWorkspace({
             <Button variant="secondary" onClick={() => setPanel('offer')}>
               {isEnglish ? 'New offer version' : 'نسخة باقة جديدة'}
             </Button>
+            <Button variant="secondary" onClick={() => setPanel('addon')}>
+              {isEnglish ? 'New add-on' : 'إضافة جديدة'}
+            </Button>
             <Button variant="primary" onClick={() => setPanel('lead')}>
               {isEnglish ? 'Capture lead' : 'تسجيل عميل محتمل'}
             </Button>
@@ -262,6 +265,15 @@ export function SalesWorkspace({
           busy={busy}
           onClose={() => setPanel(null)}
           onSubmit={(payload) => mutate('offers', payload)}
+        />
+      ) : null}
+      {panel === 'addon' ? (
+        <AddonForm
+          locale={locale}
+          scopes={data.scopes}
+          busy={busy}
+          onClose={() => setPanel(null)}
+          onSubmit={(payload) => mutateTenant('addon-versions', payload)}
         />
       ) : null}
 
@@ -1929,6 +1941,142 @@ function LeadForm({
           disabled={busy || !branchId || !areaId || !routes.length}
         >
           {isEnglish ? 'Save lead' : 'حفظ العميل المحتمل'}
+        </Button>
+      </form>
+    </Surface>
+  );
+}
+
+function AddonForm({
+  locale,
+  scopes,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  readonly locale: Locale;
+  readonly scopes: SalesWorkspaceData['scopes'];
+  readonly busy: boolean;
+  readonly onClose: () => void;
+  readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
+}) {
+  const isEnglish = locale === 'en';
+  const [kind, setKind] = useState<'quota_topup' | 'recurring' | 'one_time'>('quota_topup');
+  const [currency, setCurrency] = useState<'USD' | 'LBP'>('USD');
+  return (
+    <Surface className="sales-editor">
+      <div className="surface__header">
+        <div>
+          <h2>{isEnglish ? 'Publish add-on catalogue version' : 'نشر نسخة إضافة في الدليل'}</h2>
+          <p>
+            {isEnglish
+              ? 'Add-ons and quota top-ups are immutable, effective-dated, and currency-safe.'
+              : 'الإضافات وحصص الاستخدام ثابتة ونافذة زمنياً ومحكومة بالعملة.'}
+          </p>
+        </div>
+        <Button variant="secondary" onClick={onClose}>
+          {isEnglish ? 'Close' : 'إغلاق'}
+        </Button>
+      </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const minor = currency === 'USD' ? 100 : 1;
+          void onSubmit({
+            branchId: formText(form, 'branchId') || undefined,
+            code: formText(form, 'code'),
+            version: Number(formText(form, 'version')),
+            nameEn: formText(form, 'nameEn'),
+            nameAr: formText(form, 'nameAr'),
+            kind,
+            amountMinor: Math.round(Number(formText(form, 'amount')) * minor),
+            currency,
+            ...(kind === 'quota_topup' ? { quotaGb: Number(formText(form, 'quotaGb')) } : {}),
+            effectiveFrom: formText(form, 'effectiveFrom'),
+            reason: 'Commercial add-on version approved for controlled publication',
+          }).catch(() => undefined);
+        }}
+      >
+        <label>
+          <span>{isEnglish ? 'Code' : 'الرمز'}</span>
+          <input name="code" required />
+        </label>
+        <label>
+          <span>{isEnglish ? 'Version' : 'النسخة'}</span>
+          <input name="version" type="number" min="1" defaultValue="1" required />
+        </label>
+        <label>
+          <span>English name</span>
+          <input name="nameEn" required />
+        </label>
+        <label>
+          <span>الاسم العربي</span>
+          <input name="nameAr" dir="rtl" required />
+        </label>
+        <label>
+          <span>{isEnglish ? 'Type' : 'النوع'}</span>
+          <select
+            name="kind"
+            value={kind}
+            onChange={(event) =>
+              setKind(event.currentTarget.value as 'quota_topup' | 'recurring' | 'one_time')
+            }
+          >
+            <option value="quota_topup">{isEnglish ? 'Quota top-up' : 'إضافة حصة'}</option>
+            <option value="recurring">{isEnglish ? 'Recurring add-on' : 'إضافة دورية'}</option>
+            <option value="one_time">{isEnglish ? 'One-time add-on' : 'إضافة لمرة واحدة'}</option>
+          </select>
+        </label>
+        <label>
+          <span>{isEnglish ? 'Branch (optional)' : 'الفرع (اختياري)'}</span>
+          <select name="branchId">
+            <option value="">{isEnglish ? 'All branches' : 'كل الفروع'}</option>
+            {scopes.branches.map((item) => (
+              <option value={item.id} key={item.id}>
+                {scopeName(item, locale)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{isEnglish ? 'Currency' : 'العملة'}</span>
+          <select
+            name="currency"
+            value={currency}
+            onChange={(event) => setCurrency(event.currentTarget.value as 'USD' | 'LBP')}
+          >
+            <option value="USD">USD</option>
+            <option value="LBP">LBP</option>
+          </select>
+        </label>
+        <label>
+          <span>{isEnglish ? 'Amount' : 'المبلغ'}</span>
+          <input
+            name="amount"
+            type="number"
+            min={currency === 'USD' ? '0.01' : '1'}
+            step={currency === 'USD' ? '0.01' : '1'}
+            required
+          />
+        </label>
+        {kind === 'quota_topup' ? (
+          <label>
+            <span>{isEnglish ? 'Quota GB' : 'الحصة GB'}</span>
+            <input name="quotaGb" type="number" min="1" required />
+          </label>
+        ) : null}
+        <label>
+          <span>{isEnglish ? 'Effective from' : 'نافذة من'}</span>
+          <input
+            name="effectiveFrom"
+            type="date"
+            required
+            defaultValue={new Date().toISOString().slice(0, 10)}
+          />
+        </label>
+        <Button type="submit" variant="primary" disabled={busy}>
+          {isEnglish ? 'Publish add-on' : 'نشر الإضافة'}
         </Button>
       </form>
     </Surface>

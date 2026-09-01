@@ -15,6 +15,9 @@ export interface SubscriberWorkspaceData {
   readonly issues: readonly SubscriberWorkspaceIssue[];
   readonly plans: readonly SubscriberWorkspacePlan[];
   readonly serviceChanges: readonly SubscriberWorkspaceServiceChange[];
+  readonly addons: readonly SubscriberWorkspaceAddon[];
+  readonly addonPurchases: readonly SubscriberWorkspaceAddonPurchase[];
+  readonly usageBalances: readonly SubscriberWorkspaceUsageBalance[];
 }
 export interface SubscriberWorkspaceSubscriber {
   readonly id: string;
@@ -104,6 +107,48 @@ export interface SubscriberWorkspaceServiceChange {
   readonly toPlanId: string;
   readonly reason: string;
   readonly effectiveAt: string;
+}
+export interface SubscriberWorkspaceAddon {
+  readonly id: string;
+  readonly branchId?: string;
+  readonly code: string;
+  readonly version: number;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly kind: 'recurring' | 'one_time' | 'quota_topup';
+  readonly amountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly quotaGb?: number;
+}
+export interface SubscriberWorkspaceAddonPurchase {
+  readonly id: string;
+  readonly serviceId: string;
+  readonly addonVersionId: string;
+  readonly code: string;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly kind: SubscriberWorkspaceAddon['kind'];
+  readonly quantity: number;
+  readonly totalAmountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly totalQuotaGb?: number;
+  readonly appliesFrom: string;
+  readonly appliesTo: string;
+  readonly purchasedAt: string;
+}
+export interface SubscriberWorkspaceUsageBalance {
+  readonly serviceId: string;
+  readonly periodStart: string;
+  readonly periodEnd: string;
+  readonly baseQuotaGb?: number;
+  readonly topupQuotaGb: number;
+  readonly usedBytes: number;
+  readonly remainingBytes?: number;
+  readonly excessBytes: number;
+  readonly overageGb: number;
+  readonly projectedOverageMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly fupMode: SubscriberWorkspaceService['fupMode'];
 }
 
 export interface SalesLead {
@@ -564,6 +609,35 @@ export async function applyServiceChange(
       },
 ): Promise<void> {
   await submitTenantOperation(session, 'services/change-orders', input, crypto.randomUUID());
+}
+
+export async function purchaseServiceAddon(
+  session: ApiSession,
+  input: {
+    readonly serviceId: string;
+    readonly addonVersionId: string;
+    readonly quantity: number;
+    readonly appliesFrom: string;
+    readonly appliesTo: string;
+    readonly reason: string;
+  },
+): Promise<void> {
+  await submitTenantOperation(session, 'services/addons', input, crypto.randomUUID());
+}
+
+export async function recordServiceUsage(
+  session: ApiSession,
+  input: {
+    readonly serviceId: string;
+    readonly source: string;
+    readonly eventReference: string;
+    readonly occurredAt: string;
+    readonly downloadBytes: number;
+    readonly uploadBytes: number;
+    readonly reason: string;
+  },
+): Promise<void> {
+  await submitTenantOperation(session, 'usage-events', input, crypto.randomUUID());
 }
 
 export async function submitSalesOperation(

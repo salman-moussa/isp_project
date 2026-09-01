@@ -101,6 +101,51 @@ export interface SubscriberWorkspaceServiceChange {
   readonly effectiveAt: string;
 }
 
+export interface SubscriberWorkspaceAddon {
+  readonly id: string;
+  readonly branchId?: string;
+  readonly code: string;
+  readonly version: number;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly kind: 'recurring' | 'one_time' | 'quota_topup';
+  readonly amountMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly quotaGb?: number;
+}
+
+export interface SubscriberWorkspaceAddonPurchase {
+  readonly id: string;
+  readonly serviceId: string;
+  readonly addonVersionId: string;
+  readonly code: string;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly kind: SubscriberWorkspaceAddon['kind'];
+  readonly quantity: number;
+  readonly totalAmountMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly totalQuotaGb?: number;
+  readonly appliesFrom: string;
+  readonly appliesTo: string;
+  readonly purchasedAt: string;
+}
+
+export interface SubscriberWorkspaceUsageBalance {
+  readonly serviceId: string;
+  readonly periodStart: string;
+  readonly periodEnd: string;
+  readonly baseQuotaGb?: number;
+  readonly topupQuotaGb: number;
+  readonly usedBytes: number;
+  readonly remainingBytes?: number;
+  readonly excessBytes: number;
+  readonly overageGb: number;
+  readonly projectedOverageMinor: number;
+  readonly currency: SupportedCurrency;
+  readonly fupMode: SubscriberWorkspaceService['fupMode'];
+}
+
 export interface SubscriberWorkspace {
   readonly subscribers: readonly SubscriberWorkspaceSubscriber[];
   readonly services: readonly SubscriberWorkspaceService[];
@@ -108,6 +153,9 @@ export interface SubscriberWorkspace {
   readonly issues: readonly SubscriberWorkspaceIssue[];
   readonly plans: readonly SubscriberWorkspacePlan[];
   readonly serviceChanges: readonly SubscriberWorkspaceServiceChange[];
+  readonly addons: readonly SubscriberWorkspaceAddon[];
+  readonly addonPurchases: readonly SubscriberWorkspaceAddonPurchase[];
+  readonly usageBalances: readonly SubscriberWorkspaceUsageBalance[];
 }
 
 export async function readSubscriberWorkspace(
@@ -117,9 +165,19 @@ export async function readSubscriberWorkspace(
 ): Promise<SubscriberWorkspace> {
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
     await transaction.execute(sql`SELECT audit_subscriber_workspace_read()`);
-    const [subscribers, contacts, services, invoices, issues, plans, serviceChanges] =
-      await Promise.all([
-        transaction.execute<SubscriberRow>(sql`
+    const [
+      subscribers,
+      contacts,
+      services,
+      invoices,
+      issues,
+      plans,
+      serviceChanges,
+      addons,
+      addonPurchases,
+      usageBalances,
+    ] = await Promise.all([
+      transaction.execute<SubscriberRow>(sql`
         SELECT subscriber.id,subscriber.subscriber_number,subscriber.display_name,subscriber.status,
           subscriber.created_at,household.reference_code AS household_reference,
           household.display_name AS household_name,location.id AS location_id,
@@ -139,14 +197,14 @@ export async function readSubscriberWorkspace(
         WHERE subscriber.tenant_id=${tenantId}
         ORDER BY subscriber.updated_at DESC LIMIT 500
       `),
-        transaction.execute<ContactRow>(sql`
+      transaction.execute<ContactRow>(sql`
         SELECT contact.subscriber_id,contact.contact_kind,contact.contact_value,contact.label,
           contact.is_primary
         FROM operations_contacts contact
         WHERE contact.tenant_id=${tenantId} AND contact.archived_at IS NULL
         ORDER BY contact.is_primary DESC,contact.created_at
       `),
-        transaction.execute<ServiceRow>(sql`
+      transaction.execute<ServiceRow>(sql`
         SELECT service.id,service.subscriber_id,service.service_number,service.status,
           service.plan_id,service.billing_anchor_day,service.activated_at,service.terminated_at,
           plan.code AS plan_code,plan.name_en AS plan_name_en,plan.name_ar AS plan_name_ar,
@@ -172,7 +230,7 @@ export async function readSubscriberWorkspace(
         WHERE service.tenant_id=${tenantId}
         ORDER BY service.updated_at DESC LIMIT 750
       `),
-        transaction.execute<InvoiceRow>(sql`
+      transaction.execute<InvoiceRow>(sql`
         SELECT invoice.id,service.subscriber_id,preparation.service_id,invoice.document_number,
           invoice.amount_minor::text,invoice.currency,invoice.posted_at,
           coalesce(sum(CASE allocation.entry_kind
@@ -189,12 +247,12 @@ export async function readSubscriberWorkspace(
         GROUP BY invoice.id,service.subscriber_id,preparation.service_id
         ORDER BY invoice.posted_at DESC LIMIT 1000
       `),
-        transaction.execute<IssueRow>(sql`
+      transaction.execute<IssueRow>(sql`
         SELECT id,subscriber_id,service_id,issue_number,subject,priority,status,updated_at
         FROM operations_support_issues WHERE tenant_id=${tenantId}
         ORDER BY updated_at DESC LIMIT 500
       `),
-        transaction.execute<PlanRow>(sql`
+      transaction.execute<PlanRow>(sql`
         SELECT plan.id,plan.code,plan.name_en,plan.name_ar,
           version.recurring_amount_minor::text,version.currency,version.access_technology,
           version.downstream_mbps,version.upstream_mbps,version.quota_gb::text,
@@ -210,12 +268,86 @@ export async function readSubscriberWorkspace(
         WHERE plan.tenant_id=${tenantId} AND plan.active AND plan.archived_at IS NULL
         ORDER BY plan.code LIMIT 250
       `),
-        transaction.execute<ServiceChangeRow>(sql`
+      transaction.execute<ServiceChangeRow>(sql`
         SELECT id,service_id,action,from_status,to_status,from_plan_id,to_plan_id,reason,effective_at
         FROM operations_service_change_orders WHERE tenant_id=${tenantId}
         ORDER BY effective_at DESC,id DESC LIMIT 1000
       `),
-      ]);
+      transaction.execute<AddonRow>(sql`
+        SELECT id,branch_id,code,version,name_en,name_ar,addon_kind,amount_minor::text,currency,
+          quota_gb::text
+        FROM operations_addon_versions
+        WHERE tenant_id=${tenantId} AND effective_from<=current_date
+          AND (effective_to IS NULL OR effective_to>current_date)
+        ORDER BY code,version DESC LIMIT 250
+      `),
+      transaction.execute<AddonPurchaseRow>(sql`
+        SELECT id,service_id,addon_version_id,addon_code,addon_name_en,addon_name_ar,addon_kind,
+          quantity,total_amount_minor::text,currency,total_quota_gb::text,applies_from,applies_to,
+          purchased_at
+        FROM operations_service_addon_purchases WHERE tenant_id=${tenantId}
+        ORDER BY purchased_at DESC,id DESC LIMIT 1000
+      `),
+      transaction.execute<UsageBalanceRow>(sql`
+        SELECT service.id AS service_id,cycle.period_start,cycle.period_end,
+          version.quota_gb::text AS base_quota_gb,
+          coalesce(addons.topup_quota_gb,0)::text AS topup_quota_gb,
+          coalesce(usage.used_bytes,0)::text AS used_bytes,
+          CASE WHEN version.quota_gb IS NULL THEN NULL ELSE greatest(
+            (version.quota_gb+coalesce(addons.topup_quota_gb,0))*1000000000
+              - coalesce(usage.used_bytes,0),0)::text END AS remaining_bytes,
+          (CASE WHEN version.quota_gb IS NULL THEN 0 ELSE greatest(
+            coalesce(usage.used_bytes,0)
+              - (version.quota_gb+coalesce(addons.topup_quota_gb,0))*1000000000,0)
+            END)::text AS excess_bytes,
+          (CASE WHEN version.quota_gb IS NULL THEN 0 ELSE (
+            greatest(coalesce(usage.used_bytes,0)
+              - (version.quota_gb+coalesce(addons.topup_quota_gb,0))*1000000000,0)
+              + 999999999)/1000000000 END)::text AS overage_gb,
+          (CASE WHEN version.fup_policy->>'mode'='bill' THEN
+            ((greatest(coalesce(usage.used_bytes,0)
+              - (version.quota_gb+coalesce(addons.topup_quota_gb,0))*1000000000,0)
+              + 999999999)/1000000000)*version.overage_per_gb_minor ELSE 0 END)::text
+            AS projected_overage_minor,
+          version.currency,version.fup_policy->>'mode' AS fup_mode
+        FROM operations_services service
+        CROSS JOIN LATERAL(
+          SELECT candidate.period_start,
+            (candidate.period_start+interval '1 month')::date AS period_end
+          FROM LATERAL(
+            SELECT CASE WHEN current_date <
+              (date_trunc('month',current_date)::date+(service.billing_anchor_day-1))
+              THEN (date_trunc('month',current_date)::date+(service.billing_anchor_day-1)
+                - interval '1 month')::date
+              ELSE date_trunc('month',current_date)::date+(service.billing_anchor_day-1)
+            END AS period_start
+          ) candidate
+        ) cycle
+        JOIN LATERAL(
+          SELECT item.* FROM operations_plan_versions item
+          WHERE item.tenant_id=service.tenant_id AND item.plan_id=service.plan_id
+            AND item.effective_from<=current_date
+            AND (item.effective_to IS NULL OR item.effective_to>current_date)
+          ORDER BY item.version DESC LIMIT 1
+        ) version ON true
+        LEFT JOIN LATERAL(
+          SELECT coalesce(sum(purchase.total_quota_gb),0)::bigint AS topup_quota_gb
+          FROM operations_service_addon_purchases purchase
+          WHERE purchase.tenant_id=service.tenant_id AND purchase.service_id=service.id
+            AND purchase.addon_kind='quota_topup'
+            AND purchase.applies_from<cycle.period_end AND purchase.applies_to>cycle.period_start
+        ) addons ON true
+        LEFT JOIN LATERAL(
+          SELECT coalesce(sum(event.total_bytes),0)::bigint AS used_bytes
+          FROM operations_usage_events event
+          WHERE event.tenant_id=service.tenant_id AND event.service_id=service.id
+            AND event.occurred_at>=cycle.period_start::timestamptz
+            AND event.occurred_at<cycle.period_end::timestamptz
+        ) usage ON true
+        WHERE service.tenant_id=${tenantId}
+        ORDER BY service.updated_at DESC LIMIT 750
+      `),
+    ]);
     return {
       subscribers: subscribers.map((row) => ({
         id: row.id,
@@ -312,6 +444,50 @@ export async function readSubscriberWorkspace(
         reason: row.reason,
         effectiveAt: timestamp(row.effective_at),
       })),
+      addons: addons.map((row) => ({
+        id: row.id,
+        ...(row.branch_id ? { branchId: row.branch_id } : {}),
+        code: row.code,
+        version: row.version,
+        nameEn: row.name_en,
+        nameAr: row.name_ar,
+        kind: row.addon_kind,
+        amountMinor: safeMinor(row.amount_minor),
+        currency: row.currency,
+        ...(row.quota_gb ? { quotaGb: safeMinor(row.quota_gb) } : {}),
+      })),
+      addonPurchases: addonPurchases.map((row) => ({
+        id: row.id,
+        serviceId: row.service_id,
+        addonVersionId: row.addon_version_id,
+        code: row.addon_code,
+        nameEn: row.addon_name_en,
+        nameAr: row.addon_name_ar,
+        kind: row.addon_kind,
+        quantity: row.quantity,
+        totalAmountMinor: safeMinor(row.total_amount_minor),
+        currency: row.currency,
+        ...(row.total_quota_gb ? { totalQuotaGb: safeMinor(row.total_quota_gb) } : {}),
+        appliesFrom: day(row.applies_from),
+        appliesTo: day(row.applies_to),
+        purchasedAt: timestamp(row.purchased_at),
+      })),
+      usageBalances: usageBalances.map((row) => ({
+        serviceId: row.service_id,
+        periodStart: day(row.period_start),
+        periodEnd: day(row.period_end),
+        ...(row.base_quota_gb ? { baseQuotaGb: safeMinor(row.base_quota_gb) } : {}),
+        topupQuotaGb: safeNonnegativeMinor(row.topup_quota_gb),
+        usedBytes: safeNonnegativeMinor(row.used_bytes),
+        ...(row.remaining_bytes
+          ? { remainingBytes: safeNonnegativeMinor(row.remaining_bytes) }
+          : {}),
+        excessBytes: safeNonnegativeMinor(row.excess_bytes),
+        overageGb: safeNonnegativeMinor(row.overage_gb),
+        projectedOverageMinor: safeNonnegativeMinor(row.projected_overage_minor),
+        currency: row.currency,
+        fupMode: row.fup_mode,
+      })),
     };
   });
 }
@@ -405,9 +581,55 @@ interface ServiceChangeRow extends Record<string, unknown> {
   readonly reason: string;
   readonly effective_at: Date | string;
 }
+interface AddonRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly branch_id: string | null;
+  readonly code: string;
+  readonly version: number;
+  readonly name_en: string;
+  readonly name_ar: string;
+  readonly addon_kind: SubscriberWorkspaceAddon['kind'];
+  readonly amount_minor: string;
+  readonly currency: SupportedCurrency;
+  readonly quota_gb: string | null;
+}
+interface AddonPurchaseRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly service_id: string;
+  readonly addon_version_id: string;
+  readonly addon_code: string;
+  readonly addon_name_en: string;
+  readonly addon_name_ar: string;
+  readonly addon_kind: SubscriberWorkspaceAddon['kind'];
+  readonly quantity: number;
+  readonly total_amount_minor: string;
+  readonly currency: SupportedCurrency;
+  readonly total_quota_gb: string | null;
+  readonly applies_from: Date | string;
+  readonly applies_to: Date | string;
+  readonly purchased_at: Date | string;
+}
+interface UsageBalanceRow extends Record<string, unknown> {
+  readonly service_id: string;
+  readonly period_start: Date | string;
+  readonly period_end: Date | string;
+  readonly base_quota_gb: string | null;
+  readonly topup_quota_gb: string;
+  readonly used_bytes: string;
+  readonly remaining_bytes: string | null;
+  readonly excess_bytes: string;
+  readonly overage_gb: string;
+  readonly projected_overage_minor: string;
+  readonly currency: SupportedCurrency;
+  readonly fup_mode: SubscriberWorkspaceService['fupMode'];
+}
 
 function timestamp(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+function day(value: Date | string): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return value.slice(0, 10);
 }
 function safeMinor(value: string): number {
   const converted = Number(value);

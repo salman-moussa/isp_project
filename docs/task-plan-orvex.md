@@ -50,6 +50,13 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
+- On 2026-09-02 the focused add-on/usage rating gate passed database/API/tenant-web strict types,
+  lint, production builds, migration/readiness/API/UI tests, schema safety and the live PostgreSQL
+  18 sales script (`npm exec --workspace=@isp/database -- tsx --conditions=development
+  scripts/test-live-sales.ts`). The composed proof posted an exact USD invoice with 12,500 base,
+  500 quota top-up, 5,000 usage overage and 1,980 VAT minor units; purchase and usage replays were
+  exact and the Subscriber 360 balance reconciled the same source records.
+
 - H2 now has a governed first vertical from lead capture through immutable offer/qualification
   versions, controlled quote discount approval, acceptance evidence, and deterministic service-order
   decomposition. Its first dependency now atomically converts the accepted lead into governed
@@ -138,7 +145,8 @@ enterprise capabilities are complete.
 - Catalogue/rating commercial truth now resolves service presentation and first billing from the
   same effective immutable plan version. Guarded schema, runtime API and bilingual publication UI
   cover technology, speed, quota, prepaid/postpaid, proration, FUP, included add-ons and overage;
-  invoice preparations retain exact rating-policy and amount-component snapshots. Focused API/UI,
-  schema and clean PostgreSQL 18 lead-to-billed-service/lifecycle evidence pass. Purchasable
-  add-ons, top-ups, usage balances and executable proration/overage rating remain the next bounded
-  unit.
+  invoice preparations retain exact rating-policy and amount-component snapshots. Effective-dated
+  purchasable add-ons and quota top-ups, append-only mediated usage, current-cycle balances and
+  executable daily proration/overage/FUP rating now flow through the governed API and bilingual
+  operator UI. Focused API/UI/schema evidence and clean PostgreSQL 18 replay-safe
+  lead-to-rated-invoice proof pass with exact base, add-on, overage and VAT components.

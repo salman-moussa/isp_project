@@ -295,6 +295,59 @@ const serviceInstallationBody = z
     (body) => (body.scheduledFor === undefined) === (body.installerUserId === undefined),
     'A schedule and installer must be supplied together.',
   );
+const addonVersionBody = z
+  .object({
+    branchId: uuid.optional(),
+    code: z.string().trim().min(1).max(80),
+    version: z.number().int().positive(),
+    nameEn: z.string().trim().min(1).max(200),
+    nameAr: z.string().trim().min(1).max(200),
+    kind: z.enum(['recurring', 'one_time', 'quota_topup']),
+    amountMinor: z.number().int().positive().safe(),
+    currency: z.enum(['USD', 'LBP']),
+    quotaGb: z.number().int().positive().safe().optional(),
+    effectiveFrom: z.iso.date(),
+    effectiveTo: z.iso.date().optional(),
+    reason: businessReason,
+  })
+  .strict()
+  .refine(
+    (body) => (body.kind === 'quota_topup') === (body.quotaGb !== undefined),
+    'Quota top-ups require a positive quota; other add-ons must omit it.',
+  )
+  .refine(
+    (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
+    'Add-on version end must follow its start.',
+  );
+const serviceAddonPurchaseBody = z
+  .object({
+    serviceId: uuid,
+    addonVersionId: uuid,
+    quantity: z.number().int().positive().max(1000),
+    appliesFrom: z.iso.date(),
+    appliesTo: z.iso.date(),
+    reason: businessReason,
+  })
+  .strict()
+  .refine(
+    (body) => body.appliesTo > body.appliesFrom,
+    'Purchase period end must follow its start.',
+  );
+const usageEventBody = z
+  .object({
+    serviceId: uuid,
+    source: z.string().trim().min(1).max(80),
+    eventReference: z.string().trim().min(1).max(200),
+    occurredAt: z.string().datetime({ offset: true }),
+    downloadBytes: z.number().int().nonnegative().safe(),
+    uploadBytes: z.number().int().nonnegative().safe(),
+    reason: businessReason,
+  })
+  .strict()
+  .refine(
+    (body) => body.downloadBytes + body.uploadBytes > 0,
+    'A usage event must contain transferred bytes.',
+  );
 const billingPolicyBody = z
   .object({
     branchId: uuid.optional(),
@@ -713,6 +766,35 @@ export function registerTenantOperationsRoutes(
       'plan_version',
       planVersionBody,
       (w, id, v) => w.createPlanVersion(id, v as never),
+    ),
+    operation(
+      '/addon-versions',
+      'createOperationsAddonVersion',
+      'tenant.invoice.create',
+      'tenant.addon.version.create',
+      'addon_version',
+      addonVersionBody,
+      (w, id, v) => w.createAddonVersion(id, v as never),
+    ),
+    operation(
+      '/services/addons',
+      'purchaseOperationsServiceAddon',
+      'tenant.subscriber.edit',
+      'tenant.service.addon.purchase',
+      'service_addon_purchase',
+      serviceAddonPurchaseBody,
+      (w, id, v) => w.purchaseServiceAddon(id, v as never),
+      false,
+      ['tenant.invoice.create'],
+    ),
+    operation(
+      '/usage-events',
+      'recordOperationsUsageEvent',
+      'tenant.invoice.create',
+      'tenant.usage.record',
+      'usage_event',
+      usageEventBody,
+      (w, id, v) => w.recordServiceUsage(id, v as never),
     ),
     operation(
       '/billing-policy-versions',

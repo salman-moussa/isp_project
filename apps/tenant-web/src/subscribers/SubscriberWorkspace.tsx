@@ -10,12 +10,23 @@ import {
 } from '@isp/ui';
 import {
   applyServiceChange,
+  purchaseServiceAddon,
   readSubscriberWorkspace,
+  recordServiceUsage,
   type SubscriberWorkspaceData,
   type SubscriberWorkspaceService,
   type SubscriberWorkspaceSubscriber,
 } from '../api';
 import './subscriber.css';
+
+function formText(form: FormData, name: string) {
+  const value = form.get(name);
+  return typeof value === 'string' ? value : '';
+}
+
+function localDateTimeValue(date = new Date()) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
 
 export function SubscriberWorkspace({
   locale,
@@ -364,6 +375,13 @@ function SubscriberDetail({
                   ) : null}
                 </div>
               </Surface>
+              <UsageAndAddons
+                locale={locale}
+                session={session}
+                service={service}
+                data={data}
+                onChanged={onChanged}
+              />
               <ServiceLifecycle
                 locale={locale}
                 session={session}
@@ -452,6 +470,232 @@ function SubscriberDetail({
         </Surface>
       </div>
     </div>
+  );
+}
+
+function UsageAndAddons({
+  locale,
+  session,
+  service,
+  data,
+  onChanged,
+}: {
+  readonly locale: Locale;
+  readonly session: ApiSession;
+  readonly service: SubscriberWorkspaceService;
+  readonly data: SubscriberWorkspaceData;
+  readonly onChanged: () => void;
+}) {
+  const isEnglish = locale === 'en';
+  const balance = data.usageBalances.find((item) => item.serviceId === service.id);
+  const purchases = data.addonPurchases.filter((item) => item.serviceId === service.id);
+  const addons = data.addons.filter((item) => item.currency === service.currency);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string>();
+  if (!balance) return null;
+  const allowedBytes = balance.baseQuotaGb
+    ? (balance.baseQuotaGb + balance.topupQuotaGb) * 1_000_000_000
+    : undefined;
+  const usagePercent = allowedBytes
+    ? Math.min(100, Math.round((balance.usedBytes / allowedBytes) * 100))
+    : 0;
+  const commit = async (work: () => Promise<void>) => {
+    setBusy(true);
+    setMessage(undefined);
+    try {
+      await work();
+      setMessage(
+        isEnglish ? 'Rating evidence saved and audited.' : 'تم حفظ دليل الاحتساب وتدقيقه.',
+      );
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <details className="service-usage">
+      <summary>
+        <span>
+          <strong>{isEnglish ? 'Usage, quota & add-ons' : 'الاستخدام والحصة والإضافات'}</strong>
+          <small>
+            {formatGb(balance.usedBytes)} {isEnglish ? 'used' : 'مستخدم'} ·{' '}
+            {balance.remainingBytes === undefined
+              ? isEnglish
+                ? 'unlimited'
+                : 'غير محدود'
+              : `${formatGb(balance.remainingBytes)} ${isEnglish ? 'remaining' : 'متبقٍ'}`}
+          </small>
+        </span>
+        {balance.projectedOverageMinor > 0 ? (
+          <StatusBadge tone="warning">
+            {money(balance.projectedOverageMinor, balance.currency, locale)}{' '}
+            {isEnglish ? 'projected' : 'متوقع'}
+          </StatusBadge>
+        ) : (
+          <StatusBadge tone="positive">{isEnglish ? 'Within policy' : 'ضمن السياسة'}</StatusBadge>
+        )}
+      </summary>
+      <div className="service-usage__body">
+        <div className="usage-balance">
+          <div>
+            <span>{isEnglish ? 'Current billing cycle' : 'دورة الفوترة الحالية'}</span>
+            <strong>
+              {balance.periodStart} → {balance.periodEnd}
+            </strong>
+          </div>
+          <div>
+            <span>{isEnglish ? 'Available quota' : 'الحصة المتاحة'}</span>
+            <strong>
+              {balance.baseQuotaGb === undefined
+                ? isEnglish
+                  ? 'Unlimited'
+                  : 'غير محدودة'
+                : `${balance.baseQuotaGb + balance.topupQuotaGb} GB`}
+            </strong>
+            {balance.topupQuotaGb > 0 ? (
+              <small>
+                +{balance.topupQuotaGb} GB {isEnglish ? 'top-up' : 'إضافة'}
+              </small>
+            ) : null}
+          </div>
+          <div>
+            <span>{isEnglish ? 'FUP outcome' : 'نتيجة الاستخدام العادل'}</span>
+            <strong>
+              {balance.overageGb > 0
+                ? `${balance.overageGb} GB · ${balance.fupMode}`
+                : isEnglish
+                  ? 'No excess usage'
+                  : 'لا يوجد استخدام زائد'}
+            </strong>
+          </div>
+          {allowedBytes ? (
+            <progress
+              max="100"
+              value={usagePercent}
+              aria-label={isEnglish ? 'Quota used' : 'الحصة المستخدمة'}
+            />
+          ) : null}
+        </div>
+
+        <div className="service-rating-actions">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              void commit(() =>
+                purchaseServiceAddon(session, {
+                  serviceId: service.id,
+                  addonVersionId: formText(form, 'addonVersionId'),
+                  quantity: Number(form.get('quantity')),
+                  appliesFrom: balance.periodStart,
+                  appliesTo: balance.periodEnd,
+                  reason: 'Subscriber approved add-on purchase for the current billing cycle',
+                }),
+              );
+            }}
+          >
+            <strong>{isEnglish ? 'Purchase add-on or top-up' : 'شراء إضافة أو حصة'}</strong>
+            <label>
+              <span>{isEnglish ? 'Catalogue item' : 'عنصر الدليل'}</span>
+              <select name="addonVersionId" required disabled={!addons.length}>
+                <option value="">{isEnglish ? 'Select an item' : 'اختر عنصراً'}</option>
+                {addons.map((addon) => (
+                  <option value={addon.id} key={addon.id}>
+                    {isEnglish ? addon.nameEn : addon.nameAr} ·{' '}
+                    {money(addon.amountMinor, addon.currency, locale)}
+                    {addon.quotaGb ? ` · ${addon.quotaGb} GB` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{isEnglish ? 'Quantity' : 'الكمية'}</span>
+              <input name="quantity" type="number" min="1" max="1000" defaultValue="1" required />
+            </label>
+            <Button type="submit" variant="secondary" disabled={busy || !addons.length}>
+              {isEnglish ? 'Add to cycle' : 'إضافة إلى الدورة'}
+            </Button>
+          </form>
+
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const occurredAt = new Date(formText(form, 'occurredAt')).toISOString();
+              void commit(() =>
+                recordServiceUsage(session, {
+                  serviceId: service.id,
+                  source: formText(form, 'source'),
+                  eventReference: formText(form, 'eventReference'),
+                  occurredAt,
+                  downloadBytes: Math.round(Number(form.get('downloadGb')) * 1_000_000_000),
+                  uploadBytes: Math.round(Number(form.get('uploadGb')) * 1_000_000_000),
+                  reason: 'Authorized usage mediation event recorded for subscriber rating',
+                }),
+              );
+            }}
+          >
+            <strong>{isEnglish ? 'Record mediated usage' : 'تسجيل استخدام موثّق'}</strong>
+            <label>
+              <span>{isEnglish ? 'Source' : 'المصدر'}</span>
+              <input name="source" defaultValue="radius" required />
+            </label>
+            <label>
+              <span>{isEnglish ? 'Source reference' : 'مرجع المصدر'}</span>
+              <input name="eventReference" required />
+            </label>
+            <label>
+              <span>{isEnglish ? 'Occurred at' : 'وقت الحدوث'}</span>
+              <input
+                name="occurredAt"
+                type="datetime-local"
+                defaultValue={localDateTimeValue()}
+                required
+              />
+            </label>
+            <label>
+              <span>{isEnglish ? 'Download GB' : 'تنزيل GB'}</span>
+              <input
+                name="downloadGb"
+                type="number"
+                min="0"
+                step="0.001"
+                defaultValue="0"
+                required
+              />
+            </label>
+            <label>
+              <span>{isEnglish ? 'Upload GB' : 'رفع GB'}</span>
+              <input name="uploadGb" type="number" min="0" step="0.001" defaultValue="0" required />
+            </label>
+            <Button type="submit" variant="secondary" disabled={busy}>
+              {isEnglish ? 'Record usage' : 'تسجيل الاستخدام'}
+            </Button>
+          </form>
+        </div>
+        {message ? <p role="status">{message}</p> : null}
+        {purchases.length ? (
+          <ul className="service-addon-history">
+            {purchases.map((purchase) => (
+              <li key={purchase.id}>
+                <span>
+                  <strong>{isEnglish ? purchase.nameEn : purchase.nameAr}</strong>
+                  <small>
+                    {purchase.code} · {purchase.appliesFrom} → {purchase.appliesTo}
+                  </small>
+                </span>
+                <span>
+                  {purchase.totalQuotaGb ? `+${purchase.totalQuotaGb} GB · ` : ''}
+                  {money(purchase.totalAmountMinor, purchase.currency, locale)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -642,6 +886,9 @@ function money(minor: number, currency: 'USD' | 'LBP', locale: Locale) {
     currency,
     maximumFractionDigits: currency === 'LBP' ? 0 : 2,
   }).format(currency === 'USD' ? minor / 100 : minor);
+}
+function formatGb(bytes: number): string {
+  return `${(bytes / 1_000_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 })} GB`;
 }
 function statusText(status: string, locale: Locale) {
   const labels: Record<string, { en: string; ar: string }> = {

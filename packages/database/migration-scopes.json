@@ -30,5 +30,6 @@
   "202608310500_tenant_subscriber_workspace.sql": "tenant",
   "202608310600_tenant_service_change_orders.sql": "tenant",
   "202608310700_tenant_plan_rating_versions.sql": "tenant",
-  "202608310701_tenant_plan_rating_validator_permission.sql": "tenant"
+  "202608310701_tenant_plan_rating_validator_permission.sql": "tenant",
+  "202608310800_tenant_usage_addon_rating.sql": "tenant"
 }

@@ -100,6 +100,36 @@ const workspace = {
     },
   ],
   serviceChanges: [],
+  addons: [
+    {
+      id: '60000000-0000-4000-8000-000000000001',
+      code: 'TOPUP-100',
+      version: 1,
+      nameEn: '100 GB top-up',
+      nameAr: 'إضافة ١٠٠ جيجابايت',
+      kind: 'quota_topup',
+      amountMinor: 500,
+      currency: 'USD',
+      quotaGb: 100,
+    },
+  ],
+  addonPurchases: [],
+  usageBalances: [
+    {
+      serviceId: '30000000-0000-4000-8000-000000000001',
+      periodStart: '2026-08-01',
+      periodEnd: '2026-09-01',
+      baseQuotaGb: 1000,
+      topupQuotaGb: 0,
+      usedBytes: 750_000_000_000,
+      remainingBytes: 250_000_000_000,
+      excessBytes: 0,
+      overageGb: 0,
+      projectedOverageMinor: 0,
+      currency: 'USD',
+      fupMode: 'throttle',
+    },
+  ],
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -119,6 +149,8 @@ describe('SubscriberWorkspace', () => {
     expect(screen.getByText('INV-1001')).toBeVisible();
     expect(screen.getByText('+9611000000')).toBeVisible();
     expect(screen.getByText('Lifecycle & change history')).toBeVisible();
+    expect(screen.getByText('Usage, quota & add-ons')).toBeVisible();
+    expect(screen.getByText(/250 GB remaining/)).toBeVisible();
     await user.type(screen.getByRole('searchbox'), 'not present');
     expect(screen.getByText('No subscribers match')).toBeVisible();
     expect(

@@ -1205,8 +1205,7 @@ export async function postSalesOrderFirstInvoice(
       readonly billing_policy_id: string;
       readonly subtotal_minor: string;
       readonly vat_rate_basis_points: number;
-      readonly vat_minor: string;
-      readonly total_minor: string;
+      readonly rounding_mode: 'half_up' | 'down' | 'up';
       readonly currency: SupportedCurrency;
       readonly plan_version_number: number;
       readonly access_technology: string;
@@ -1218,27 +1217,25 @@ export async function postSalesOrderFirstInvoice(
       readonly fup_policy: Record<string, unknown>;
       readonly included_addons: readonly Record<string, unknown>[];
       readonly overage_per_gb_minor: string | null;
+      readonly addon_amount_minor: string;
+      readonly topup_quota_gb: string;
+      readonly addon_purchases: readonly Record<string, unknown>[];
+      readonly used_bytes: string;
     }>(sql`
       SELECT service.id AS service_id,service.branch_id,service.area_id,service.route_id,
         task.status AS task_status,service.activated_at::date AS activated_on,
         plan_version.id AS plan_version_id,billing_policy.id AS billing_policy_id,
         plan_version.recurring_amount_minor::text AS subtotal_minor,
-        billing_policy.vat_rate_basis_points,
-        (CASE billing_policy.rounding_mode
-          WHEN 'down' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points)/10000
-          WHEN 'up' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+9999)/10000
-          ELSE (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+5000)/10000
-        END)::text AS vat_minor,
-        (plan_version.recurring_amount_minor+CASE billing_policy.rounding_mode
-          WHEN 'down' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points)/10000
-          WHEN 'up' THEN (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+9999)/10000
-          ELSE (plan_version.recurring_amount_minor*billing_policy.vat_rate_basis_points+5000)/10000
-        END)::text AS total_minor,plan_version.currency,
+        billing_policy.vat_rate_basis_points,billing_policy.rounding_mode,plan_version.currency,
         plan_version.version AS plan_version_number,plan_version.access_technology,
         plan_version.downstream_mbps,plan_version.upstream_mbps,
         plan_version.quota_gb::text,plan_version.billing_mode,plan_version.proration_mode,
         plan_version.fup_policy,plan_version.included_addons,
-        plan_version.overage_per_gb_minor::text
+        plan_version.overage_per_gb_minor::text,
+        coalesce(addons.addon_amount_minor,0)::text AS addon_amount_minor,
+        coalesce(addons.topup_quota_gb,0)::text AS topup_quota_gb,
+        coalesce(addons.purchases,'[]'::jsonb) AS addon_purchases,
+        coalesce(usage.used_bytes,0)::text AS used_bytes
       FROM sales_service_orders sales_order
       JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
         AND task.order_id=sales_order.id AND task.task_key='first_billing'
@@ -1264,6 +1261,27 @@ export async function postSalesOrderFirstInvoice(
           AND (policy.effective_to IS NULL OR policy.effective_to>${input.periodStart}::date)
         ORDER BY (policy.branch_id IS NOT NULL) DESC,policy.version DESC LIMIT 1
       ) billing_policy ON true
+      LEFT JOIN LATERAL(
+        SELECT coalesce(sum(purchase.total_amount_minor),0)::bigint AS addon_amount_minor,
+          coalesce(sum(purchase.total_quota_gb),0)::bigint AS topup_quota_gb,
+          coalesce(jsonb_agg(jsonb_build_object(
+            'purchaseId',purchase.id,'addonVersionId',purchase.addon_version_id,
+            'code',purchase.addon_code,'kind',purchase.addon_kind,'quantity',purchase.quantity,
+            'amountMinor',purchase.total_amount_minor,'quotaGb',purchase.total_quota_gb
+          ) ORDER BY purchase.purchased_at,purchase.id),'[]'::jsonb) AS purchases
+        FROM operations_service_addon_purchases purchase
+        WHERE purchase.tenant_id=service.tenant_id AND purchase.service_id=service.id
+          AND purchase.applies_from<${input.periodEnd}::date
+          AND purchase.applies_to>${input.periodStart}::date
+          AND purchase.currency=plan_version.currency
+      ) addons ON true
+      LEFT JOIN LATERAL(
+        SELECT coalesce(sum(event.total_bytes),0)::bigint AS used_bytes
+        FROM operations_usage_events event
+        WHERE event.tenant_id=service.tenant_id AND event.service_id=service.id
+          AND event.occurred_at>=${input.periodStart}::date::timestamptz
+          AND event.occurred_at<${input.periodEnd}::date::timestamptz
+      ) usage ON true
       WHERE sales_order.tenant_id=${tenantId} AND sales_order.id=${input.orderId}
       FOR UPDATE OF sales_order,task
     `);
@@ -1273,26 +1291,56 @@ export async function postSalesOrderFirstInvoice(
       );
     if (date(target.activated_on) !== input.periodStart)
       throw new OperationsConflictError('The first billing period must begin on activation day.');
-    const amountMinor = safeMinor(target.total_minor);
-    const subtotalMinor = safeMinor(target.subtotal_minor);
-    const vatMinor = safeNonnegativeMinor(target.vat_minor);
+    const baseAmountMinor = safeMinor(target.subtotal_minor);
+    const addonAmountMinor = safeNonnegativeMinor(target.addon_amount_minor);
+    const usedBytes = safeNonnegativeMinor(target.used_bytes);
+    const topupQuotaGb = safeNonnegativeMinor(target.topup_quota_gb);
+    const baseQuotaGb = target.quota_gb ? safeMinor(target.quota_gb) : undefined;
+    const excessBytes = baseQuotaGb
+      ? Math.max(0, usedBytes - (baseQuotaGb + topupQuotaGb) * 1_000_000_000)
+      : 0;
+    const overageGb = Math.ceil(excessBytes / 1_000_000_000);
+    const overageAmountMinor =
+      target.fup_policy.mode === 'bill' && target.overage_per_gb_minor
+        ? overageGb * safeNonnegativeMinor(target.overage_per_gb_minor)
+        : 0;
+    const subtotalMinor = baseAmountMinor + addonAmountMinor + overageAmountMinor;
+    if (!Number.isSafeInteger(subtotalMinor)) throw new RangeError('Rated subtotal is unsafe.');
+    const rawVat = BigInt(subtotalMinor) * BigInt(target.vat_rate_basis_points);
+    const vatMinorBigInt =
+      target.rounding_mode === 'down'
+        ? rawVat / 10_000n
+        : target.rounding_mode === 'up'
+          ? (rawVat + 9_999n) / 10_000n
+          : (rawVat + 5_000n) / 10_000n;
+    const vatMinor = safeNonnegativeMinor(vatMinorBigInt.toString());
+    const amountMinor = subtotalMinor + vatMinor;
+    if (!Number.isSafeInteger(amountMinor)) throw new RangeError('Rated invoice total is unsafe.');
     const ratingSnapshot = {
       source: 'first_billing',
       planVersion: target.plan_version_number,
       accessTechnology: target.access_technology,
       downstreamMbps: target.downstream_mbps,
       upstreamMbps: target.upstream_mbps,
-      ...(target.quota_gb ? { quotaGb: safeMinor(target.quota_gb) } : {}),
+      ...(baseQuotaGb ? { quotaGb: baseQuotaGb } : {}),
       billingMode: target.billing_mode,
       prorationMode: target.proration_mode,
       fupPolicy: target.fup_policy,
       includedAddons: target.included_addons,
+      purchasedAddons: target.addon_purchases,
+      usage: {
+        usedBytes,
+        ...(baseQuotaGb ? { baseQuotaGb } : {}),
+        topupQuotaGb,
+        excessBytes,
+        overageGb,
+      },
       ...(target.overage_per_gb_minor
         ? { overagePerGbMinor: safeNonnegativeMinor(target.overage_per_gb_minor) }
         : {}),
-      baseAmountMinor: subtotalMinor,
-      addonAmountMinor: 0,
-      overageAmountMinor: 0,
+      baseAmountMinor,
+      addonAmountMinor,
+      overageAmountMinor,
     };
 
     const [existingInvoice] = await transaction.execute<{ readonly id: string }>(sql`
@@ -1358,7 +1406,7 @@ export async function postSalesOrderFirstInvoice(
         ${target.vat_rate_basis_points},${vatMinor},${target.currency},'posted',${invoice.id},
         ${target.branch_id},${target.area_id},${target.route_id},${input.periodStart}::date,
         ${input.periodStart}::date,${input.periodEnd}::date,${target.plan_version_id},
-        ${target.billing_policy_id},${subtotalMinor},0,0,
+        ${target.billing_policy_id},${baseAmountMinor},${addonAmountMinor},${overageAmountMinor},
         ${JSON.stringify(ratingSnapshot)}::jsonb
       )
     `);
