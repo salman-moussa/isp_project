@@ -596,6 +596,14 @@ try {
     version: 1,
     vatRateBasisPoints: 1100,
     roundingMode: 'half_up',
+    supplierNameEn: 'Orvex Live ISP SAL',
+    supplierNameAr: 'شركة أورفكس لايف ش.م.ل.',
+    supplierAddressEn: 'Hamra Street, Beirut, Lebanon',
+    supplierAddressAr: 'شارع الحمرا، بيروت، لبنان',
+    supplierTaxRegistrationNumber: 'MOF-LIVE-100001',
+    stampDutyUsdMinor: 100,
+    stampDutyLbpMinor: 0,
+    retentionYears: 10,
     effectiveFrom: activationDate,
     createdBy: actorId,
     idempotencyKey: 'sales-billing-policy-001',
@@ -643,10 +651,7 @@ try {
   assert.equal(purchase.totalAmountMinor, 500);
   assert.equal(purchase.totalQuotaGb, 100);
   assert.equal(purchase.replayed, false);
-  assert.equal(
-    (await purchaseServiceAddon(runtime.db, tenantId, purchaseInput)).replayed,
-    true,
-  );
+  assert.equal((await purchaseServiceAddon(runtime.db, tenantId, purchaseInput)).replayed, true);
   const usageInput = {
     authorization: authorization(
       'tenant.invoice.create' as const,
@@ -681,7 +686,7 @@ try {
   };
   const firstBilling = await postSalesOrderFirstInvoice(runtime.db, tenantId, firstBillingInput);
   assert.equal(firstBilling.replayed, false);
-  assert.equal(firstBilling.amountMinor, 19_980);
+  assert.equal(firstBilling.amountMinor, 18_482);
   const firstBillingReplay = await postSalesOrderFirstInvoice(
     runtime.db,
     tenantId,
@@ -707,7 +712,12 @@ try {
     preparation.base_amount_minor::integer AS base_amount_minor,
     preparation.addon_amount_minor::integer AS addon_amount_minor,
     preparation.overage_amount_minor::integer AS overage_amount_minor,
-    preparation.rating_snapshot
+    preparation.gross_amount_minor::integer AS gross_amount_minor,
+    preparation.discount_basis_points,preparation.discount_amount_minor::integer AS discount_amount_minor,
+    preparation.subtotal_minor::integer AS taxable_amount_minor,
+    preparation.vat_minor::integer AS vat_minor,
+    preparation.stamp_duty_minor::integer AS stamp_duty_minor,
+    preparation.rating_snapshot,preparation.legal_invoice_snapshot
     FROM finance_invoices invoice
     JOIN operations_invoice_preparations preparation
       ON preparation.tenant_id=invoice.tenant_id AND preparation.finance_invoice_id=invoice.id
@@ -715,13 +725,19 @@ try {
       ON run.tenant_id=preparation.tenant_id AND run.id=preparation.billing_run_id
     WHERE invoice.tenant_id=${tenantId} AND invoice.id=${firstBilling.invoiceId}`;
   assert.equal(posted?.entry_kind, 'posted');
-  assert.equal(posted?.amount_minor, 19_980);
+  assert.equal(posted?.amount_minor, 18_482);
   assert.equal(posted?.posting_status, 'posted');
   assert.equal(posted?.run_status, 'succeeded');
   assert.equal(posted?.service_id, installation.serviceId);
   assert.equal(posted?.base_amount_minor, 12_500);
   assert.equal(posted?.addon_amount_minor, 500);
   assert.equal(posted?.overage_amount_minor, 5_000);
+  assert.equal(posted?.gross_amount_minor, 18_000);
+  assert.equal(posted?.discount_basis_points, 800);
+  assert.equal(posted?.discount_amount_minor, 1_440);
+  assert.equal(posted?.taxable_amount_minor, 16_560);
+  assert.equal(posted?.vat_minor, 1_822);
+  assert.equal(posted?.stamp_duty_minor, 100);
   assert.equal(posted?.rating_snapshot.accessTechnology, 'fiber');
   assert.equal(posted?.rating_snapshot.quotaGb, 1000);
   assert.equal(posted?.rating_snapshot.fupPolicy.mode, 'bill');
@@ -729,6 +745,15 @@ try {
   assert.equal(posted?.rating_snapshot.usage.topupQuotaGb, 100);
   assert.equal(posted?.rating_snapshot.usage.overageGb, 50);
   assert.equal(posted?.rating_snapshot.purchasedAddons[0].code, topup.code);
+  assert.equal(posted?.legal_invoice_snapshot.supplier.taxRegistrationNumber, 'MOF-LIVE-100001');
+  assert.equal(posted?.legal_invoice_snapshot.recipient.name, 'Lebanon Live Test Company');
+  assert.equal(
+    posted?.legal_invoice_snapshot.invoice.serialNumber,
+    firstBillingInput.documentNumber,
+  );
+  assert.equal(posted?.legal_invoice_snapshot.service.number, installationInput.serviceNumber);
+  assert.equal(posted?.legal_invoice_snapshot.amounts.totalMinor, 18_482);
+  assert.equal(posted?.legal_invoice_snapshot.tax.rateBasisPoints, 1100);
   const subscriberWorkspace = await readSubscriberWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.subscriber.view',
@@ -748,7 +773,13 @@ try {
   assert.equal(subscriberWorkspace.services[0]?.quotaGb, 1000);
   assert.equal(subscriberWorkspace.services[0]?.fupMode, 'bill');
   assert.equal(subscriberWorkspace.invoices[0]?.id, firstBilling.invoiceId);
-  assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 19_980);
+  assert.equal(subscriberWorkspace.invoices[0]?.outstandingMinor, 18_482);
+  assert.equal(subscriberWorkspace.invoices[0]?.discountAmountMinor, 1_440);
+  assert.equal(subscriberWorkspace.invoices[0]?.stampDutyMinor, 100);
+  assert.equal(
+    subscriberWorkspace.invoices[0]?.legalInvoice?.supplier.taxRegistrationNumber,
+    'MOF-LIVE-100001',
+  );
   assert.equal(subscriberWorkspace.addons[0]?.id, topup.id);
   assert.equal(subscriberWorkspace.addonPurchases[0]?.id, purchase.id);
   assert.equal(subscriberWorkspace.usageBalances[0]?.usedBytes, 1_150_000_000_000);

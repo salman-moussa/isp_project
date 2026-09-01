@@ -301,6 +301,14 @@ export interface OperationsWriter {
       readonly version: number;
       readonly vatRateBasisPoints: number;
       readonly roundingMode: 'half_up' | 'down' | 'up';
+      readonly supplierNameEn: string;
+      readonly supplierNameAr: string;
+      readonly supplierAddressEn: string;
+      readonly supplierAddressAr: string;
+      readonly supplierTaxRegistrationNumber: string;
+      readonly stampDutyUsdMinor: number;
+      readonly stampDutyLbpMinor: number;
+      readonly retentionYears: number;
       readonly effectiveFrom: string;
       readonly effectiveTo?: string;
     },

@@ -14,6 +14,7 @@ import {
   readSubscriberWorkspace,
   recordServiceUsage,
   type SubscriberWorkspaceData,
+  type SubscriberWorkspaceInvoice,
   type SubscriberWorkspaceService,
   type SubscriberWorkspaceSubscriber,
 } from '../api';
@@ -414,21 +415,10 @@ function SubscriberDetail({
               </p>
             </div>
           </div>
-          <div className="subscriber-ledger">
+          <div className="subscriber-invoices">
             {invoices.length ? (
               invoices.map((invoice) => (
-                <div key={invoice.id}>
-                  <span>
-                    <strong>{invoice.documentNumber}</strong>
-                    <small>
-                      {new Date(invoice.postedAt).toLocaleDateString(isEnglish ? 'en-LB' : 'ar-LB')}
-                    </small>
-                  </span>
-                  <span>
-                    <strong>{money(invoice.outstandingMinor, invoice.currency, locale)}</strong>
-                    <small>{isEnglish ? 'outstanding' : 'متبقٍ'}</small>
-                  </span>
-                </div>
+                <InvoiceDocument key={invoice.id} invoice={invoice} locale={locale} />
               ))
             ) : (
               <p>{isEnglish ? 'No posted invoice is linked.' : 'لا توجد فاتورة مرحلة مرتبطة.'}</p>
@@ -469,6 +459,170 @@ function SubscriberDetail({
           </div>
         </Surface>
       </div>
+    </div>
+  );
+}
+
+function InvoiceDocument({
+  invoice,
+  locale,
+}: {
+  readonly invoice: SubscriberWorkspaceInvoice;
+  readonly locale: Locale;
+}) {
+  const isEnglish = locale === 'en';
+  const legal = invoice.legalInvoice;
+  return (
+    <details className="invoice-document">
+      <summary>
+        <span>
+          <strong>{invoice.documentNumber}</strong>
+          <small>
+            {new Date(invoice.postedAt).toLocaleDateString(isEnglish ? 'en-LB' : 'ar-LB')}
+          </small>
+        </span>
+        <span>
+          <strong>{money(invoice.outstandingMinor, invoice.currency, locale)}</strong>
+          <small>{isEnglish ? 'outstanding · open details' : 'متبقٍ · فتح التفاصيل'}</small>
+        </span>
+      </summary>
+      {legal ? (
+        <div className="invoice-sheet" dir={isEnglish ? 'ltr' : 'rtl'}>
+          <header>
+            <div>
+              <span>{isEnglish ? 'Tax invoice' : 'فاتورة ضريبية'}</span>
+              <h3>{isEnglish ? legal.supplier.nameEn : legal.supplier.nameAr}</h3>
+              <p>{isEnglish ? legal.supplier.addressEn : legal.supplier.addressAr}</p>
+              <small>
+                {isEnglish ? 'Ministry of Finance registration' : 'رقم التسجيل لدى وزارة المالية'}:{' '}
+                <bdi>{legal.supplier.taxRegistrationNumber}</bdi>
+              </small>
+            </div>
+            <dl>
+              <div>
+                <dt>{isEnglish ? 'Serial' : 'الرقم التسلسلي'}</dt>
+                <dd>
+                  <bdi>{legal.invoice.serialNumber}</bdi>
+                </dd>
+              </div>
+              <div>
+                <dt>{isEnglish ? 'Issued' : 'تاريخ الإصدار'}</dt>
+                <dd>
+                  {new Date(legal.invoice.issuedAt).toLocaleDateString(
+                    isEnglish ? 'en-LB' : 'ar-LB',
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>{isEnglish ? 'Currency' : 'العملة'}</dt>
+                <dd>{invoice.currency}</dd>
+              </div>
+            </dl>
+          </header>
+          <section className="invoice-parties">
+            <div>
+              <span>{isEnglish ? 'Bill to' : 'الفاتورة إلى'}</span>
+              <strong>{legal.recipient.name}</strong>
+              <small>{legal.recipient.address}</small>
+            </div>
+            <div>
+              <span>{isEnglish ? 'Service' : 'الخدمة'}</span>
+              <strong>
+                {isEnglish ? legal.service.descriptionEn : legal.service.descriptionAr}
+              </strong>
+              <small>
+                <bdi>{legal.service.number}</bdi> · {legal.service.periodStart} →{' '}
+                {legal.service.periodEnd}
+              </small>
+            </div>
+          </section>
+          <div className="invoice-lines">
+            <InvoiceLine
+              label={isEnglish ? 'Base service' : 'الخدمة الأساسية'}
+              amount={invoice.baseAmountMinor}
+              invoice={invoice}
+              locale={locale}
+            />
+            {invoice.addonAmountMinor ? (
+              <InvoiceLine
+                label={isEnglish ? 'Add-ons and top-ups' : 'الإضافات والحصص'}
+                amount={invoice.addonAmountMinor}
+                invoice={invoice}
+                locale={locale}
+              />
+            ) : null}
+            {invoice.overageAmountMinor ? (
+              <InvoiceLine
+                label={isEnglish ? 'Usage overage' : 'الاستخدام الزائد'}
+                amount={invoice.overageAmountMinor}
+                invoice={invoice}
+                locale={locale}
+              />
+            ) : null}
+            {invoice.discountAmountMinor ? (
+              <InvoiceLine
+                label={`${isEnglish ? 'Approved discount' : 'الحسم المعتمد'} (${invoice.discountBasisPoints / 100}%)`}
+                amount={-invoice.discountAmountMinor}
+                invoice={invoice}
+                locale={locale}
+              />
+            ) : null}
+            <InvoiceLine
+              label={`${isEnglish ? 'VAT' : 'الضريبة'} (${invoice.vatRateBasisPoints / 100}%)`}
+              amount={invoice.vatAmountMinor}
+              invoice={invoice}
+              locale={locale}
+            />
+            {invoice.stampDutyMinor ? (
+              <InvoiceLine
+                label={isEnglish ? 'Stamp duty' : 'رسم الطابع'}
+                amount={invoice.stampDutyMinor}
+                invoice={invoice}
+                locale={locale}
+              />
+            ) : null}
+            <InvoiceLine
+              label={isEnglish ? 'Invoice total' : 'إجمالي الفاتورة'}
+              amount={invoice.amountMinor}
+              invoice={invoice}
+              locale={locale}
+              total
+            />
+          </div>
+          <footer>
+            {isEnglish
+              ? `Immutable accounting record · retention policy ${legal.retentionYears} years`
+              : `سجل محاسبي ثابت · سياسة الحفظ ${legal.retentionYears} سنوات`}
+          </footer>
+        </div>
+      ) : (
+        <p className="invoice-document__legacy">
+          {isEnglish
+            ? 'This legacy invoice predates the legal document snapshot.'
+            : 'تسبق هذه الفاتورة القديمة لقطة المستند القانوني.'}
+        </p>
+      )}
+    </details>
+  );
+}
+
+function InvoiceLine({
+  label,
+  amount,
+  invoice,
+  locale,
+  total = false,
+}: {
+  readonly label: string;
+  readonly amount: number;
+  readonly invoice: SubscriberWorkspaceInvoice;
+  readonly locale: Locale;
+  readonly total?: boolean;
+}) {
+  return (
+    <div className={total ? 'invoice-line invoice-line--total' : 'invoice-line'}>
+      <span>{label}</span>
+      <strong>{money(amount, invoice.currency, locale)}</strong>
     </div>
   );
 }

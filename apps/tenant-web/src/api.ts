@@ -72,6 +72,42 @@ export interface SubscriberWorkspaceInvoice {
   readonly outstandingMinor: number;
   readonly currency: 'USD' | 'LBP';
   readonly postedAt: string;
+  readonly baseAmountMinor: number;
+  readonly addonAmountMinor: number;
+  readonly overageAmountMinor: number;
+  readonly grossAmountMinor: number;
+  readonly discountBasisPoints: number;
+  readonly discountAmountMinor: number;
+  readonly taxableAmountMinor: number;
+  readonly vatRateBasisPoints: number;
+  readonly vatAmountMinor: number;
+  readonly stampDutyMinor: number;
+  readonly legalInvoice?: {
+    readonly version: number;
+    readonly retentionYears: number;
+    readonly supplier: {
+      readonly nameEn: string;
+      readonly nameAr: string;
+      readonly addressEn: string;
+      readonly addressAr: string;
+      readonly taxRegistrationNumber: string;
+    };
+    readonly recipient: { readonly name: string; readonly address: string };
+    readonly invoice: {
+      readonly serialNumber: string;
+      readonly issuedAt: string;
+      readonly currency: 'USD' | 'LBP';
+    };
+    readonly service: {
+      readonly number: string;
+      readonly descriptionEn: string;
+      readonly descriptionAr: string;
+      readonly periodStart: string;
+      readonly periodEnd: string;
+    };
+    readonly amounts: Readonly<Record<string, number>>;
+    readonly tax: { readonly rateBasisPoints: number; readonly amountMinor: number };
+  };
 }
 export interface SubscriberWorkspaceIssue {
   readonly id: string;
@@ -289,6 +325,14 @@ export interface SalesBillingPolicy {
   readonly version: number;
   readonly vatRateBasisPoints: number;
   readonly roundingMode: 'half_up' | 'down' | 'up';
+  readonly supplierNameEn?: string;
+  readonly supplierNameAr?: string;
+  readonly supplierAddressEn?: string;
+  readonly supplierAddressAr?: string;
+  readonly supplierTaxRegistrationNumber?: string;
+  readonly stampDutyUsdMinor: number;
+  readonly stampDutyLbpMinor: number;
+  readonly retentionYears?: number;
   readonly effectiveFrom: string;
   readonly effectiveTo?: string;
 }

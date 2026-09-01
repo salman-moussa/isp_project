@@ -30,6 +30,7 @@ describe('database readiness', () => {
           service_changes_ready: true,
           plan_rating_ready: true,
           usage_rating_ready: true,
+          legal_invoice_ready: true,
         },
       ];
     });
@@ -65,6 +66,10 @@ describe('database readiness', () => {
     expect(query).toContain('202608310701_tenant_plan_rating_validator_permission.sql');
     expect(query).toContain('202608310800_tenant_usage_addon_rating.sql');
     expect(query).toContain('usage_addon_rating_readiness');
+    expect(query).toContain('202609020900_tenant_legal_invoice_policy.sql');
+    expect(query).toContain('202609020901_tenant_invoice_quote_discount_scope.sql');
+    expect(query).toContain('202609020902_tenant_invoice_quote_scope_restore.sql');
+    expect(query).toContain('legal_invoice_policy_readiness');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {

@@ -136,6 +136,15 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202608310800_tenant_usage_addon_rating.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202609020900_tenant_legal_invoice_policy.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202609020901_tenant_invoice_quote_discount_scope.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202609020902_tenant_invoice_quote_scope_restore.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -198,7 +207,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        plan_rating.migration_ready AND plan_rating.plan_columns_ready
          AND plan_rating.invoice_snapshot_ready AS plan_rating_ready,
        usage_rating.migration_ready AND usage_rating.relations_ready
-         AND usage_rating.guards_ready AS usage_rating_ready
+         AND usage_rating.guards_ready AS usage_rating_ready,
+       legal_invoice.migration_ready AND legal_invoice.policy_ready
+         AND legal_invoice.invoice_ready AS legal_invoice_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
@@ -210,7 +221,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
      CROSS JOIN public.subscriber_workspace_readiness() subscriber_workspace
      CROSS JOIN public.service_change_order_readiness() service_changes
      CROSS JOIN public.plan_rating_version_readiness() plan_rating
-     CROSS JOIN public.usage_addon_rating_readiness() usage_rating`,
+     CROSS JOIN public.usage_addon_rating_readiness() usage_rating
+     CROSS JOIN public.legal_invoice_policy_readiness() legal_invoice`,
   );
   if (
     !state?.relations_ready ||
@@ -227,7 +239,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.subscriber_workspace_ready ||
     !state.service_changes_ready ||
     !state.plan_rating_ready ||
-    !state.usage_rating_ready
+    !state.usage_rating_ready ||
+    !state.legal_invoice_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

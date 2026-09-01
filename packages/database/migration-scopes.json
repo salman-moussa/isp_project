@@ -31,5 +31,8 @@
   "202608310600_tenant_service_change_orders.sql": "tenant",
   "202608310700_tenant_plan_rating_versions.sql": "tenant",
   "202608310701_tenant_plan_rating_validator_permission.sql": "tenant",
-  "202608310800_tenant_usage_addon_rating.sql": "tenant"
+  "202608310800_tenant_usage_addon_rating.sql": "tenant",
+  "202609020900_tenant_legal_invoice_policy.sql": "tenant",
+  "202609020901_tenant_invoice_quote_discount_scope.sql": "tenant",
+  "202609020902_tenant_invoice_quote_scope_restore.sql": "tenant"
 }

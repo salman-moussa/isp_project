@@ -354,8 +354,17 @@ const billingPolicyBody = z
     version: z.number().int().positive(),
     vatRateBasisPoints: z.number().int().min(0).max(10_000),
     roundingMode: z.enum(['half_up', 'down', 'up']),
+    supplierNameEn: z.string().trim().min(1).max(200),
+    supplierNameAr: z.string().trim().min(1).max(200),
+    supplierAddressEn: z.string().trim().min(1).max(500),
+    supplierAddressAr: z.string().trim().min(1).max(500),
+    supplierTaxRegistrationNumber: z.string().trim().min(1).max(100),
+    stampDutyUsdMinor: z.number().int().nonnegative().safe(),
+    stampDutyLbpMinor: z.number().int().nonnegative().safe(),
+    retentionYears: z.number().int().min(1).max(50),
     effectiveFrom: z.iso.date(),
     effectiveTo: z.iso.date().optional(),
+    reason: businessReason,
   })
   .strict()
   .refine(

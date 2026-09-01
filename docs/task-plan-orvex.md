@@ -50,12 +50,20 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
+- On 2026-09-02 the legal-invoice tranche passed clean PostgreSQL 18 migrations and the composed
+  sales proof. The accepted quote's 8% discount, branch-effective 11% VAT policy and explicit USD
+  stamp duty produced exact minor-unit components: 18,000 gross, 1,440 discount, 16,560 taxable,
+  1,822 VAT, 100 stamp and 18,482 total. The immutable bilingual legal snapshot carries supplier and
+  recipient identities, Ministry of Finance registration, serial/date, service description, tax
+  rate/amount and ten-year retention policy; Subscriber 360 renders the same source totals.
+
 - On 2026-09-02 the focused add-on/usage rating gate passed database/API/tenant-web strict types,
   lint, production builds, migration/readiness/API/UI tests, schema safety and the live PostgreSQL
-  18 sales script (`npm exec --workspace=@isp/database -- tsx --conditions=development
-  scripts/test-live-sales.ts`). The composed proof posted an exact USD invoice with 12,500 base,
-  500 quota top-up, 5,000 usage overage and 1,980 VAT minor units; purchase and usage replays were
-  exact and the Subscriber 360 balance reconciled the same source records.
+  18 sales script
+  (`npm exec --workspace=@isp/database -- tsx --conditions=development scripts/test-live-sales.ts`).
+  The composed proof posted an exact USD invoice with 12,500 base, 500 quota top-up, 5,000 usage
+  overage and 1,980 VAT minor units; purchase and usage replays were exact and the Subscriber 360
+  balance reconciled the same source records.
 
 - H2 now has a governed first vertical from lead capture through immutable offer/qualification
   versions, controlled quote discount approval, acceptance evidence, and deterministic service-order

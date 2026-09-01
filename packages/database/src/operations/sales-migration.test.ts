@@ -54,6 +54,18 @@ const usageRatingMigration = resolve(
   import.meta.dirname,
   '../../migrations/202608310800_tenant_usage_addon_rating.sql',
 );
+const legalInvoiceMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202609020900_tenant_legal_invoice_policy.sql',
+);
+const invoiceDiscountScopeMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202609020901_tenant_invoice_quote_discount_scope.sql',
+);
+const invoiceScopeRestoreMigration = resolve(
+  import.meta.dirname,
+  '../../migrations/202609020902_tenant_invoice_quote_scope_restore.sql',
+);
 
 describe('sales and order migrations', () => {
   it('provides focused canonical permissions and invalidates expanded sessions', async () => {
@@ -199,5 +211,24 @@ describe('sales and order migrations', () => {
     expect(migration).toContain('operations_usage_events_scope');
     expect(migration).toContain('operations_reject_append_only_mutation');
     expect(migration).toContain('usage_addon_rating_readiness');
+  });
+
+  it('snapshots owner-approved legal invoice identity and currency-specific stamp duty', async () => {
+    const migration = await readFile(legalInvoiceMigration, 'utf8');
+    expect(migration).toContain('supplier_tax_registration_number');
+    expect(migration).toContain('stamp_duty_usd_minor');
+    expect(migration).toContain('stamp_duty_lbp_minor');
+    expect(migration).toContain('discount_basis_points');
+    expect(migration).toContain('legal_invoice_snapshot');
+    expect(migration).toContain('legal_invoice_policy_readiness');
+    expect(migration).not.toMatch(/exchange_rate|currency_conversion/i);
+    const scopeMigration = await readFile(invoiceDiscountScopeMigration, 'utf8');
+    expect(scopeMigration).toContain("'tenant.invoice.post'");
+    expect(scopeMigration).toContain('sales_scope_allows_lead');
+    expect(scopeMigration).toContain('WITH CHECK');
+    const restoreMigration = await readFile(invoiceScopeRestoreMigration, 'utf8');
+    expect(restoreMigration).toContain("'tenant.network.job.create'");
+    expect(restoreMigration).toContain("'tenant.installation.manage'");
+    expect(restoreMigration).toContain("'tenant.invoice.post'");
   });
 });

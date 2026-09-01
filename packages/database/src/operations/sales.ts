@@ -175,6 +175,14 @@ export interface SalesBillingPolicy {
   readonly version: number;
   readonly vatRateBasisPoints: number;
   readonly roundingMode: 'half_up' | 'down' | 'up';
+  readonly supplierNameEn?: string;
+  readonly supplierNameAr?: string;
+  readonly supplierAddressEn?: string;
+  readonly supplierAddressAr?: string;
+  readonly supplierTaxRegistrationNumber?: string;
+  readonly stampDutyUsdMinor: number;
+  readonly stampDutyLbpMinor: number;
+  readonly retentionYears?: number;
   readonly effectiveFrom: string;
   readonly effectiveTo?: string;
 }
@@ -268,6 +276,9 @@ export async function readSalesWorkspace(
         `),
       transaction.execute<SalesBillingPolicyRow>(sql`
           SELECT id,branch_id,version,vat_rate_basis_points,rounding_mode,
+            supplier_name_en,supplier_name_ar,supplier_address_en,supplier_address_ar,
+            supplier_tax_registration_number,stamp_duty_usd_minor::text,
+            stamp_duty_lbp_minor::text,retention_years,
             effective_from,effective_to
           FROM operations_billing_policies WHERE tenant_id=${tenantId}
           ORDER BY branch_id NULLS FIRST,version DESC LIMIT 250
@@ -1206,7 +1217,21 @@ export async function postSalesOrderFirstInvoice(
       readonly subtotal_minor: string;
       readonly vat_rate_basis_points: number;
       readonly rounding_mode: 'half_up' | 'down' | 'up';
+      readonly discount_basis_points: number;
+      readonly supplier_name_en: string;
+      readonly supplier_name_ar: string;
+      readonly supplier_address_en: string;
+      readonly supplier_address_ar: string;
+      readonly supplier_tax_registration_number: string;
+      readonly stamp_duty_usd_minor: string;
+      readonly stamp_duty_lbp_minor: string;
+      readonly retention_years: number;
       readonly currency: SupportedCurrency;
+      readonly service_number: string;
+      readonly plan_name_en: string;
+      readonly plan_name_ar: string;
+      readonly recipient_name: string;
+      readonly recipient_address: string;
       readonly plan_version_number: number;
       readonly access_technology: string;
       readonly downstream_mbps: number;
@@ -1226,7 +1251,14 @@ export async function postSalesOrderFirstInvoice(
         task.status AS task_status,service.activated_at::date AS activated_on,
         plan_version.id AS plan_version_id,billing_policy.id AS billing_policy_id,
         plan_version.recurring_amount_minor::text AS subtotal_minor,
-        billing_policy.vat_rate_basis_points,billing_policy.rounding_mode,plan_version.currency,
+        billing_policy.vat_rate_basis_points,billing_policy.rounding_mode,
+        quote.discount_basis_points,billing_policy.supplier_name_en,billing_policy.supplier_name_ar,
+        billing_policy.supplier_address_en,billing_policy.supplier_address_ar,
+        billing_policy.supplier_tax_registration_number,
+        billing_policy.stamp_duty_usd_minor::text,billing_policy.stamp_duty_lbp_minor::text,
+        billing_policy.retention_years,plan_version.currency,service.service_number,
+        plan.name_en AS plan_name_en,plan.name_ar AS plan_name_ar,
+        subscriber.display_name AS recipient_name,location.address_line AS recipient_address,
         plan_version.version AS plan_version_number,plan_version.access_technology,
         plan_version.downstream_mbps,plan_version.upstream_mbps,
         plan_version.quota_gb::text,plan_version.billing_mode,plan_version.proration_mode,
@@ -1237,6 +1269,8 @@ export async function postSalesOrderFirstInvoice(
         coalesce(addons.purchases,'[]'::jsonb) AS addon_purchases,
         coalesce(usage.used_bytes,0)::text AS used_bytes
       FROM sales_service_orders sales_order
+      JOIN sales_quotes quote ON quote.tenant_id=sales_order.tenant_id
+        AND quote.id=sales_order.quote_id AND quote.status='accepted'
       JOIN sales_order_tasks task ON task.tenant_id=sales_order.tenant_id
         AND task.order_id=sales_order.id AND task.task_key='first_billing'
       JOIN sales_order_tasks network_task ON network_task.tenant_id=sales_order.tenant_id
@@ -1246,6 +1280,11 @@ export async function postSalesOrderFirstInvoice(
         AND installation.sales_order_id=sales_order.id AND installation.status='completed'
       JOIN operations_services service ON service.tenant_id=installation.tenant_id
         AND service.id=installation.service_id AND service.status='active'
+      JOIN operations_subscribers subscriber ON subscriber.tenant_id=service.tenant_id
+        AND subscriber.id=service.subscriber_id
+      JOIN operations_locations location ON location.tenant_id=service.tenant_id
+        AND location.id=service.location_id
+      JOIN operations_plans plan ON plan.tenant_id=service.tenant_id AND plan.id=service.plan_id
       JOIN LATERAL(
         SELECT version.* FROM operations_plan_versions version
         WHERE version.tenant_id=service.tenant_id AND version.plan_id=service.plan_id
@@ -1259,6 +1298,10 @@ export async function postSalesOrderFirstInvoice(
           AND (policy.branch_id=service.branch_id OR policy.branch_id IS NULL)
           AND policy.effective_from<=${input.periodStart}::date
           AND (policy.effective_to IS NULL OR policy.effective_to>${input.periodStart}::date)
+          AND policy.supplier_name_en IS NOT NULL AND policy.supplier_name_ar IS NOT NULL
+          AND policy.supplier_address_en IS NOT NULL AND policy.supplier_address_ar IS NOT NULL
+          AND policy.supplier_tax_registration_number IS NOT NULL
+          AND policy.retention_years IS NOT NULL
         ORDER BY (policy.branch_id IS NOT NULL) DESC,policy.version DESC LIMIT 1
       ) billing_policy ON true
       LEFT JOIN LATERAL(
@@ -1304,17 +1347,23 @@ export async function postSalesOrderFirstInvoice(
       target.fup_policy.mode === 'bill' && target.overage_per_gb_minor
         ? overageGb * safeNonnegativeMinor(target.overage_per_gb_minor)
         : 0;
-    const subtotalMinor = baseAmountMinor + addonAmountMinor + overageAmountMinor;
-    if (!Number.isSafeInteger(subtotalMinor)) throw new RangeError('Rated subtotal is unsafe.');
-    const rawVat = BigInt(subtotalMinor) * BigInt(target.vat_rate_basis_points);
-    const vatMinorBigInt =
-      target.rounding_mode === 'down'
-        ? rawVat / 10_000n
-        : target.rounding_mode === 'up'
-          ? (rawVat + 9_999n) / 10_000n
-          : (rawVat + 5_000n) / 10_000n;
-    const vatMinor = safeNonnegativeMinor(vatMinorBigInt.toString());
-    const amountMinor = subtotalMinor + vatMinor;
+    const grossAmountMinor = baseAmountMinor + addonAmountMinor + overageAmountMinor;
+    if (!Number.isSafeInteger(grossAmountMinor)) throw new RangeError('Rated gross is unsafe.');
+    const discountAmountMinor = roundBasisPoints(
+      grossAmountMinor,
+      target.discount_basis_points,
+      target.rounding_mode,
+    );
+    const subtotalMinor = grossAmountMinor - discountAmountMinor;
+    const vatMinor = roundBasisPoints(
+      subtotalMinor,
+      target.vat_rate_basis_points,
+      target.rounding_mode,
+    );
+    const stampDutyMinor = safeNonnegativeMinor(
+      target.currency === 'USD' ? target.stamp_duty_usd_minor : target.stamp_duty_lbp_minor,
+    );
+    const amountMinor = subtotalMinor + vatMinor + stampDutyMinor;
     if (!Number.isSafeInteger(amountMinor)) throw new RangeError('Rated invoice total is unsafe.');
     const ratingSnapshot = {
       source: 'first_billing',
@@ -1341,6 +1390,52 @@ export async function postSalesOrderFirstInvoice(
       baseAmountMinor,
       addonAmountMinor,
       overageAmountMinor,
+      grossAmountMinor,
+      discountBasisPoints: target.discount_basis_points,
+      discountAmountMinor,
+      taxableAmountMinor: subtotalMinor,
+      vatRateBasisPoints: target.vat_rate_basis_points,
+      vatAmountMinor: vatMinor,
+      stampDutyMinor,
+      totalAmountMinor: amountMinor,
+    };
+    const issuedAt = new Date().toISOString();
+    const legalInvoiceSnapshot = {
+      version: 1,
+      languages: ['ar', 'en'],
+      retentionYears: target.retention_years,
+      supplier: {
+        nameEn: target.supplier_name_en,
+        nameAr: target.supplier_name_ar,
+        addressEn: target.supplier_address_en,
+        addressAr: target.supplier_address_ar,
+        taxRegistrationNumber: target.supplier_tax_registration_number,
+      },
+      recipient: { name: target.recipient_name, address: target.recipient_address },
+      invoice: {
+        serialNumber: input.documentNumber,
+        issuedAt,
+        currency: target.currency,
+      },
+      service: {
+        number: target.service_number,
+        descriptionEn: target.plan_name_en,
+        descriptionAr: target.plan_name_ar,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+      },
+      amounts: {
+        baseMinor: baseAmountMinor,
+        addonsMinor: addonAmountMinor,
+        overageMinor: overageAmountMinor,
+        grossMinor: grossAmountMinor,
+        discountBasisPoints: target.discount_basis_points,
+        discountMinor: discountAmountMinor,
+        taxableMinor: subtotalMinor,
+        stampDutyMinor,
+        totalMinor: amountMinor,
+      },
+      tax: { rateBasisPoints: target.vat_rate_basis_points, amountMinor: vatMinor },
     };
 
     const [existingInvoice] = await transaction.execute<{ readonly id: string }>(sql`
@@ -1391,23 +1486,25 @@ export async function postSalesOrderFirstInvoice(
         tenant_id,document_number,entry_kind,amount_minor,currency,idempotency_key,actor_id,posted_at
       ) VALUES(
         ${tenantId},${input.documentNumber},'posted',${amountMinor},${target.currency},
-        ${input.idempotencyKey},${input.actorId},clock_timestamp()
+        ${input.idempotencyKey},${input.actorId},${issuedAt}::timestamptz
       ) RETURNING id
     `);
     if (!invoice) throw new Error('Unable to post the immutable first invoice.');
     await transaction.execute(sql`
       INSERT INTO operations_invoice_preparations(
-        tenant_id,billing_run_id,service_id,subtotal_minor,vat_rate_basis_points,vat_minor,
+        tenant_id,billing_run_id,service_id,gross_amount_minor,discount_basis_points,
+        discount_amount_minor,subtotal_minor,vat_rate_basis_points,vat_minor,stamp_duty_minor,
         currency,posting_status,finance_invoice_id,branch_id,area_id,route_id,billing_date,
         period_start,period_end,plan_version_id,billing_policy_id,base_amount_minor,
-        addon_amount_minor,overage_amount_minor,rating_snapshot
+        addon_amount_minor,overage_amount_minor,rating_snapshot,legal_invoice_snapshot
       ) VALUES(
-        ${tenantId},${billingRun.id},${target.service_id},${subtotalMinor},
-        ${target.vat_rate_basis_points},${vatMinor},${target.currency},'posted',${invoice.id},
+        ${tenantId},${billingRun.id},${target.service_id},${grossAmountMinor},
+        ${target.discount_basis_points},${discountAmountMinor},${subtotalMinor},
+        ${target.vat_rate_basis_points},${vatMinor},${stampDutyMinor},${target.currency},'posted',${invoice.id},
         ${target.branch_id},${target.area_id},${target.route_id},${input.periodStart}::date,
         ${input.periodStart}::date,${input.periodEnd}::date,${target.plan_version_id},
         ${target.billing_policy_id},${baseAmountMinor},${addonAmountMinor},${overageAmountMinor},
-        ${JSON.stringify(ratingSnapshot)}::jsonb
+        ${JSON.stringify(ratingSnapshot)}::jsonb,${JSON.stringify(legalInvoiceSnapshot)}::jsonb
       )
     `);
     const result = {
@@ -1749,6 +1846,14 @@ interface SalesBillingPolicyRow extends Record<string, unknown> {
   readonly version: number;
   readonly vat_rate_basis_points: number;
   readonly rounding_mode: SalesBillingPolicy['roundingMode'];
+  readonly supplier_name_en: string | null;
+  readonly supplier_name_ar: string | null;
+  readonly supplier_address_en: string | null;
+  readonly supplier_address_ar: string | null;
+  readonly supplier_tax_registration_number: string | null;
+  readonly stamp_duty_usd_minor: string;
+  readonly stamp_duty_lbp_minor: string;
+  readonly retention_years: number | null;
   readonly effective_from: Date | string;
   readonly effective_to: Date | string | null;
 }
@@ -1915,6 +2020,16 @@ function mapBillingPolicy(row: SalesBillingPolicyRow): SalesBillingPolicy {
     version: row.version,
     vatRateBasisPoints: row.vat_rate_basis_points,
     roundingMode: row.rounding_mode,
+    ...(row.supplier_name_en ? { supplierNameEn: row.supplier_name_en } : {}),
+    ...(row.supplier_name_ar ? { supplierNameAr: row.supplier_name_ar } : {}),
+    ...(row.supplier_address_en ? { supplierAddressEn: row.supplier_address_en } : {}),
+    ...(row.supplier_address_ar ? { supplierAddressAr: row.supplier_address_ar } : {}),
+    ...(row.supplier_tax_registration_number
+      ? { supplierTaxRegistrationNumber: row.supplier_tax_registration_number }
+      : {}),
+    stampDutyUsdMinor: safeNonnegativeMinor(row.stamp_duty_usd_minor),
+    stampDutyLbpMinor: safeNonnegativeMinor(row.stamp_duty_lbp_minor),
+    ...(row.retention_years ? { retentionYears: row.retention_years } : {}),
     effectiveFrom: date(row.effective_from),
     ...(row.effective_to ? { effectiveTo: date(row.effective_to) } : {}),
   };
@@ -2027,6 +2142,21 @@ function safeNonnegativeMinor(value: string): number {
   if (!Number.isSafeInteger(converted) || converted < 0)
     throw new RangeError('The tax amount is outside the safe monetary range.');
   return converted;
+}
+
+function roundBasisPoints(
+  amountMinor: number,
+  basisPoints: number,
+  mode: 'half_up' | 'down' | 'up',
+): number {
+  const raw = BigInt(amountMinor) * BigInt(basisPoints);
+  const rounded =
+    mode === 'down'
+      ? raw / 10_000n
+      : mode === 'up'
+        ? (raw + 9_999n) / 10_000n
+        : (raw + 5_000n) / 10_000n;
+  return safeNonnegativeMinor(rounded.toString());
 }
 function digest(value: object, omitted: readonly string[]): string {
   const entries = Object.entries(value)

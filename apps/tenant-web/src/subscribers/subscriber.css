@@ -365,6 +365,117 @@
 .subscriber-ledger p {
   color: var(--color-ink-muted);
 }
+.subscriber-invoices {
+  display: grid;
+  gap: 0.65rem;
+}
+.invoice-document {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.invoice-document summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem;
+  cursor: pointer;
+  list-style: none;
+}
+.invoice-document summary::-webkit-details-marker {
+  display: none;
+}
+.invoice-document summary span {
+  display: grid;
+  gap: 0.2rem;
+}
+.invoice-document summary span:last-child {
+  text-align: end;
+}
+.invoice-document summary small,
+.invoice-document__legacy,
+.invoice-sheet p,
+.invoice-sheet small,
+.invoice-sheet footer {
+  color: var(--color-ink-muted);
+}
+.invoice-sheet {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border-block-start: 1px solid var(--color-border);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 5%, transparent),
+      transparent 45%
+    ),
+    var(--color-surface);
+}
+.invoice-sheet header,
+.invoice-parties {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(12rem, 0.8fr);
+  gap: 1rem;
+}
+.invoice-sheet h3,
+.invoice-sheet p,
+.invoice-sheet dl,
+.invoice-sheet dd {
+  margin: 0;
+}
+.invoice-sheet header > div:first-child,
+.invoice-parties > div {
+  display: grid;
+  gap: 0.25rem;
+}
+.invoice-sheet dl {
+  display: grid;
+  gap: 0.45rem;
+}
+.invoice-sheet dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.invoice-sheet dt,
+.invoice-parties span {
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+}
+.invoice-parties {
+  padding-block: 0.85rem;
+  border-block: 1px solid var(--color-border);
+}
+.invoice-lines {
+  display: grid;
+  gap: 0.4rem;
+  margin-inline-start: auto;
+  inline-size: min(100%, 28rem);
+}
+.invoice-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.3rem;
+}
+.invoice-line--total {
+  margin-block-start: 0.25rem;
+  padding-block-start: 0.75rem;
+  border-block-start: 2px solid var(--color-ink);
+  font-size: var(--text-lg);
+}
+.invoice-sheet footer {
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+.invoice-document__legacy {
+  margin: 0;
+  padding: 0 0.8rem 0.8rem;
+}
 @media (max-width: 1100px) {
   .subscriber-pulse {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -406,5 +517,9 @@
   }
   .service-change-history li {
     flex-direction: column;
+  }
+  .invoice-sheet header,
+  .invoice-parties {
+    grid-template-columns: 1fr;
   }
 }

@@ -192,6 +192,8 @@ export async function prepareRecurringInvoices(
               AND (policy.branch_id = s.branch_id OR policy.branch_id IS NULL)
               AND policy.effective_from <= due.billing_date
               AND (policy.effective_to IS NULL OR policy.effective_to > due.billing_date)
+              AND policy.supplier_tax_registration_number IS NOT NULL
+              AND policy.retention_years IS NOT NULL
           )
         )
     `);
@@ -234,6 +236,8 @@ export async function prepareRecurringInvoices(
             AND (policy.branch_id=s.branch_id OR policy.branch_id IS NULL)
             AND policy.effective_from<=due.billing_date
             AND (policy.effective_to IS NULL OR policy.effective_to>due.billing_date)
+            AND policy.supplier_tax_registration_number IS NOT NULL
+            AND policy.retention_years IS NOT NULL
           ORDER BY (policy.branch_id IS NOT NULL) DESC,policy.version DESC LIMIT 1
         ) bp ON true
         LEFT JOIN LATERAL(
@@ -286,11 +290,13 @@ export async function prepareRecurringInvoices(
         FROM rated
       )
       INSERT INTO operations_invoice_preparations(
-        tenant_id,billing_run_id,service_id,subtotal_minor,vat_rate_basis_points,vat_minor,
+        tenant_id,billing_run_id,service_id,gross_amount_minor,discount_basis_points,
+        discount_amount_minor,subtotal_minor,vat_rate_basis_points,vat_minor,stamp_duty_minor,
         currency,branch_id,area_id,route_id,billing_date,period_start,period_end,
         plan_version_id,billing_policy_id,base_amount_minor,addon_amount_minor,
         overage_amount_minor,rating_snapshot)
       SELECT amounts.tenant_id,${run.id},amounts.service_id,
+        amounts.base_amount_minor+amounts.addon_amount_minor+amounts.overage_amount_minor,0,0,
         amounts.base_amount_minor+amounts.addon_amount_minor+amounts.overage_amount_minor,
         amounts.vat_rate_basis_points,
         CASE amounts.rounding_mode
@@ -300,6 +306,8 @@ export async function prepareRecurringInvoices(
             +amounts.overage_amount_minor)*amounts.vat_rate_basis_points+9999)/10000
           ELSE ((amounts.base_amount_minor+amounts.addon_amount_minor
             +amounts.overage_amount_minor)*amounts.vat_rate_basis_points+5000)/10000 END,
+        CASE amounts.currency WHEN 'USD' THEN amounts.stamp_duty_usd_minor
+          ELSE amounts.stamp_duty_lbp_minor END,
         amounts.currency,amounts.branch_id,amounts.area_id,amounts.route_id,amounts.billing_date,
         ${input.periodStart}::date,${input.periodEnd}::date,amounts.id,amounts.billing_policy_id,
         amounts.base_amount_minor,amounts.addon_amount_minor,amounts.overage_amount_minor,
@@ -318,6 +326,11 @@ export async function prepareRecurringInvoices(
           'baseAmountMinor',amounts.base_amount_minor,
           'addonAmountMinor',amounts.addon_amount_minor,
           'overageAmountMinor',amounts.overage_amount_minor,
+          'grossAmountMinor',amounts.base_amount_minor+amounts.addon_amount_minor
+            +amounts.overage_amount_minor,
+          'discountBasisPoints',0,'discountAmountMinor',0,
+          'stampDutyMinor',CASE amounts.currency WHEN 'USD' THEN amounts.stamp_duty_usd_minor
+            ELSE amounts.stamp_duty_lbp_minor END,
           'currency',amounts.currency,'billingDate',amounts.billing_date
         )
       FROM amounts
@@ -864,10 +877,16 @@ export async function createBillingPolicyVersion(
     const [inserted] = await transaction.execute<{ readonly id: string }>(sql`
       INSERT INTO operations_billing_policies (
         tenant_id, branch_id, version, vat_rate_basis_points, rounding_mode,
+        supplier_name_en,supplier_name_ar,supplier_address_en,supplier_address_ar,
+        supplier_tax_registration_number,stamp_duty_usd_minor,stamp_duty_lbp_minor,retention_years,
         effective_from, effective_to, created_by, idempotency_key
       ) VALUES (
         ${tenantId}, ${input.branchId ?? null}, ${input.version}, ${input.vatRateBasisPoints},
-        ${input.roundingMode}, ${input.effectiveFrom}::date, ${input.effectiveTo ?? null}::date,
+        ${input.roundingMode},${input.supplierNameEn},${input.supplierNameAr},
+        ${input.supplierAddressEn},${input.supplierAddressAr},
+        ${input.supplierTaxRegistrationNumber},${input.stampDutyUsdMinor},
+        ${input.stampDutyLbpMinor},${input.retentionYears},
+        ${input.effectiveFrom}::date, ${input.effectiveTo ?? null}::date,
         ${input.createdBy}, ${input.idempotencyKey}
       )
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
@@ -880,11 +899,22 @@ export async function createBillingPolicyVersion(
       readonly version: number;
       readonly vat_rate_basis_points: number;
       readonly rounding_mode: string;
+      readonly supplier_name_en: string | null;
+      readonly supplier_name_ar: string | null;
+      readonly supplier_address_en: string | null;
+      readonly supplier_address_ar: string | null;
+      readonly supplier_tax_registration_number: string | null;
+      readonly stamp_duty_usd_minor: string;
+      readonly stamp_duty_lbp_minor: string;
+      readonly retention_years: number | null;
       readonly effective_from: Date | string;
       readonly effective_to: Date | string | null;
       readonly created_by: string;
     }>(sql`
       SELECT id, branch_id, version, vat_rate_basis_points, rounding_mode,
+        supplier_name_en,supplier_name_ar,supplier_address_en,supplier_address_ar,
+        supplier_tax_registration_number,stamp_duty_usd_minor::text,stamp_duty_lbp_minor::text,
+        retention_years,
         effective_from, effective_to, created_by
       FROM operations_billing_policies
       WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
@@ -895,6 +925,14 @@ export async function createBillingPolicyVersion(
       existing.version !== input.version ||
       existing.vat_rate_basis_points !== input.vatRateBasisPoints ||
       existing.rounding_mode !== input.roundingMode ||
+      existing.supplier_name_en !== input.supplierNameEn ||
+      existing.supplier_name_ar !== input.supplierNameAr ||
+      existing.supplier_address_en !== input.supplierAddressEn ||
+      existing.supplier_address_ar !== input.supplierAddressAr ||
+      existing.supplier_tax_registration_number !== input.supplierTaxRegistrationNumber ||
+      safeInteger(existing.stamp_duty_usd_minor) !== input.stampDutyUsdMinor ||
+      safeInteger(existing.stamp_duty_lbp_minor) !== input.stampDutyLbpMinor ||
+      existing.retention_years !== input.retentionYears ||
       day(existing.effective_from) !== input.effectiveFrom ||
       (existing.effective_to === null ? undefined : day(existing.effective_to)) !==
         input.effectiveTo ||

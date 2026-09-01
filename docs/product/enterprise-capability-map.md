@@ -152,12 +152,12 @@ builds, migration safety, and a real UI-to-database acceptance path pass.
 
 ## Immediate next tranche
 
-Continue from the proven usage/add-on rating vertical into versioned tax eligibility, stamp and
-discount rules, legal bilingual invoice rendering, recurring-run recovery and an explainable
-dunning lifecycle. Each invoice line, adjustment and collection action must trace to its source
-version and event while preserving explicit USD/LBP amounts, immutable commercial/finance history,
-exact idempotency, scoped authority and bilingual operator guidance. Relocation remains coupled to
-the later field/resource delivery tranche.
+Continue from the proven legally itemized first-invoice vertical into recurring-run recovery and an
+explainable dunning lifecycle. Each invoice line, adjustment and collection action must trace to its
+source version and event while preserving explicit USD/LBP amounts, immutable commercial/finance
+history, exact idempotency, scoped authority and bilingual operator guidance. Tax eligibility and
+PDF/archive verification remain later extensions of the legal-document tranche. Relocation remains
+coupled to the later field/resource delivery tranche.
 
 Production identity activation additionally requires an approved OTP/notification provider.
 Development and test adapters may expose codes only in explicitly non-production environments.

@@ -626,6 +626,42 @@ describe('tenant operations API route plugin', () => {
     await app.close();
   });
 
+  it('publishes an owner-confirmed legal invoice policy without implicit currency conversion', async () => {
+    const { app } = await makeApp(claims, writer);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/billing-policy-versions`,
+      headers: { 'idempotency-key': 'legal-policy-001' },
+      payload: {
+        branchId,
+        version: 2,
+        vatRateBasisPoints: 1100,
+        roundingMode: 'half_up',
+        supplierNameEn: 'Cedar Net SAL',
+        supplierNameAr: 'شركة سيدر نت ش.م.ل.',
+        supplierAddressEn: 'Beirut, Lebanon',
+        supplierAddressAr: 'بيروت، لبنان',
+        supplierTaxRegistrationNumber: 'MOF-10001',
+        stampDutyUsdMinor: 100,
+        stampDutyLbpMinor: 100_000,
+        retentionYears: 10,
+        effectiveFrom: '2026-09-01',
+        reason: 'Owner approved the legal invoice and retention policy.',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(writer.createBillingPolicyVersion).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.invoice.create',
+        supplierTaxRegistrationNumber: 'MOF-10001',
+        stampDutyUsdMinor: 100,
+        stampDutyLbpMinor: 100_000,
+      }),
+    );
+    await app.close();
+  });
+
   it('denies a selected route outside the signed session scope', async () => {
     const { app } = await makeApp(claims, writer);
     const response = await app.inject({

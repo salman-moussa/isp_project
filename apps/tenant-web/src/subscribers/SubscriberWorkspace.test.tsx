@@ -66,6 +66,42 @@ const workspace = {
       outstandingMinor: 13875,
       currency: 'USD',
       postedAt: '2026-08-31T09:05:00.000Z',
+      baseAmountMinor: 12500,
+      addonAmountMinor: 0,
+      overageAmountMinor: 0,
+      grossAmountMinor: 12500,
+      discountBasisPoints: 0,
+      discountAmountMinor: 0,
+      taxableAmountMinor: 12500,
+      vatRateBasisPoints: 1100,
+      vatAmountMinor: 1375,
+      stampDutyMinor: 0,
+      legalInvoice: {
+        version: 1,
+        retentionYears: 10,
+        supplier: {
+          nameEn: 'Cedar Net SAL',
+          nameAr: 'شركة سيدر نت ش.م.ل.',
+          addressEn: 'Beirut, Lebanon',
+          addressAr: 'بيروت، لبنان',
+          taxRegistrationNumber: 'MOF-10001',
+        },
+        recipient: { name: 'Cedar Studio', address: 'Hamra Street, Beirut' },
+        invoice: {
+          serialNumber: 'INV-1001',
+          issuedAt: '2026-08-31T09:05:00.000Z',
+          currency: 'USD',
+        },
+        service: {
+          number: 'SVC-1001',
+          descriptionEn: 'Business Fiber 100',
+          descriptionAr: 'فايبر أعمال ١٠٠',
+          periodStart: '2026-08-31',
+          periodEnd: '2026-09-30',
+        },
+        amounts: {},
+        tax: { rateBasisPoints: 1100, amountMinor: 1375 },
+      },
     },
   ],
   issues: [],
@@ -145,12 +181,15 @@ describe('SubscriberWorkspace', () => {
       <SubscriberWorkspace locale="en" session={session} onNavigate={vi.fn()} />,
     );
     expect(await screen.findAllByText('Cedar Studio')).not.toHaveLength(0);
-    expect(screen.getByText('Business Fiber 100')).toBeVisible();
-    expect(screen.getByText('INV-1001')).toBeVisible();
+    expect(screen.getAllByText('Business Fiber 100')[0]).toBeVisible();
+    expect(screen.getAllByText('INV-1001')[0]).toBeVisible();
     expect(screen.getByText('+9611000000')).toBeVisible();
     expect(screen.getByText('Lifecycle & change history')).toBeVisible();
     expect(screen.getByText('Usage, quota & add-ons')).toBeVisible();
     expect(screen.getByText(/250 GB remaining/)).toBeVisible();
+    await user.click(screen.getAllByText('INV-1001')[0]);
+    expect(screen.getByText('Tax invoice')).toBeVisible();
+    expect(screen.getByText('MOF-10001')).toBeVisible();
     await user.type(screen.getByRole('searchbox'), 'not present');
     expect(screen.getByText('No subscribers match')).toBeVisible();
     expect(

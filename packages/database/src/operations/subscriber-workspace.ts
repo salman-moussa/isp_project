@@ -61,6 +61,17 @@ export interface SubscriberWorkspaceInvoice {
   readonly outstandingMinor: number;
   readonly currency: SupportedCurrency;
   readonly postedAt: string;
+  readonly baseAmountMinor: number;
+  readonly addonAmountMinor: number;
+  readonly overageAmountMinor: number;
+  readonly grossAmountMinor: number;
+  readonly discountBasisPoints: number;
+  readonly discountAmountMinor: number;
+  readonly taxableAmountMinor: number;
+  readonly vatRateBasisPoints: number;
+  readonly vatAmountMinor: number;
+  readonly stampDutyMinor: number;
+  readonly legalInvoice?: Readonly<Record<string, unknown>>;
 }
 
 export interface SubscriberWorkspaceIssue {
@@ -233,6 +244,12 @@ export async function readSubscriberWorkspace(
       transaction.execute<InvoiceRow>(sql`
         SELECT invoice.id,service.subscriber_id,preparation.service_id,invoice.document_number,
           invoice.amount_minor::text,invoice.currency,invoice.posted_at,
+          preparation.base_amount_minor::text,preparation.addon_amount_minor::text,
+          preparation.overage_amount_minor::text,preparation.gross_amount_minor::text,
+          preparation.discount_basis_points,preparation.discount_amount_minor::text,
+          preparation.subtotal_minor::text AS taxable_amount_minor,
+          preparation.vat_rate_basis_points,preparation.vat_minor::text,
+          preparation.stamp_duty_minor::text,preparation.legal_invoice_snapshot,
           coalesce(sum(CASE allocation.entry_kind
             WHEN 'allocation' THEN allocation.amount_minor ELSE -allocation.amount_minor END),0)::text
             AS allocated_minor
@@ -244,7 +261,12 @@ export async function readSubscriberWorkspace(
         LEFT JOIN finance_payment_allocations allocation ON allocation.tenant_id=invoice.tenant_id
           AND allocation.invoice_id=invoice.id
         WHERE preparation.tenant_id=${tenantId} AND preparation.posting_status='posted'
-        GROUP BY invoice.id,service.subscriber_id,preparation.service_id
+        GROUP BY invoice.id,service.subscriber_id,preparation.service_id,
+          preparation.base_amount_minor,preparation.addon_amount_minor,
+          preparation.overage_amount_minor,preparation.gross_amount_minor,
+          preparation.discount_basis_points,preparation.discount_amount_minor,
+          preparation.subtotal_minor,preparation.vat_rate_basis_points,preparation.vat_minor,
+          preparation.stamp_duty_minor,preparation.legal_invoice_snapshot
         ORDER BY invoice.posted_at DESC LIMIT 1000
       `),
       transaction.execute<IssueRow>(sql`
@@ -407,6 +429,17 @@ export async function readSubscriberWorkspace(
           outstandingMinor: Math.max(0, amountMinor - allocatedMinor),
           currency: row.currency,
           postedAt: timestamp(row.posted_at),
+          baseAmountMinor: safeMinor(row.base_amount_minor),
+          addonAmountMinor: safeNonnegativeMinor(row.addon_amount_minor),
+          overageAmountMinor: safeNonnegativeMinor(row.overage_amount_minor),
+          grossAmountMinor: safeMinor(row.gross_amount_minor),
+          discountBasisPoints: row.discount_basis_points,
+          discountAmountMinor: safeNonnegativeMinor(row.discount_amount_minor),
+          taxableAmountMinor: safeMinor(row.taxable_amount_minor),
+          vatRateBasisPoints: row.vat_rate_basis_points,
+          vatAmountMinor: safeNonnegativeMinor(row.vat_minor),
+          stampDutyMinor: safeNonnegativeMinor(row.stamp_duty_minor),
+          ...(row.legal_invoice_snapshot ? { legalInvoice: row.legal_invoice_snapshot } : {}),
         };
       }),
       issues: issues.map((row) => ({
@@ -545,6 +578,17 @@ interface InvoiceRow extends Record<string, unknown> {
   readonly allocated_minor: string;
   readonly currency: SupportedCurrency;
   readonly posted_at: Date | string;
+  readonly base_amount_minor: string;
+  readonly addon_amount_minor: string;
+  readonly overage_amount_minor: string;
+  readonly gross_amount_minor: string;
+  readonly discount_basis_points: number;
+  readonly discount_amount_minor: string;
+  readonly taxable_amount_minor: string;
+  readonly vat_rate_basis_points: number;
+  readonly vat_minor: string;
+  readonly stamp_duty_minor: string;
+  readonly legal_invoice_snapshot: Readonly<Record<string, unknown>> | null;
 }
 interface IssueRow extends Record<string, unknown> {
   readonly id: string;

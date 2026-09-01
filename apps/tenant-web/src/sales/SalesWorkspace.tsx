@@ -724,6 +724,7 @@ function Orders({
           const effectiveBillingPolicies = data.billingPolicies.filter(
             (policy) =>
               activationDate &&
+              policy.supplierTaxRegistrationNumber &&
               (!policy.branchId || policy.branchId === lead?.branchId) &&
               policy.effectiveFrom <= activationDate &&
               (!policy.effectiveTo || policy.effectiveTo > activationDate),
@@ -1270,6 +1271,14 @@ function BillingPolicyPublicationForm({
           version: nextVersion,
           vatRateBasisPoints: Number(formText(form, 'vatRateBasisPoints')),
           roundingMode: formText(form, 'roundingMode'),
+          supplierNameEn: formText(form, 'supplierNameEn'),
+          supplierNameAr: formText(form, 'supplierNameAr'),
+          supplierAddressEn: formText(form, 'supplierAddressEn'),
+          supplierAddressAr: formText(form, 'supplierAddressAr'),
+          supplierTaxRegistrationNumber: formText(form, 'supplierTaxRegistrationNumber'),
+          stampDutyUsdMinor: Math.round(Number(formText(form, 'stampDutyUsd')) * 100),
+          stampDutyLbpMinor: Number(formText(form, 'stampDutyLbp')),
+          retentionYears: Number(formText(form, 'retentionYears')),
           effectiveFrom,
           reason: 'Owner-approved branch billing policy published before first service invoice',
         }).catch(() => undefined);
@@ -1279,13 +1288,47 @@ function BillingPolicyPublicationForm({
         <strong>{isEnglish ? 'Billing policy required' : 'سياسة الفوترة مطلوبة'}</strong>
         <span>
           {isEnglish
-            ? 'Confirm the branch tax rate and rounding rule. Orvex will not invent a legal tax policy.'
-            : 'أكد معدل الضريبة وقاعدة التقريب للفرع. لا تفترض Orvex سياسة ضريبية قانونية.'}
+            ? 'Confirm the legal supplier identity, tax rate, stamp duty, retention and rounding. Orvex will not invent this policy.'
+            : 'أكد هوية المورّد القانونية والضريبة ورسم الطابع والحفظ والتقريب. لا تفترض Orvex هذه السياسة.'}
         </span>
       </div>
       <label>
+        <span>Supplier legal name · English</span>
+        <input name="supplierNameEn" required maxLength={200} />
+      </label>
+      <label>
+        <span>اسم المورّد القانوني · عربي</span>
+        <input name="supplierNameAr" dir="rtl" required maxLength={200} />
+      </label>
+      <label>
+        <span>Supplier address · English</span>
+        <input name="supplierAddressEn" required maxLength={500} />
+      </label>
+      <label>
+        <span>عنوان المورّد · عربي</span>
+        <input name="supplierAddressAr" dir="rtl" required maxLength={500} />
+      </label>
+      <label>
+        <span>
+          {isEnglish ? 'Ministry of Finance registration number' : 'رقم التسجيل لدى وزارة المالية'}
+        </span>
+        <input name="supplierTaxRegistrationNumber" required maxLength={100} />
+      </label>
+      <label>
         <span>{isEnglish ? 'VAT basis points (0–10000)' : 'نقاط أساس الضريبة (٠–١٠٠٠٠)'}</span>
         <input name="vatRateBasisPoints" type="number" min="0" max="10000" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Stamp duty · USD' : 'رسم الطابع · دولار'}</span>
+        <input name="stampDutyUsd" type="number" min="0" step="0.01" defaultValue="0" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Stamp duty · LBP' : 'رسم الطابع · ليرة'}</span>
+        <input name="stampDutyLbp" type="number" min="0" step="1" defaultValue="0" required />
+      </label>
+      <label>
+        <span>{isEnglish ? 'Invoice retention · years' : 'حفظ الفواتير · سنوات'}</span>
+        <input name="retentionYears" type="number" min="1" max="50" defaultValue="10" required />
       </label>
       <label>
         <span>{isEnglish ? 'Rounding rule' : 'قاعدة التقريب'}</span>
