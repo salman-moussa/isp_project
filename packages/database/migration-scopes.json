@@ -48,5 +48,10 @@
   "202609021700_tenant_noc_outages_qos.sql": "tenant",
   "202609021800_tenant_accounting_integrity.sql": "tenant",
   "202609021801_tenant_accounting_owner_scope.sql": "tenant",
-  "202609021802_tenant_accounting_line_denials.sql": "tenant"
+  "202609021802_tenant_accounting_line_denials.sql": "tenant",
+  "202609021803_tenant_financial_source_journals.sql": "tenant",
+  "202609021804_tenant_finance_attribution_classification.sql": "tenant",
+  "202609021805_tenant_accounting_classification.sql": "tenant",
+  "202609021806_tenant_classified_source_reversals.sql": "tenant",
+  "202609021807_tenant_collect_payment_lock.sql": "tenant"
 }

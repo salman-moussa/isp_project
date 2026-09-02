@@ -1,3 +1,4 @@
+import type { CustomerStatementQuery, CustomerStatementResponse } from '@isp/contracts';
 import type {
   CustomerAccountsWorkspace,
   ChartOfAccountRecord,
@@ -909,4 +910,20 @@ export async function readAccountingPeriods(
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Accounting periods');
   return (await response.json()) as readonly AccountingPeriodRecord[];
+}
+export async function readCustomerStatement(
+  session: ApiSession,
+  query: CustomerStatementQuery,
+): Promise<CustomerStatementResponse> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query))
+    if (value !== undefined) params.set(key, String(value));
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/accounting/customer-statement?${params.toString()}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Customer statement');
+  return (await response.json()) as CustomerStatementResponse;
 }

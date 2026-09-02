@@ -446,19 +446,8 @@ async function createPayment(
     readonly currency: 'USD' | 'LBP';
     readonly outstanding_minor: string;
   }>(sql`
-    SELECT assignment.finance_invoice_id AS invoice_id, assignment.currency,
-      (invoice.amount_minor - guard.allocated_minor - guard.credited_minor)::text AS outstanding_minor
-    FROM operations_collector_assignments assignment
-    JOIN finance_invoices invoice ON invoice.tenant_id = assignment.tenant_id AND invoice.id = assignment.finance_invoice_id
-      AND invoice.entry_kind = 'posted'
-    JOIN finance_document_guards guard ON guard.tenant_id = invoice.tenant_id
-      AND guard.document_type = 'invoice' AND guard.document_id = invoice.id AND guard.reversed_at IS NULL
-    WHERE assignment.tenant_id = ${envelope.device.tenantId} AND assignment.id = ${operation.payload.assignmentId}::uuid
-      AND assignment.collector_user_id = ${envelope.device.collectorUserId}::uuid
-      AND assignment.status IN ('assigned','visited','returned')
-      AND NOT EXISTS (SELECT 1 FROM operations_collector_collection_evidence evidence
-        WHERE evidence.tenant_id = assignment.tenant_id AND evidence.assignment_id = assignment.id)
-    FOR UPDATE OF assignment, guard
+    SELECT invoice_id,currency,outstanding_minor
+    FROM collect_lock_payable_assignment(${operation.payload.assignmentId}::uuid)
   `);
   if (!assignment)
     throw new CollectConflictError('The assignment is no longer payable by this collector.');
@@ -475,6 +464,9 @@ async function createPayment(
   const receiptNumber = `COL-${envelope.device.deviceId.slice(0, 8)}-${operation.operationId}`;
   const paymentKey = `collect-payment:${envelope.device.deviceId}:${operation.operationId}`;
   const allocationKey = `collect-allocation:${envelope.device.deviceId}:${operation.operationId}`;
+  await transaction.execute(
+    sql`SELECT set_config('app.finance_action','tenant.payment.post',true)`,
+  );
   const [payment] = await transaction.execute<{ readonly id: string }>(sql`
     INSERT INTO finance_payments (
       tenant_id, receipt_number, entry_kind, amount_minor, currency,
@@ -485,6 +477,9 @@ async function createPayment(
     ) RETURNING id
   `);
   if (!payment) throw new Error('Unable to post the Collect payment.');
+  await transaction.execute(
+    sql`SELECT set_config('app.finance_action','tenant.payment.allocate',true)`,
+  );
   const [allocation] = await transaction.execute<{ readonly id: string }>(sql`
     INSERT INTO finance_payment_allocations (
       tenant_id, payment_id, invoice_id, entry_kind, amount_minor, currency,
@@ -627,7 +622,7 @@ async function assertDevice(
   device: CollectDeviceIdentity,
   lock = false,
 ): Promise<void> {
-  const lockClause = lock ? sql`FOR SHARE` : sql``;
+  const lockClause = lock ? sql`FOR SHARE OF d` : sql``;
   const [current] = await transaction.execute<{ readonly valid: boolean }>(sql`
     SELECT true AS valid FROM collect_devices d
     JOIN tenant_memberships membership ON membership.tenant_id = d.tenant_id
@@ -635,9 +630,11 @@ async function assertDevice(
       AND membership.role_key = 'collector'
       AND membership.permissions @> ARRAY['tenant.collection.view','tenant.payment.post']::text[]
     JOIN users identity ON identity.id = d.collector_user_id AND identity.disabled_at IS NULL
-    JOIN sessions source_session ON source_session.id = d.source_session_id
-      AND source_session.user_id = d.collector_user_id AND source_session.revoked_at IS NULL
-      AND source_session.expires_at > clock_timestamp()
+    -- Control-plane session liveness is checked by CollectApiService before issuing this
+    -- short-lived attestation. Tenant-plane legacy sessions are not the source of truth.
+    JOIN operations_current_context() context ON context.tenant_id=d.tenant_id
+      AND context.actor_id=d.collector_user_id::text
+      AND context.session_id=d.source_session_id::text AND context.support_grant_id IS NULL
     WHERE d.id = ${device.deviceId}::uuid AND d.tenant_id = ${device.tenantId}
       AND d.collector_user_id = ${device.collectorUserId}::uuid
       AND d.status = 'active' AND d.access_expires_at > clock_timestamp()
@@ -681,7 +678,7 @@ async function currentAssignments(
       AND location.id = subscriber.primary_location_id
     JOIN finance_invoices invoice ON invoice.tenant_id = assignment.tenant_id
       AND invoice.id = assignment.finance_invoice_id AND invoice.entry_kind = 'posted'
-    JOIN finance_document_guards guard ON guard.tenant_id = invoice.tenant_id
+    JOIN operations_finance_balances() guard ON guard.tenant_id = invoice.tenant_id
       AND guard.document_type = 'invoice' AND guard.document_id = invoice.id AND guard.reversed_at IS NULL
     WHERE assignment.tenant_id = ${device.tenantId}
       AND assignment.collector_user_id = ${device.collectorUserId}::uuid

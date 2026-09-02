@@ -49,6 +49,13 @@ if (!adminUrl || !runtimeUrl || !networkWorkerUrl) {
   process.exit(0);
 }
 
+for (const url of [adminUrl, runtimeUrl, networkWorkerUrl]) {
+  const target = new URL(url);
+  assert(
+    ['localhost', '127.0.0.1'].includes(target.hostname) && target.pathname === '/isp_test',
+    'Synthetic sales acceptance is restricted to local isp_test.',
+  );
+}
 const admin = postgres(adminUrl, { max: 2, prepare: false });
 const runtime = createDatabase(runtimeUrl);
 const networkWorker = postgres(networkWorkerUrl, { max: 1, prepare: false });
@@ -534,38 +541,42 @@ try {
   assert.equal(activationReplay.replayed, true);
   assert.equal(activationReplay.outboxId, activation.outboxId);
 
-  const [claimed] = await networkWorker`SELECT * FROM network_worker.claim_job(
+  await admin.begin(async (isolation) => {
+    // Keep other local fixtures untouched; the worker's SKIP LOCKED claim sees this tenant only.
+    await isolation`SELECT job_id FROM network_worker.jobs WHERE tenant_id<>${tenantId} FOR UPDATE`;
+    const [claimed] = await networkWorker`SELECT * FROM network_worker.claim_job(
     'sales-live-worker',clock_timestamp(),60000
   )`;
-  assert(claimed?.job && claimed.lease_token, 'the durable activation job must be claimable');
-  const completedAt = new Date().toISOString();
-  const succeededJob = {
-    ...(claimed.job as Record<string, unknown>),
-    state: 'succeeded',
-    availableAt: completedAt,
-    attempts: [
-      {
-        attempt: 1,
-        startedAt: completedAt,
-        finishedAt: completedAt,
-        outcome: {
-          classification: 'definite_success',
-          requestId: (claimed.job as { request: { requestId: string } }).request.requestId,
-          observed: {
-            accountName: 'subscriber-live-test',
-            enabled: true,
-            profileId: 'profile-business-fiber-100',
-            ipAssignment: { mode: 'dynamic', poolId: 'pool-live-test' },
+    assert(claimed?.job && claimed.lease_token, 'the durable activation job must be claimable');
+    const completedAt = new Date().toISOString();
+    const succeededJob = {
+      ...(claimed.job as Record<string, unknown>),
+      state: 'succeeded',
+      availableAt: completedAt,
+      attempts: [
+        {
+          attempt: 1,
+          startedAt: completedAt,
+          finishedAt: completedAt,
+          outcome: {
+            classification: 'definite_success',
+            requestId: (claimed.job as { request: { requestId: string } }).request.requestId,
+            observed: {
+              accountName: 'subscriber-live-test',
+              enabled: true,
+              profileId: 'profile-business-fiber-100',
+              ipAssignment: { mode: 'dynamic', poolId: 'pool-live-test' },
+            },
+            latencyMs: 3,
           },
-          latencyMs: 3,
         },
-      },
-    ],
-  };
-  const [saved] = await networkWorker`SELECT network_worker.save_job(
+      ],
+    };
+    const [saved] = await networkWorker`SELECT network_worker.save_job(
     'sales-live-worker',${claimed.lease_token}::uuid,${networkWorker.json(succeededJob)}::jsonb
   ) AS saved`;
-  assert.equal(saved?.saved, true);
+    assert.equal(saved?.saved, true);
+  });
 
   const workspace = await readSalesWorkspace(runtime.db, tenantId, {
     authorization: authorization(

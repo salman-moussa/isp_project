@@ -111,10 +111,16 @@ export async function readJournalEntries(
       status: 'posted' | 'reversed';
       posted_at: Date | string;
       posted_by: string;
+      classification_required: boolean;
     }>(sql`
       SELECT id, entry_number, entry_date::text, description_en, description_ar,
-             source_type, source_id, status, posted_at, posted_by
-      FROM operations_journal_entries
+             source_type, source_id, status, posted_at, posted_by,
+             classification_required AND reverses_journal_id IS NULL
+               AND NOT EXISTS(SELECT 1 FROM operations_accounting_classifications c
+                 WHERE c.tenant_id=j.tenant_id AND c.source_journal_id=j.id)
+               AND NOT EXISTS(SELECT 1 FROM operations_journal_entries r
+                 WHERE r.tenant_id=j.tenant_id AND r.reverses_journal_id=j.id) AS classification_required
+      FROM operations_journal_entries j
       WHERE tenant_id = ${tenantId}
       ORDER BY posted_at DESC, id DESC
       LIMIT 100
@@ -153,6 +159,7 @@ export async function readJournalEntries(
         status: e.status,
         postedAt: typeof e.posted_at === 'string' ? e.posted_at : e.posted_at.toISOString(),
         postedBy: e.posted_by,
+        classificationRequired: e.classification_required,
         lines: lines.map((l) => ({
           id: l.id,
           accountId: l.account_id,
@@ -373,17 +380,20 @@ export async function readTrialBalance(
       has_legacy: boolean;
       has_unjournaled: boolean;
       has_unjournaled_sources: boolean;
+      has_unclassified: boolean;
     }>(sql`
       SELECT EXISTS(SELECT 1 FROM operations_journal_entries WHERE tenant_id=${tenantId}
         AND entry_date<=${date}::date AND posting_version='legacy') AS has_legacy,
         accounting_has_unjournaled_invoices(${tenantId},${date}::date) AS has_unjournaled,
-        accounting_has_unjournaled_sources(${tenantId},${date}::date) AS has_unjournaled_sources
+        accounting_has_unjournaled_sources(${tenantId},${date}::date) AS has_unjournaled_sources,
+        accounting_has_unclassified_entries(${tenantId},${date}::date) AS has_unclassified
     `);
     return {
       asOfDate: date,
       coverage: {
         hasLegacyEntries: coverage!.has_legacy,
         hasUnjournaledSources: coverage!.has_unjournaled_sources,
+        hasUnclassifiedEntries: coverage!.has_unclassified,
         hasUnjournaledInvoices: coverage!.has_unjournaled,
       },
       accounts,

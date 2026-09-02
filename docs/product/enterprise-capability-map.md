@@ -6,11 +6,13 @@ Market focus: Lebanese fixed, wireless, fiber, reseller, and mixed-access ISPs
 
 ## Latest accounting implementation boundary — 2026-09-02
 
-The [accounting integrity checkpoint](../testing/accounting-integrity-2026-09-02.md) repairs
-customer-entry auto-journals, statement/trial reads and misleading UI samples. It is local,
-**partial** evidence, not full-product or production acceptance. Invoice/payment posting coverage,
-legacy reconciliation and all-writer close coordination remain implementation gates. Operational
-warehouse/NOC/RADIUS execution and mobile hardware acceptance remain separate unfinished work.
+The [accounting integrity checkpoint](../testing/accounting-integrity-2026-09-02.md) and subsequent
+[financial-source checkpoint](../testing/financial-source-journals-2026-09-02.md) provide signed,
+atomic source journals, explicit clearing classification, all-writer date guards and bilingual
+manual-journal/period-close/statement forms. This is **partial local evidence**, not production or
+full-product acceptance. Legacy reconciliation, chart administration, journal pagination and
+AR/AP/treasury remain unfinished. Warehouse/NOC/RADIUS execution and mobile hardware acceptance are
+separate unfinished work.
 
 ## Objective
 
@@ -102,7 +104,7 @@ No capability in this expansion is marked `verified` until its release evidence 
 | NOC and service assurance            | Discovery, topology, polling/streaming telemetry, alarms, dedup/correlation, maintenance, outages, impacted services, escalation, status timeline, RCA/problem/change                 | `missing`                         | Device/link alarm produces an impact-scoped incident, communication tasks, SLA clock, recovery evidence, and RCA.          |
 | Capacity and upstream management     | Ogero/upstream circuits, transit/peering, committed/burst capacity, utilization, cost, SLA, renewals, guarantees, upgrade forecasts, POP/sector/OLT saturation                        | `missing`                         | Capacity risks and commercial renewal obligations are visible before customer impact.                                      |
 | Billing and rating                   | Prepaid/postpaid cycles, recurrence, proration, quota/usage, top-ups, overage, FUP/capping, fees, VAT/stamp configuration, discounts, credits, deposits, dunning                      | `partial`                         | Rated service usage produces exact, itemized, immutable, legally configured invoices and balance by currency.              |
-| Accounting and treasury              | Chart of accounts, journals, AR/AP, cashboxes, banks, deposits, expenses, vendors, tax, period close, trial balance, P&L, balance sheet, cash flow, budgets                           | `missing`                         | Operational billing and payments reconcile into controlled double-entry books and period close.                            |
+| Accounting and treasury              | Chart of accounts, journals, AR/AP, cashboxes, banks, deposits, expenses, vendors, tax, period close, trial balance, P&L, balance sheet, cash flow, budgets                           | `partial`                         | Operational billing and payments reconcile into controlled double-entry books and period close.                            |
 | Revenue assurance and fraud          | Billed-vs-active, usage-vs-rating, payment allocation, duplicate/gap detection, unauthorized service, collector variance, voucher/dealer exposure, leakage cases                      | `partial`                         | Daily controls create assigned cases with measurable financial exposure and closure evidence.                              |
 | Payments and cash channels           | Office/collector cash, card/POS, bank, domiciliation, transfer, OMT, Whish, LibanPost/Cash United adapters, proof, settlement, chargeback/refund, reconciliation                      | `partial` / `activation_required` | Each configured channel posts once and reconciles provider settlement, fees, currency, cashbox, and bank deposit.          |
 | Dealer/reseller and vouchers         | Dealer hierarchy, POS users, commission, credit limit, stock, PIN/voucher batches, activation, top-up, settlement, fraud controls, territory                                          | `missing`                         | Dealer sale/top-up is atomic, traceable, limited, reconciled, and commissionable.                                          |

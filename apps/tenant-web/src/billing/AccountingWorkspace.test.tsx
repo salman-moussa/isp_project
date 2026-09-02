@@ -30,6 +30,7 @@ beforeEach(() => {
     totalDebitLbp: 0,
     totalCreditLbp: 0,
     coverage: {
+      hasUnclassifiedEntries: false,
       hasUnjournaledSources: false,
       hasLegacyEntries: false,
       hasUnjournaledInvoices: false,

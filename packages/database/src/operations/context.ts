@@ -42,6 +42,7 @@ export async function inOperationsTransaction<T>(
       // Finance tables still use the legacy tenant GUC. Set it only after the signed Operations
       // tenant has been verified; Operations RLS itself never trusts this value.
       await transaction.execute(sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
+      await transaction.execute(sql`SELECT accounting_lock_financial_request()`);
       return work(transaction);
     });
   } catch (error) {

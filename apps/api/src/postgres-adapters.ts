@@ -1,4 +1,5 @@
 import {
+  signOperationsAttestation,
   appendAuditEvent,
   appendSecurityEvent,
   allocatePayment,
@@ -167,29 +168,58 @@ export class PostgresTenantStaffRepository implements TenantStaffRepository {
 }
 
 export class PostgresFinanceWriter implements FinanceWriter {
-  public constructor(private readonly database: Database) {}
+  public constructor(
+    private readonly database: Database,
+    private readonly authority: { readonly keyId: string; readonly secret: Uint8Array },
+  ) {}
+
+  private authorize<
+    T extends
+      | FinanceDocumentWrite
+      | FinanceDocumentReversal
+      | FinanceAllocationWrite
+      | FinanceAllocationReversal,
+  >(tenantId: VerifiedTenantId, input: T) {
+    const { permission, ...audit } = input.audit;
+    if (!permissionSet.has(permission)) throw new Error('Unknown finance permission.');
+    return {
+      ...input,
+      authorization: signOperationsAttestation(
+        {
+          ...audit,
+          permission: permission as Permission,
+          keyId: this.authority.keyId,
+          tenantId,
+          actorId: input.actorId,
+          idempotencyKey: input.idempotencyKey,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+        this.authority.secret,
+      ),
+    };
+  }
 
   public postInvoice(tenantId: VerifiedTenantId, input: FinanceDocumentWrite) {
-    return postInvoice(this.database, tenantId, input);
+    return postInvoice(this.database, tenantId, this.authorize(tenantId, input));
   }
 
   public reverseInvoice(tenantId: VerifiedTenantId, input: FinanceDocumentReversal) {
-    return reverseInvoice(this.database, tenantId, input);
+    return reverseInvoice(this.database, tenantId, this.authorize(tenantId, input));
   }
 
   public postPayment(tenantId: VerifiedTenantId, input: FinanceDocumentWrite) {
-    return postPayment(this.database, tenantId, input);
+    return postPayment(this.database, tenantId, this.authorize(tenantId, input));
   }
 
   public reversePayment(tenantId: VerifiedTenantId, input: FinanceDocumentReversal) {
-    return reversePayment(this.database, tenantId, input);
+    return reversePayment(this.database, tenantId, this.authorize(tenantId, input));
   }
 
   public allocate(tenantId: VerifiedTenantId, input: FinanceAllocationWrite) {
-    return allocatePayment(this.database, tenantId, input);
+    return allocatePayment(this.database, tenantId, this.authorize(tenantId, input));
   }
 
   public reverseAllocation(tenantId: VerifiedTenantId, input: FinanceAllocationReversal) {
-    return reverseAllocation(this.database, tenantId, input);
+    return reverseAllocation(this.database, tenantId, this.authorize(tenantId, input));
   }
 }
