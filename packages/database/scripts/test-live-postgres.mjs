@@ -168,15 +168,38 @@ try {
            relation.relforcerowsecurity AS force_row_security,
            count(policy.policyname)::int AS policy_count,
            bool_or(
-             policy.cmd = 'ALL'
+             policy.cmd IN ('SELECT', 'ALL')
              AND 'public' = ANY(policy.roles)
              AND policy.qual IS NOT NULL
-             AND policy.with_check IS NOT NULL
-           ) AS has_complete_public_policy,
+           ) AS has_filtered_public_read_policy,
+           bool_or(
+             policy.cmd IN ('INSERT', 'ALL')
+             AND 'public' = ANY(policy.roles)
+             AND coalesce(policy.with_check, policy.qual) IS NOT NULL
+           ) AS has_checked_public_insert_policy,
+           bool_or(
+             policy.cmd IN ('UPDATE', 'ALL')
+             AND 'public' = ANY(policy.roles)
+             AND policy.qual IS NOT NULL
+             AND coalesce(policy.with_check, policy.qual) IS NOT NULL
+           ) AS has_checked_public_update_policy,
+           bool_or(
+             policy.cmd IN ('DELETE', 'ALL')
+             AND 'public' = ANY(policy.roles)
+             AND policy.qual IS NOT NULL
+           ) AS has_filtered_public_delete_policy,
            has_table_privilege(
-             'orvex_runtime', format('%I.%I', namespace.nspname, relation.relname),
-             'SELECT,INSERT,UPDATE,DELETE'
-           ) AS tenant_runtime_has_dml
+             'orvex_runtime', format('%I.%I', namespace.nspname, relation.relname), 'SELECT'
+           ) AS tenant_runtime_can_select,
+           has_table_privilege(
+             'orvex_runtime', format('%I.%I', namespace.nspname, relation.relname), 'INSERT'
+           ) AS tenant_runtime_can_insert,
+           has_table_privilege(
+             'orvex_runtime', format('%I.%I', namespace.nspname, relation.relname), 'UPDATE'
+           ) AS tenant_runtime_can_update,
+           has_table_privilege(
+             'orvex_runtime', format('%I.%I', namespace.nspname, relation.relname), 'DELETE'
+           ) AS tenant_runtime_can_delete
     FROM pg_class relation
     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
     JOIN pg_attribute attribute
@@ -192,10 +215,15 @@ try {
   `;
   assert(tenantScopedTables.length > 0, 'Expected tenant-scoped tables in the migrated schema');
   for (const table of tenantScopedTables) {
+    const runtimeHasAccess =
+      table.tenant_runtime_can_select ||
+      table.tenant_runtime_can_insert ||
+      table.tenant_runtime_can_update ||
+      table.tenant_runtime_can_delete;
     if (!table.row_security) {
       assert(
-        !table.tenant_runtime_has_dml,
-        `${table.relation_name} without forced RLS must remain inaccessible to the tenant runtime role`,
+        !runtimeHasAccess,
+        `${table.relation_name} without RLS must remain inaccessible to the tenant runtime role`,
       );
       continue;
     }
@@ -205,16 +233,32 @@ try {
         continue;
       }
       assert(
-        !table.tenant_runtime_has_dml,
+        !runtimeHasAccess,
         `${table.relation_name} without forced RLS must remain inaccessible to the tenant runtime role`,
       );
       continue;
     }
     assert(table.policy_count > 0, `${table.relation_name} must define an RLS policy`);
-    assert(
-      table.has_complete_public_policy,
-      `${table.relation_name} must apply tenant filtering and write checks to every command`,
-    );
+    if (table.tenant_runtime_can_select)
+      assert(
+        table.has_filtered_public_read_policy,
+        `${table.relation_name} must tenant-filter runtime reads`,
+      );
+    if (table.tenant_runtime_can_insert)
+      assert(
+        table.has_checked_public_insert_policy,
+        `${table.relation_name} must tenant-check runtime inserts`,
+      );
+    if (table.tenant_runtime_can_update)
+      assert(
+        table.has_checked_public_update_policy,
+        `${table.relation_name} must tenant-filter and tenant-check runtime updates`,
+      );
+    if (table.tenant_runtime_can_delete)
+      assert(
+        table.has_filtered_public_delete_policy,
+        `${table.relation_name} must tenant-filter runtime deletes`,
+      );
   }
 
   await migrator.begin(async (transaction) => {
@@ -517,7 +561,8 @@ try {
   });
   assert(ownDelete.length === 1, 'Same-tenant DELETE should succeed');
 
-  await runtime.begin(async (transaction) => {
+  await migrator.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
     await transaction`SELECT set_config('app.tenant_id', ${tenantA}, true)`;
     await transaction`
       INSERT INTO audit_events (tenant_id, action, resource_type, request_id, result)
@@ -541,10 +586,13 @@ try {
     );
   }
 
-  await runtime`
-    INSERT INTO security_events (action, reason, request_id, ip_address)
-    VALUES ('live-security-test', 'denied', ${randomUUID()}, '127.0.0.1')
-  `;
+  await migrator.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+    await transaction`
+      INSERT INTO security_events (action, reason, request_id, ip_address)
+      VALUES ('live-security-test', 'denied', ${randomUUID()}, '127.0.0.1')
+    `;
+  });
 
   for (const [description, statement] of [
     ['runtime security-event SELECT', 'SELECT * FROM security_events'],

@@ -1,5 +1,5 @@
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
-import { assertPermission, assertTenantContext } from '@isp/domain';
+import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AuditWriter } from '../audit.js';
@@ -416,6 +416,9 @@ async function authorizeMutation(
 ) {
   try {
     const context = assertTenantContext(request.auth, requestedTenantId, options.now());
+    if (context.supportGrantId) {
+      throw new AuthorizationDeniedError('Support grants cannot mutate tenant financial records.');
+    }
     assertPermission(request.auth, definition.permission);
     return context;
   } catch (error) {

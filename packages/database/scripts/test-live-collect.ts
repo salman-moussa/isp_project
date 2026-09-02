@@ -10,8 +10,15 @@ import {
 import { signOperationsAttestation } from '../src/operations/index.js';
 import type { VerifiedTenantId } from '@isp/contracts';
 
-const migrationUrl = required('COLLECT_TEST_MIGRATION_URL');
-const runtimeUrl = required('COLLECT_TEST_RUNTIME_URL');
+const migrationUrl = process.env.COLLECT_TEST_MIGRATION_URL;
+const runtimeUrl = process.env.COLLECT_TEST_RUNTIME_URL;
+if (!migrationUrl || !runtimeUrl) {
+  if (process.env.ORVEX_REQUIRE_LIVE_POSTGRES === '1') {
+    throw new Error('Collect integration requires migration and runtime database URLs.');
+  }
+  console.log('Collect integration skipped: live PostgreSQL URLs are not configured.');
+  process.exit(0);
+}
 const owner = postgres(migrationUrl, { max: 1, prepare: false });
 const runtime = createDatabase(runtimeUrl);
 const tenantId = randomUUID() as VerifiedTenantId;
@@ -107,10 +114,4 @@ try {
 
 function digest(value: string): Uint8Array {
   return createHash('sha256').update(value, 'utf8').digest();
-}
-
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required.`);
-  return value;
 }

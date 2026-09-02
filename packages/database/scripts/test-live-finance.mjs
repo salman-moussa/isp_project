@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { migrate } from './migrate.mjs';
 
@@ -31,7 +31,11 @@ const runtimeTwo = postgres(runtimeUrl, {
 });
 const tenantA = randomUUID();
 const tenantB = randomUUID();
+const actorA = randomUUID();
+const actorB = randomUUID();
 const at = new Date('2026-08-11T10:00:00.000Z');
+const contextKeyId = `finance-live-${randomUUID()}`;
+const contextSecret = randomBytes(32);
 
 try {
   await admin.begin(async (transaction) => {
@@ -41,6 +45,16 @@ try {
       VALUES
         (${tenantA}, ${`finance-a-${tenantA}`}, 'Finance A', 'Finance A SAL'),
         (${tenantB}, ${`finance-b-${tenantB}`}, 'Finance B', 'Finance B SAL')
+    `;
+    await transaction`
+      INSERT INTO users (id, account_kind, email, display_name, password_hash)
+      VALUES
+        (${actorA}, 'tenant', ${actorA + '@finance.test'}, 'Finance actor A', 'not-a-login'),
+        (${actorB}, 'tenant', ${actorB + '@finance.test'}, 'Finance actor B', 'not-a-login')
+    `;
+    await transaction`
+      INSERT INTO operations_context_keys (key_id, secret, active_from)
+      VALUES (${contextKeyId}, ${contextSecret}, clock_timestamp() - interval '1 minute')
     `;
   });
 
@@ -54,7 +68,7 @@ try {
       (transaction) => transaction`
       INSERT INTO finance_invoices
         (tenant_id, document_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
-      VALUES (${tenantA}, 'CROSS-TENANT', 1, 'USD', 'cross-tenant-key', 'actor-b', ${at})
+      VALUES (${tenantA}, 'CROSS-TENANT', 1, 'USD', 'cross-tenant-key', ${actorB}, ${at})
     `,
     ),
   );
@@ -126,11 +140,11 @@ try {
       (transaction) => transaction`
       INSERT INTO finance_invoices
         (tenant_id, document_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
-      VALUES (${tenantA}, 'INV-100', 100, 'USD', 'invoice-key-100', 'changed-actor', ${at})
+      VALUES (${tenantA}, 'INV-100', 100, 'USD', 'invoice-key-100', ${actorB}, ${at})
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
     `,
     ),
-    /idempotency key belongs to a different invoice operation/,
+    /financial posting requires signed tenant actor context/,
   );
   await assert.rejects(
     tenantTransaction(
@@ -139,7 +153,7 @@ try {
       (transaction) => transaction`
       INSERT INTO finance_invoices
         (tenant_id, document_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
-      VALUES (${tenantA}, 'INV-100', 100, 'USD', 'invoice-key-100', 'actor-a',
+      VALUES (${tenantA}, 'INV-100', 100, 'USD', 'invoice-key-100', ${actorA},
         ${new Date('2026-08-11T10:00:01.000Z')})
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
     `,
@@ -325,6 +339,11 @@ try {
 
   console.log('Finance integration passed: RLS, immutability, currency, idempotency, and races.');
 } finally {
+  await admin
+    .unsafe('UPDATE operations_context_keys SET active_until=clock_timestamp() WHERE key_id=$1', [
+      contextKeyId,
+    ])
+    .catch(() => undefined);
   await Promise.all([
     admin.end({ timeout: 5 }),
     runtimeOne.end({ timeout: 5 }),
@@ -334,20 +353,63 @@ try {
 
 async function tenantTransaction(client, tenantId, work, action = 'tenant.invoice.post') {
   return client.begin(async (transaction) => {
+    const sessionId = randomUUID();
+    const requestId = randomUUID();
+    const permission =
+      action === 'tenant.payment.allocate'
+        ? 'tenant.payment.post'
+        : action === 'tenant.payment.allocation.reverse'
+          ? 'tenant.payment.reverse'
+          : action;
+    const attestationText = stableJson({
+      keyId: contextKeyId,
+      tenantId,
+      actorId: actorA,
+      sessionId,
+      permission,
+      action,
+      requestId,
+      ipAddress: '127.0.0.1',
+      userAgent: 'orvex-finance-live-test/1.0',
+      reason: 'Deterministic live finance integration test',
+      idempotencyKey: 'finance-context-' + randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const signature = createHmac('sha256', contextSecret)
+      .update(attestationText, 'utf8')
+      .digest('hex');
     await transaction`
       SELECT
+        begin_operations_request_context(${attestationText}, ${signature}),
         set_config('app.tenant_id', ${tenantId}, true),
-        set_config('app.finance_actor_id', 'actor-a', true),
-        set_config('app.finance_session_id', ${randomUUID()}, true),
-        set_config('app.finance_request_id', ${randomUUID()}, true),
+        set_config('app.finance_actor_id', ${actorA}, true),
+        set_config('app.finance_session_id', ${sessionId}, true),
+        set_config('app.finance_request_id', ${requestId}, true),
         set_config('app.finance_ip_address', '127.0.0.1', true),
         set_config('app.finance_user_agent', 'orvex-finance-live-test/1.0', true),
-        set_config('app.finance_permission', ${action}, true),
+        set_config('app.finance_permission', ${permission}, true),
         set_config('app.finance_reason', 'Deterministic live finance integration test', true),
         set_config('app.finance_action', ${action}, true)
     `;
+    await transaction`SELECT accounting_lock_financial_request()`;
     return work(transaction);
   });
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+  if (value !== null && typeof value === 'object') {
+    return (
+      '{' +
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => JSON.stringify(key) + ':' + stableJson(item))
+        .join(',') +
+      '}'
+    );
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 async function postInvoice(client, tenantId, number, amount, currency, key) {
@@ -355,7 +417,7 @@ async function postInvoice(client, tenantId, number, amount, currency, key) {
     const [row] = await transaction`
       INSERT INTO finance_invoices
         (tenant_id, document_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
-      VALUES (${tenantId}, ${number}, ${amount}, ${currency}, ${key}, 'actor-a', ${at})
+      VALUES (${tenantId}, ${number}, ${amount}, ${currency}, ${key}, ${actorA}, ${at})
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING *
     `;
     return row;
@@ -370,7 +432,7 @@ async function postPayment(client, tenantId, number, amount, currency, key) {
       const [row] = await transaction`
       INSERT INTO finance_payments
         (tenant_id, receipt_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
-      VALUES (${tenantId}, ${number}, ${amount}, ${currency}, ${key}, 'actor-a', ${at})
+      VALUES (${tenantId}, ${number}, ${amount}, ${currency}, ${key}, ${actorA}, ${at})
       RETURNING *
     `;
       return row;
@@ -411,7 +473,7 @@ async function insertAllocation(
   return transaction`
     INSERT INTO finance_payment_allocations
       (tenant_id, invoice_id, payment_id, amount_minor, currency, idempotency_key, actor_id, posted_at)
-    VALUES (${tenantId}, ${invoiceId}, ${paymentId}, ${amount}, ${currency}, ${key}, 'actor-a', ${at})
+    VALUES (${tenantId}, ${invoiceId}, ${paymentId}, ${amount}, ${currency}, ${key}, ${actorA}, ${at})
     RETURNING *
   `;
 }
@@ -430,7 +492,7 @@ async function insertInvoiceReversal(transaction, tenantId, invoiceId, number, a
     INSERT INTO finance_invoices
       (tenant_id, document_number, entry_kind, reverses_invoice_id, amount_minor, currency,
        idempotency_key, actor_id, posted_at)
-    VALUES (${tenantId}, ${number}, 'reversal', ${invoiceId}, ${amount}, 'USD', ${key}, 'actor-a', ${at})
+    VALUES (${tenantId}, ${number}, 'reversal', ${invoiceId}, ${amount}, 'USD', ${key}, ${actorA}, ${at})
     RETURNING *
   `;
 }
@@ -453,7 +515,7 @@ async function reverseAllocation(
       (tenant_id, invoice_id, payment_id, entry_kind, reverses_allocation_id, amount_minor,
        currency, idempotency_key, actor_id, posted_at)
     VALUES (${tenantId}, ${invoiceId}, ${paymentId}, 'reversal', ${allocationId}, ${amount},
-      ${currency}, ${key}, 'actor-a', ${at})
+      ${currency}, ${key}, ${actorA}, ${at})
     RETURNING *
   `,
     'tenant.payment.allocation.reverse',

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { SessionClaims, VerifiedTenantId } from '@isp/contracts';
 import postgres from 'postgres';
 import { buildApp } from '../../../apps/api/src/app.js';
@@ -10,9 +10,9 @@ import {
   deliverFinanceAuditEvent,
   drainFinanceAuditOutbox,
   listFinanceAuditRelayTenants,
-  postInvoice,
   readFinanceAuditBacklog,
   readPendingFinanceAuditOutbox,
+  signOperationsAttestation,
 } from '../src/index.js';
 import { assertTenantDatabaseReady } from '../../../apps/api/src/readiness.js';
 import { migrate } from './migrate.mjs';
@@ -55,6 +55,13 @@ const tenantRelayStore = createDatabase(tenantRelayUrl);
 const controlStore = createDatabase(controlRelayUrl);
 const tenantId = randomUUID() as VerifiedTenantId;
 const actorId = randomUUID();
+const supportActorId = randomUUID();
+const contextKeyId = 'finance-outbox-' + randomUUID();
+const contextSecret = randomBytes(32);
+const financeWriter = new PostgresFinanceWriter(tenantStore.db, {
+  keyId: contextKeyId,
+  secret: contextSecret,
+});
 const now = new Date('2026-08-11T12:00:00.000Z');
 
 try {
@@ -65,13 +72,21 @@ try {
         INSERT INTO tenants (id, code, brand_name, legal_name)
         VALUES (${tenantId}, ${`outbox-${tenantId}`}, 'Outbox ISP', 'Outbox ISP SAL')
       `;
+      await transaction`
+        INSERT INTO users (id, account_kind, email, display_name, password_hash)
+        VALUES
+          (${actorId}, 'tenant', ${actorId + '@finance-outbox.test'},
+            'Finance outbox actor', 'not-a-login'),
+          (${supportActorId}, 'platform', ${supportActorId + '@finance-outbox.test'},
+            'Finance support actor', 'not-a-login')
+      `;
     });
   }
   await tenantAdmin.begin(async (transaction) => {
     await transaction.unsafe('SET LOCAL ROLE orvex_owner');
     await transaction`
       INSERT INTO operations_context_keys(key_id, secret, active_from)
-      VALUES (${`finance-outbox-${randomUUID()}`}, decode(${Buffer.alloc(32, 19).toString('hex')}, 'hex'),
+      VALUES (${contextKeyId}, ${contextSecret},
         ${new Date(now.getTime() - 60_000).toISOString()}::timestamptz)
     `;
     await transaction`
@@ -82,7 +97,7 @@ try {
   });
 
   await assertTenantDatabaseReady(tenantStore.client);
-  const invoice = await postInvoice(tenantStore.db, tenantId, {
+  const invoice = await financeWriter.postInvoice(tenantId, {
     number: 'OUTBOX-001',
     amountMinor: 100,
     currency: 'USD',
@@ -105,18 +120,36 @@ try {
   assert.equal(pending[0]?.actorId, actorId);
 
   const rolledBackId = randomUUID();
+  const rollbackAudit = auditContext('tenant.invoice.post', 'tenant.invoice.post');
+  const rollbackAuthorization = signOperationsAttestation(
+    {
+      ...rollbackAudit,
+      keyId: contextKeyId,
+      tenantId,
+      actorId,
+      idempotencyKey: 'outbox-rollback-001',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+    contextSecret,
+  );
   await assert.rejects(
     tenantStore.client.begin(async (transaction) => {
+      await transaction`
+        SELECT begin_operations_request_context(
+          ${rollbackAuthorization.attestationText},
+          ${rollbackAuthorization.signatureHex}
+        )
+      `;
       await transaction`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       await transaction`SELECT set_config('app.finance_actor_id', ${actorId}, true)`;
-      await transaction`SELECT set_config('app.finance_session_id', 'rollback-session', true)`;
+      await transaction`SELECT set_config('app.finance_session_id', ${rollbackAudit.sessionId}, true)`;
       await transaction`SELECT set_config('app.finance_support_grant_id', '', true)`;
-      await transaction`SELECT set_config('app.finance_request_id', 'rollback-request', true)`;
-      await transaction`SELECT set_config('app.finance_ip_address', '127.0.0.1', true)`;
-      await transaction`SELECT set_config('app.finance_user_agent', 'rollback-test', true)`;
-      await transaction`SELECT set_config('app.finance_permission', 'tenant.invoice.post', true)`;
-      await transaction`SELECT set_config('app.finance_reason', 'Atomic rollback integration test.', true)`;
-      await transaction`SELECT set_config('app.finance_action', 'tenant.invoice.post', true)`;
+      await transaction`SELECT set_config('app.finance_request_id', ${rollbackAudit.requestId}, true)`;
+      await transaction`SELECT set_config('app.finance_ip_address', ${rollbackAudit.ipAddress}, true)`;
+      await transaction`SELECT set_config('app.finance_user_agent', ${rollbackAudit.userAgent}, true)`;
+      await transaction`SELECT set_config('app.finance_permission', ${rollbackAudit.permission}, true)`;
+      await transaction`SELECT set_config('app.finance_reason', ${rollbackAudit.reason}, true)`;
+      await transaction`SELECT set_config('app.finance_action', ${rollbackAudit.action}, true)`;
       await transaction`
         INSERT INTO finance_invoices
           (id, tenant_id, document_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
@@ -218,7 +251,7 @@ try {
     },
     {
       audit: apiAudit,
-      finance: new PostgresFinanceWriter(tenantStore.db),
+      finance: financeWriter,
       now: () => now,
       sessions: { isActive: async () => true },
       tenantMemberships: {
@@ -302,18 +335,42 @@ try {
     assert.equal(businessConflict.statusCode, 409);
     assert.equal(businessConflict.json().error.code, 'FINANCE_CONFLICT');
 
+    const directConflictAudit = {
+      ...auditContext('tenant.invoice.post', 'tenant.invoice.post'),
+      sessionId: claims.sessionId,
+      requestId: 'direct-conflict-request',
+      reason: 'Direct conflict integration test.',
+      userAgent: 'direct-conflict-test',
+    };
+    const directConflictAuthorization = signOperationsAttestation(
+      {
+        ...directConflictAudit,
+        keyId: contextKeyId,
+        tenantId,
+        actorId,
+        idempotencyKey: 'real-api-conflict-001',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      contextSecret,
+    );
     const directConflict = await tenantStore.client
       .begin(async (transaction) => {
+        await transaction`
+          SELECT begin_operations_request_context(
+            ${directConflictAuthorization.attestationText},
+            ${directConflictAuthorization.signatureHex}
+          )
+        `;
         await transaction`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
         await transaction`SELECT set_config('app.finance_actor_id', ${actorId}, true)`;
         await transaction`SELECT set_config('app.finance_session_id', ${claims.sessionId}, true)`;
         await transaction`SELECT set_config('app.finance_support_grant_id', '', true)`;
-        await transaction`SELECT set_config('app.finance_request_id', 'direct-conflict-request', true)`;
-        await transaction`SELECT set_config('app.finance_ip_address', '127.0.0.1', true)`;
-        await transaction`SELECT set_config('app.finance_user_agent', 'direct-conflict-test', true)`;
-        await transaction`SELECT set_config('app.finance_permission', 'tenant.invoice.post', true)`;
-        await transaction`SELECT set_config('app.finance_reason', 'Direct conflict integration test.', true)`;
-        await transaction`SELECT set_config('app.finance_action', 'tenant.invoice.post', true)`;
+        await transaction`SELECT set_config('app.finance_request_id', ${directConflictAudit.requestId}, true)`;
+        await transaction`SELECT set_config('app.finance_ip_address', ${directConflictAudit.ipAddress}, true)`;
+        await transaction`SELECT set_config('app.finance_user_agent', ${directConflictAudit.userAgent}, true)`;
+        await transaction`SELECT set_config('app.finance_permission', ${directConflictAudit.permission}, true)`;
+        await transaction`SELECT set_config('app.finance_reason', ${directConflictAudit.reason}, true)`;
+        await transaction`SELECT set_config('app.finance_action', ${directConflictAudit.action}, true)`;
         return transaction`
           INSERT INTO finance_invoices
             (tenant_id, document_number, amount_minor, currency, idempotency_key, actor_id, posted_at)
@@ -329,7 +386,7 @@ try {
     assert.equal(databaseCode(directConflict), 'P4090');
 
     const supportClaims: SessionClaims = {
-      sub: 'support-agent-live',
+      sub: supportActorId,
       sessionId: 'support-session-live',
       audience: 'platform',
       permissions: ['platform.support.request'],
@@ -359,42 +416,26 @@ try {
         postedAt: now.toISOString(),
       },
     });
-    assert.equal(supportPosted.statusCode, 201, supportPosted.body);
+    assert.equal(supportPosted.statusCode, 403, supportPosted.body);
+    assert.equal(supportPosted.json().error.code, 'AUTHORIZATION_DENIED');
     const supportEvent = (await readPendingFinanceAuditOutbox(tenantRelayStore.db, tenantId)).find(
       (event) => event.idempotencyKey === 'support-api-invoice-001',
     );
-    assert.ok(supportEvent);
-    assert.equal(supportEvent.actorId, 'support-agent-live');
-    assert.equal(supportEvent.sessionId, 'support-session-live');
-    assert.equal(supportEvent.supportGrantId, 'support-grant-live');
-    assert.equal(supportEvent.action, 'support.tenant.invoice.post');
-    assert.equal(supportEvent.permission, 'tenant.invoice.post');
-    assert.equal(supportEvent.reason, 'Approved correction of the live billing incident');
-    assert.equal(supportEvent.userAgent, 'orvex-support-live/1.0');
-    assert.notEqual(supportEvent.occurredAt, supportEvent.clientPostedAt);
-    await deliverFinanceAuditEvent(controlStore.db, supportEvent);
-    const [relayedSupport] = await controlAdmin.begin(async (transaction) => {
-      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
-      await transaction`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-      return transaction`
-        SELECT actor_reference, session_reference, support_grant_reference, request_reference,
-               permission, reason, request_id, ip_address, user_agent, occurred_at, metadata
-        FROM audit_events
-        WHERE request_id = ${supportEvent.eventId} AND action = ${supportEvent.action}
-      `;
+    assert.equal(supportEvent, undefined, 'support denial must not create financial evidence');
+    const supportDenial = apiAudit.events.at(-1);
+    assert.ok(supportDenial);
+    assert.equal(supportDenial.tenantId, tenantId);
+    assert.equal(supportDenial.actorId, supportActorId);
+    assert.equal(supportDenial.sessionId, 'support-session-live');
+    assert.equal(supportDenial.supportGrantId, 'support-grant-live');
+    assert.equal(supportDenial.action, 'support.tenant.invoice.post');
+    assert.equal(supportDenial.result, 'denied');
+    assert.deepEqual(supportDenial.metadata, {
+      permission: 'tenant.invoice.post',
+      requestedTenantId: tenantId,
     });
-    assert.equal(relayedSupport?.actor_reference, supportEvent.actorId);
-    assert.equal(relayedSupport?.session_reference, supportEvent.sessionId);
-    assert.equal(relayedSupport?.support_grant_reference, supportEvent.supportGrantId);
-    assert.equal(relayedSupport?.permission, supportEvent.permission);
-    assert.equal(relayedSupport?.reason, supportEvent.reason);
-    assert.equal(relayedSupport?.request_id, supportEvent.eventId);
-    assert.equal(relayedSupport?.request_reference, supportEvent.requestId);
-    assert.equal(relayedSupport?.ip_address, supportEvent.ipAddress);
-    assert.equal(relayedSupport?.user_agent, supportEvent.userAgent);
-    assert.equal(new Date(relayedSupport!.occurred_at).toISOString(), supportEvent.occurredAt);
 
-    const uncertainInvoice = await postInvoice(tenantStore.db, tenantId, {
+    const uncertainInvoice = await financeWriter.postInvoice(tenantId, {
       number: 'UNCERTAIN-COMMIT-001',
       amountMinor: 30,
       currency: 'USD',
@@ -403,7 +444,7 @@ try {
       audit: auditContext('tenant.invoice.post', 'tenant.invoice.post'),
       postedAt: now,
     });
-    const laterInvoice = await postInvoice(tenantStore.db, tenantId, {
+    const laterInvoice = await financeWriter.postInvoice(tenantId, {
       number: 'UNCERTAIN-LATER-001',
       amountMinor: 31,
       currency: 'USD',
@@ -459,7 +500,7 @@ try {
       'ambiguous commit evidence and the committed allowed outbox event must coexist',
     );
 
-    const conflictInvoice = await postInvoice(tenantStore.db, tenantId, {
+    const conflictInvoice = await financeWriter.postInvoice(tenantId, {
       number: 'CONFLICT-ENVELOPE-001',
       amountMinor: 25,
       currency: 'USD',
@@ -502,6 +543,15 @@ try {
     'Finance outbox integration passed: atomicity, retry dedupe, readiness, SQLSTATE, and API mapping.',
   );
 } finally {
+  await tenantAdmin
+    .begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`
+        UPDATE operations_context_keys SET active_until=clock_timestamp()
+        WHERE key_id=${contextKeyId}
+      `;
+    })
+    .catch(() => undefined);
   await Promise.all([
     controlAdmin.end({ timeout: 5 }),
     tenantAdmin.end({ timeout: 5 }),

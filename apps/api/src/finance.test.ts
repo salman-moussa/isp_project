@@ -120,7 +120,7 @@ describe('tenant finance API', () => {
     expect(audit.events).toHaveLength(0);
   });
 
-  it('passes the complete approved support-grant attribution to the atomic finance writer', async () => {
+  it('denies tenant finance writes even when a support grant carries the finance permission', async () => {
     await app.close();
     const supportClaims: SessionClaims = {
       sub: 'support-agent-a',
@@ -159,6 +159,7 @@ describe('tenant finance API', () => {
     });
     await app.ready();
 
+    const writesBefore = postInvoiceMock.mock.calls.length;
     const response = await app.inject({
       method: 'POST',
       url: `/v1/tenants/${tenantId}/finance/invoices`,
@@ -175,17 +176,16 @@ describe('tenant finance API', () => {
       },
     });
 
-    expect(response.statusCode).toBe(201);
-    const supportWrite = postInvoiceMock.mock.calls.at(-1);
-    expect(supportWrite?.[0]).toBe(tenantId as VerifiedTenantId);
-    expect(supportWrite?.[1]).toMatchObject({ actorId: 'support-agent-a' });
-    expect(supportWrite?.[1].audit).toMatchObject({
+    expect(response.statusCode).toBe(403);
+    expect(response.json<{ error: { code: string } }>().error.code).toBe('AUTHORIZATION_DENIED');
+    expect(postInvoiceMock.mock.calls).toHaveLength(writesBefore);
+    expect(audit.events.at(-1)).toMatchObject({
+      actorId: 'support-agent-a',
       sessionId: 'support-session-a',
       supportGrantId: 'support-grant-a',
       action: 'support.tenant.invoice.post',
-      permission: 'tenant.invoice.post',
-      reason: 'Approved correction of the customer billing incident',
-      userAgent: 'orvex-support-test/1.0',
+      result: 'denied',
+      metadata: { permission: 'tenant.invoice.post', requestedTenantId: tenantId },
     });
   });
 

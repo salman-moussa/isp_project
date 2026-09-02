@@ -427,6 +427,7 @@ async function translateFinanceErrors<T>(work: () => Promise<T>): Promise<T> {
     const databaseError = asDatabaseError(error);
     if (databaseError?.code === 'P4090') throw new IdempotencyConflictError();
     if (
+      databaseError?.code === 'OPERATIONS_CONFLICT' ||
       databaseError?.code === 'P4091' ||
       (databaseError?.code === '23505' && databaseError.constraint?.startsWith('finance_'))
     ) {
