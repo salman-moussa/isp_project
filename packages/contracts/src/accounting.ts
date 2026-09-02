@@ -21,33 +21,31 @@ export const chartOfAccountSchema = z.object({
 });
 export type ChartOfAccountRecord = z.infer<typeof chartOfAccountSchema>;
 
-export const journalLineInputSchema = z.object({
-  accountId: z.string().uuid(),
-  debitMinor: z.number().int().nonnegative().safe(),
-  creditMinor: z.number().int().nonnegative().safe(),
-  currency: z.enum(['USD', 'LBP']),
-  memoEn: z.string().trim().max(300).optional(),
-  memoAr: z.string().trim().max(300).optional(),
-});
+export const journalLineInputSchema = z
+  .object({
+    accountId: z.string().uuid(),
+    debitMinor: z.number().int().nonnegative().safe(),
+    creditMinor: z.number().int().nonnegative().safe(),
+    currency: z.enum(['USD', 'LBP']),
+    memoEn: z.string().trim().max(300).optional(),
+    memoAr: z.string().trim().max(300).optional(),
+  })
+  .refine(
+    (line) =>
+      (line.debitMinor > 0 && line.creditMinor === 0) ||
+      (line.creditMinor > 0 && line.debitMinor === 0),
+    'Each line must have exactly one positive side.',
+  );
 export type JournalLineInput = z.infer<typeof journalLineInputSchema>;
 
 export const journalEntryInputSchema = z
   .object({
     entryNumber: z.string().trim().min(1).max(100),
-    entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    entryDate: z.iso.date(),
     descriptionEn: z.string().trim().min(5).max(500),
     descriptionAr: z.string().trim().min(5).max(500),
-    sourceType: z.enum([
-      'invoice',
-      'payment',
-      'credit_note',
-      'deposit',
-      'expense',
-      'manual',
-      'close',
-    ]),
-    sourceId: z.string().uuid().optional(),
-    lines: z.array(journalLineInputSchema).min(2),
+    sourceType: z.literal('manual'),
+    lines: z.array(journalLineInputSchema).min(2).max(200),
   })
   .refine((data) => {
     let usdDebit = 0;
@@ -102,20 +100,19 @@ export interface JournalEntryRecord {
   }[];
 }
 
-export const customerStatementQuerySchema = z.object({
-  subscriberId: z.string().uuid(),
-  startDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  endDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  currency: z.enum(['USD', 'LBP']).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
-});
+export const customerStatementQuerySchema = z
+  .object({
+    subscriberId: z.string().uuid(),
+    startDate: z.iso.date().optional(),
+    endDate: z.iso.date().optional(),
+    currency: z.enum(['USD', 'LBP']).optional(),
+    page: z.coerce.number().int().positive().max(1_000_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .refine(
+    (q) => !q.startDate || !q.endDate || q.startDate <= q.endDate,
+    'Start date must not follow end date.',
+  );
 export type CustomerStatementQuery = z.infer<typeof customerStatementQuerySchema>;
 
 export interface CustomerStatementEntry {
@@ -163,6 +160,11 @@ export interface TrialBalanceAccount {
 
 export interface TrialBalanceResponse {
   readonly asOfDate: string;
+  readonly coverage?: {
+    readonly hasUnjournaledSources?: boolean;
+    readonly hasLegacyEntries: boolean;
+    readonly hasUnjournaledInvoices: boolean;
+  };
   readonly accounts: readonly TrialBalanceAccount[];
   readonly totalDebitUsd: number;
   readonly totalCreditUsd: number;
@@ -170,14 +172,18 @@ export interface TrialBalanceResponse {
   readonly totalCreditLbp: number;
 }
 
-export interface PeriodCloseRequest {
-  readonly periodName: string;
-  readonly startDate: string;
-  readonly endDate: string;
-  readonly closeType: 'soft' | 'hard';
-  readonly notesEn: string;
-  readonly notesAr: string;
-}
+export const periodCloseRequestSchema = z
+  .object({
+    periodName: z.string().trim().min(1).max(100),
+    startDate: z.iso.date(),
+    endDate: z.iso.date(),
+    closeType: z.enum(['soft', 'hard']),
+    notesEn: z.string().trim().min(8).max(1000),
+    notesAr: z.string().trim().min(8).max(1000),
+  })
+  .strict()
+  .refine((p) => p.startDate <= p.endDate, 'Start date must not follow end date.');
+export type PeriodCloseRequest = z.infer<typeof periodCloseRequestSchema>;
 
 export interface AccountingPeriodRecord {
   readonly id: string;

@@ -45,5 +45,8 @@
   "202609021400_tenant_dealers_and_vouchers.sql": "tenant",
   "202609021500_tenant_warehouse_inventory.sql": "tenant",
   "202609021600_tenant_radius_ipam_cpe.sql": "tenant",
-  "202609021700_tenant_noc_outages_qos.sql": "tenant"
+  "202609021700_tenant_noc_outages_qos.sql": "tenant",
+  "202609021800_tenant_accounting_integrity.sql": "tenant",
+  "202609021801_tenant_accounting_owner_scope.sql": "tenant",
+  "202609021802_tenant_accounting_line_denials.sql": "tenant"
 }

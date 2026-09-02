@@ -10,6 +10,13 @@ import type {
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
+  readChartOfAccounts,
+  readJournalEntries,
+  readCustomerStatement,
+  readTrialBalance,
+  readAccountingPeriods,
+  postJournalEntry,
+  closeAccountingPeriod,
   createDatabase,
   inOperationsTransaction,
   postCustomerAccountEntry,
@@ -308,6 +315,327 @@ try {
   );
   assert.equal(audit.count, 12, 'each successful append emits exactly one atomic audit record');
   assert.equal(await balance(), start);
+
+  // REQ-FIN-001/002: verify journal effects with the real restricted runtime role.
+  const unrestricted = { branchIds: undefined, areaIds: undefined, routeIds: undefined };
+  const accountingAuth = (
+    action: string,
+    permission: Permission = 'tenant.accounting.view',
+    key = randomUUID(),
+  ) => auth(permission, action, key, unrestricted);
+  const chart = await readChartOfAccounts(
+    runtime.db,
+    tenantId,
+    accountingAuth('tenant.accounting.coa.read'),
+  );
+  assert(chart.length >= 17);
+  await assert.rejects(
+    readChartOfAccounts(
+      runtime.db,
+      tenantId,
+      auth('tenant.accounting.view', 'tenant.accounting.coa.read'),
+    ),
+  );
+  await assert.rejects(
+    readChartOfAccounts(
+      runtime.db,
+      tenantId,
+      accountingAuth('tenant.accounting.coa.read', 'tenant.billing.view'),
+    ),
+  );
+  const journals = await admin.unsafe(
+    'SELECT j.id,j.customer_entry_id,j.reverses_journal_id,j.posting_version,c.kind,c.currency ' +
+      'FROM operations_journal_entries j JOIN operations_customer_account_entries c ' +
+      'ON c.tenant_id=j.tenant_id AND c.id=j.customer_entry_id WHERE c.document_number LIKE $1',
+    [run + '%'],
+  );
+  assert.equal(journals.length, 12, 'one journal per actual append; retries never double-post');
+  for (const j of journals) {
+    assert.equal(j.posting_version, 'v2');
+    const lines = await admin.unsafe(
+      'SELECT debit_minor,credit_minor,currency FROM operations_journal_lines WHERE journal_entry_id=$1',
+      [j.id],
+    );
+    assert(
+      lines.every((l) => l.currency === j.currency),
+      'journal currency comes from persisted source, including LBP reversal',
+    );
+    assert.equal(
+      lines.reduce((n, l) => n + Number(l.debit_minor) - Number(l.credit_minor), 0),
+      0,
+    );
+    if (j.reverses_journal_id) {
+      const [difference] = await admin.unsafe(
+        'SELECT count(*)::int AS count FROM (' +
+          '(SELECT account_id,currency,debit_minor,credit_minor FROM operations_journal_lines WHERE journal_entry_id=$1 EXCEPT ALL ' +
+          'SELECT account_id,currency,credit_minor,debit_minor FROM operations_journal_lines WHERE journal_entry_id=$2)' +
+          ' UNION ALL (SELECT account_id,currency,credit_minor,debit_minor FROM operations_journal_lines WHERE journal_entry_id=$2 EXCEPT ALL ' +
+          'SELECT account_id,currency,debit_minor,credit_minor FROM operations_journal_lines WHERE journal_entry_id=$1)) d',
+        [j.id, j.reverses_journal_id],
+      );
+      assert.equal(difference.count, 0, 'reversal swaps the exact original lines');
+    }
+  }
+  const statement = (startDate = '0001-01-01', endDate = '9999-12-31', page = 1, pageSize = 200) =>
+    readCustomerStatement(
+      runtime.db,
+      tenantId,
+      auth('tenant.accounting.view', 'tenant.accounting.statement.read'),
+      { subscriberId, currency: 'USD', startDate, endDate, page, pageSize },
+    );
+  const fullStatement = await statement();
+  const secondPage = await statement('0001-01-01', '9999-12-31', 2, 1);
+  assert.equal(secondPage.entries[0]?.id, fullStatement.entries[1]?.id);
+  assert.equal(
+    secondPage.entries[0]?.runningBalanceMinor,
+    fullStatement.entries[1]?.runningBalanceMinor,
+  );
+  assert.equal(secondPage.totalCount, fullStatement.totalCount);
+  const futureStatement = await statement('9999-01-01');
+  assert.equal(futureStatement.entries.length, 0);
+  assert.equal(futureStatement.openingBalanceMinor, fullStatement.closingBalanceMinor);
+  assert.equal(futureStatement.closingBalanceMinor, fullStatement.closingBalanceMinor);
+  const checkDeposit = await post({
+    ...common('statement-deposit'),
+    kind: 'deposit_received',
+    subscriberId,
+    currency: 'USD',
+    amountMinor: 20,
+    sourceReference: run + '-statement',
+  });
+  const receivedStatement = await statement();
+  assert.equal(receivedStatement.closingBalanceMinor, fullStatement.closingBalanceMinor - 20);
+  const checkApplied = await post({
+    ...common('statement-apply'),
+    kind: 'deposit_applied',
+    sourceEntryId: checkDeposit.id,
+    invoiceId,
+    amountMinor: 20,
+  });
+  assert.equal(
+    (await statement()).closingBalanceMinor,
+    receivedStatement.closingBalanceMinor,
+    'deposit allocation is a transfer, not a second customer credit',
+  );
+  await post({
+    ...common('statement-undo-apply'),
+    kind: 'deposit_application_reversal',
+    sourceEntryId: checkApplied.id,
+  });
+  await post({
+    ...common('statement-undo-deposit'),
+    kind: 'deposit_reversal',
+    sourceEntryId: checkDeposit.id,
+  });
+  assert.equal((await statement()).closingBalanceMinor, fullStatement.closingBalanceMinor);
+  const [tax] = await admin.unsafe(
+    "SELECT (p.legal_invoice_snapshot#>>'{tax,amountMinor}')::bigint-g.credited_vat_minor AS vat," +
+      "(p.legal_invoice_snapshot#>>'{amounts,stampDutyMinor}')::bigint-g.credited_stamp_minor AS stamp " +
+      'FROM operations_invoice_preparations p JOIN finance_document_guards g ON g.tenant_id=p.tenant_id ' +
+      "AND g.document_id=p.finance_invoice_id AND g.document_type='invoice' WHERE p.finance_invoice_id=$1",
+    [invoiceId],
+  );
+  const taxed = await post({
+    ...common('tax-credit'),
+    kind: 'credit_note',
+    subscriberId,
+    invoiceId,
+    currency: 'USD',
+    netMinor: 10,
+    vatMinor: Number(tax.vat) > 0 ? 1 : 0,
+    stampMinor: Number(tax.stamp) > 0 ? 1 : 0,
+  });
+  const components = await admin.unsafe(
+    'SELECT a.account_code,l.debit_minor,l.credit_minor FROM operations_journal_lines l ' +
+      'JOIN operations_chart_of_accounts a ON a.id=l.account_id JOIN operations_journal_entries j ON j.id=l.journal_entry_id ' +
+      'WHERE j.customer_entry_id=$1',
+    [taxed.id],
+  );
+  assert.equal(Number(components.find((c) => c.account_code === '4000')?.debit_minor), 10);
+  if (Number(tax.vat) > 0)
+    assert.equal(Number(components.find((c) => c.account_code === '2200')?.debit_minor), 1);
+  if (Number(tax.stamp) > 0)
+    assert.equal(Number(components.find((c) => c.account_code === '2220')?.debit_minor), 1);
+  await post({ ...common('tax-credit-reverse'), kind: 'credit_reversal', sourceEntryId: taxed.id });
+
+  const cash = chart.find((a) => a.accountCode === '1010')!;
+  const receivable = chart.find((a) => a.accountCode === '1100')!;
+  const [yearRow] = await admin.unsafe(
+    'SELECT y FROM generate_series(1000,1900) y WHERE NOT EXISTS(SELECT 1 FROM operations_accounting_periods ' +
+      'WHERE tenant_id=$1 AND start_date<=make_date(y,12,31) AND end_date>=make_date(y,1,1)) ORDER BY y LIMIT 1',
+    [tenantId],
+  );
+  const oldDate = yearRow.y + '-01-01',
+    newDate = yearRow.y + '-12-31';
+  const tbBefore = await readTrialBalance(
+    runtime.db,
+    tenantId,
+    accountingAuth('tenant.accounting.trial_balance.read'),
+    oldDate,
+  );
+  const manualKey = randomUUID();
+  const command = {
+    entryNumber: run + '-manual',
+    entryDate: newDate,
+    descriptionEn: 'Synthetic manual journal',
+    descriptionAr: 'قيد يومية تجريبي موثق',
+    sourceType: 'manual' as const,
+    lines: [
+      { accountId: cash.id, debitMinor: 30, creditMinor: 0, currency: 'USD' as const },
+      { accountId: receivable.id, debitMinor: 0, creditMinor: 30, currency: 'USD' as const },
+    ],
+  };
+  const postManual = (key = manualKey, change = {}) =>
+    postJournalEntry(runtime.db, tenantId, {
+      command: { ...command, ...change },
+      authorization: accountingAuth(
+        'tenant.accounting.journal.post',
+        'tenant.accounting.post',
+        key,
+      ),
+    });
+  const posted = await postManual();
+  assert.equal((await postManual()).id, posted.id);
+  await assert.rejects(postManual(manualKey, { descriptionEn: 'Changed retry payload' }));
+  const tbOld = await readTrialBalance(
+    runtime.db,
+    tenantId,
+    accountingAuth('tenant.accounting.trial_balance.read'),
+    oldDate,
+  );
+  assert.equal(tbOld.totalDebitUsd, tbBefore.totalDebitUsd, 'future journal lines excluded');
+  const tbNew = await readTrialBalance(
+    runtime.db,
+    tenantId,
+    accountingAuth('tenant.accounting.trial_balance.read'),
+    newDate,
+  );
+  assert.equal(tbNew.totalDebitUsd, tbBefore.totalDebitUsd + 30);
+  assert.equal(tbNew.totalDebitUsd, tbNew.totalCreditUsd);
+  assert.equal(tbNew.totalDebitLbp, tbNew.totalCreditLbp);
+  const rawPost = (payload: unknown) =>
+    inOperationsTransaction(
+      runtime.db,
+      tenantId,
+      accountingAuth('tenant.accounting.journal.post', 'tenant.accounting.post'),
+      async (tx) => {
+        await tx.execute(
+          sql`SELECT post_manual_accounting_journal(${JSON.stringify(payload)}::jsonb)`,
+        );
+      },
+    );
+  await assert.rejects(
+    rawPost({
+      ...command,
+      entryNumber: run + '-unbalanced',
+      lines: [command.lines[0], { ...command.lines[1], creditMinor: 29 }],
+    }),
+    'database must reject imbalance without relying on Zod',
+  );
+  await assert.rejects(
+    rawPost({
+      ...command,
+      entryNumber: run + '-currency',
+      lines: [command.lines[0], { ...command.lines[1], currency: 'LBP' }],
+    }),
+  );
+  const [otherTenant] = await admin.unsafe('SELECT id FROM tenants WHERE id<>$1 LIMIT 1', [
+    tenantId,
+  ]);
+  assert(otherTenant);
+  const [otherAccount] = await admin.unsafe(
+    'INSERT INTO operations_chart_of_accounts(tenant_id,account_code,account_name_en,account_name_ar,account_type,currency) ' +
+      "VALUES($1,$2,'Foreign test account','حساب اختبار آخر','asset','USD') RETURNING id",
+    [otherTenant.id, run],
+  );
+  await assert.rejects(
+    rawPost({
+      ...command,
+      entryNumber: run + '-foreign',
+      lines: [command.lines[0], { ...command.lines[1], accountId: otherAccount.id }],
+    }),
+  );
+  await assert.rejects(
+    inOperationsTransaction(
+      runtime.db,
+      tenantId,
+      accountingAuth('tenant.accounting.journal.post', 'tenant.accounting.post'),
+      (tx) => tx.execute(sql`DELETE FROM operations_journal_entries WHERE id=${posted.id}`),
+    ),
+  );
+  await assert.rejects(
+    inOperationsTransaction(
+      runtime.db,
+      tenantId,
+      accountingAuth('tenant.accounting.coa.read'),
+      (tx) => tx.execute(sql`SELECT seed_tenant_default_chart_of_accounts(${otherTenant.id})`),
+    ),
+  );
+  const closeKey = randomUUID();
+  const request = {
+    periodName: run,
+    startDate: oldDate,
+    endDate: newDate,
+    closeType: 'hard' as const,
+    notesEn: 'Synthetic close proof',
+    notesAr: 'اختبار إغلاق موثق',
+  };
+  const close = () =>
+    closeAccountingPeriod(runtime.db, tenantId, {
+      request,
+      authorization: accountingAuth(
+        'tenant.accounting.period.close',
+        'tenant.accounting.close',
+        closeKey,
+      ),
+    });
+  const closed = await close();
+  assert.equal((await close()).id, closed.id);
+  assert(
+    (
+      await readAccountingPeriods(
+        runtime.db,
+        tenantId,
+        accountingAuth('tenant.accounting.periods.read'),
+      )
+    ).some((p) => p.id === closed.id),
+  );
+  await assert.rejects(
+    postManual(randomUUID(), { entryNumber: run + '-closed' }),
+    'closed-period posting denied',
+  );
+  await assert.rejects(
+    closeAccountingPeriod(runtime.db, tenantId, {
+      request: {
+        ...request,
+        periodName: run + '-current',
+        startDate: new Date().toISOString().slice(0, 10),
+        endDate: new Date().toISOString().slice(0, 10),
+      },
+      authorization: accountingAuth('tenant.accounting.period.close', 'tenant.accounting.close'),
+    }),
+    'incomplete invoice coverage cannot be certified as a closed period',
+  );
+  assert(
+    (
+      await readJournalEntries(
+        runtime.db,
+        tenantId,
+        accountingAuth('tenant.accounting.journal.read'),
+      )
+    ).length > 0,
+  );
+  const [journalAudits] = await admin.unsafe(
+    'SELECT count(*)::int AS count FROM operations_audit_outbox WHERE tenant_id=$1 ' +
+      "AND resource_type='operations_journal_entries' AND after_value->>'entry_number'=$2",
+    [tenantId, command.entryNumber],
+  );
+  assert.equal(journalAudits.count, 1);
+  assert.equal(await balance(), start);
+  console.log(
+    'Accounting live proof passed: atomic journals, exact reversals, currencies/taxes, statement paging/date opening/deposit transfers, scoped RLS, safe manual posting/replay, trial cutoff, period close and audit.',
+  );
+
   console.log(
     'Customer accounts live proof passed: credits, deposits, reversals, retry/concurrency, scopes, currency, audit, balance consumers.',
   );
