@@ -477,6 +477,86 @@ export interface OperationsWriter {
           }
       ),
   ): Promise<unknown>;
+  readChartOfAccounts(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  postJournalEntry(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: import('@isp/contracts').JournalEntryInput },
+  ): Promise<unknown>;
+  readJournalEntries(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readCustomerStatement(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly query: import('@isp/contracts').CustomerStatementQuery },
+  ): Promise<unknown>;
+  readTrialBalance(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly asOfDate?: string },
+  ): Promise<unknown>;
+  readAccountingPeriods(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  closeAccountingPeriod(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly request: import('@isp/contracts').PeriodCloseRequest },
+  ): Promise<unknown>;
+  readDealers(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  generateVoucherBatch(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: import('@isp/contracts').VoucherBatchInput },
+  ): Promise<unknown>;
+  redeemVoucher(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: import('@isp/contracts').VoucherRedeemInput },
+  ): Promise<unknown>;
+  readWarehouses(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readInventoryItems(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readSerializedAssets(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readNasClients(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readRadiusSessions(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readIpPools(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readCpeDevices(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readNetworkAlarms(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readOutages(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readQosReports(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
 }
 
 export interface OperationsDefinition {

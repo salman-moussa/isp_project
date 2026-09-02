@@ -3,6 +3,26 @@ import { createHash } from 'node:crypto';
 import {
   postCustomerAccountEntry,
   readCustomerAccounts,
+  readChartOfAccounts,
+  postJournalEntry,
+  readJournalEntries,
+  readCustomerStatement,
+  readTrialBalance,
+  readAccountingPeriods,
+  closeAccountingPeriod,
+  readDealers,
+  generateVoucherBatch,
+  redeemVoucher,
+  readWarehouses,
+  readInventoryItems,
+  readSerializedAssets,
+  readNasClients,
+  readRadiusSessions,
+  readIpPools,
+  readCpeDevices,
+  readNetworkAlarms,
+  readOutages,
+  readQosReports,
   assignCollectorInvoice,
   applyServiceChangeOrder,
   acceptSalesQuote,
@@ -63,6 +83,26 @@ export interface OperationsContextAuthorityConfig {
 export interface OperationsRepositoryAdapter {
   readonly postCustomerAccountEntry: typeof postCustomerAccountEntry;
   readonly readCustomerAccounts: typeof readCustomerAccounts;
+  readonly readChartOfAccounts: typeof readChartOfAccounts;
+  readonly postJournalEntry: typeof postJournalEntry;
+  readonly readJournalEntries: typeof readJournalEntries;
+  readonly readCustomerStatement: typeof readCustomerStatement;
+  readonly readTrialBalance: typeof readTrialBalance;
+  readonly readAccountingPeriods: typeof readAccountingPeriods;
+  readonly closeAccountingPeriod: typeof closeAccountingPeriod;
+  readonly readDealers: typeof readDealers;
+  readonly generateVoucherBatch: typeof generateVoucherBatch;
+  readonly redeemVoucher: typeof redeemVoucher;
+  readonly readWarehouses: typeof readWarehouses;
+  readonly readInventoryItems: typeof readInventoryItems;
+  readonly readSerializedAssets: typeof readSerializedAssets;
+  readonly readNasClients: typeof readNasClients;
+  readonly readRadiusSessions: typeof readRadiusSessions;
+  readonly readIpPools: typeof readIpPools;
+  readonly readCpeDevices: typeof readCpeDevices;
+  readonly readNetworkAlarms: typeof readNetworkAlarms;
+  readonly readOutages: typeof readOutages;
+  readonly readQosReports: typeof readQosReports;
   readonly prepareInvoiceDocument: typeof prepareInvoiceDocument;
   readonly completeInvoiceDocument: typeof completeInvoiceDocument;
   readonly readInvoiceDocument: typeof readInvoiceDocument;
@@ -109,6 +149,26 @@ export interface OperationsRepositoryAdapter {
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
   postCustomerAccountEntry,
   readCustomerAccounts,
+  readChartOfAccounts,
+  postJournalEntry,
+  readJournalEntries,
+  readCustomerStatement,
+  readTrialBalance,
+  readAccountingPeriods,
+  closeAccountingPeriod,
+  readDealers,
+  generateVoucherBatch,
+  redeemVoucher,
+  readWarehouses,
+  readInventoryItems,
+  readSerializedAssets,
+  readNasClients,
+  readRadiusSessions,
+  readIpPools,
+  readCpeDevices,
+  readNetworkAlarms,
+  readOutages,
+  readQosReports,
   prepareInvoiceDocument,
   completeInvoiceDocument,
   readInvoiceDocument,
@@ -619,6 +679,98 @@ export class PostgresOperationsService implements OperationsWriter {
       requestedBy: input.actorId,
       authorization,
     });
+  }
+
+  public readChartOfAccounts(tenantId: VerifiedTenantId, input: WriterInput<'readChartOfAccounts'>) {
+    return this.repository.readChartOfAccounts(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public postJournalEntry(tenantId: VerifiedTenantId, input: WriterInput<'postJournalEntry'>) {
+    return this.repository.postJournalEntry(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readJournalEntries(tenantId: VerifiedTenantId, input: WriterInput<'readJournalEntries'>) {
+    return this.repository.readJournalEntries(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readCustomerStatement(tenantId: VerifiedTenantId, input: WriterInput<'readCustomerStatement'>) {
+    return this.repository.readCustomerStatement(this.database, tenantId, this.sign(tenantId, input), input.query);
+  }
+
+  public readTrialBalance(tenantId: VerifiedTenantId, input: WriterInput<'readTrialBalance'>) {
+    return this.repository.readTrialBalance(this.database, tenantId, this.sign(tenantId, input), input.asOfDate);
+  }
+
+  public readAccountingPeriods(tenantId: VerifiedTenantId, input: WriterInput<'readAccountingPeriods'>) {
+    return this.repository.readAccountingPeriods(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public closeAccountingPeriod(tenantId: VerifiedTenantId, input: WriterInput<'closeAccountingPeriod'>) {
+    return this.repository.closeAccountingPeriod(this.database, tenantId, {
+      request: input.request,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readDealers(tenantId: VerifiedTenantId, input: WriterInput<'readDealers'>) {
+    return this.repository.readDealers(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public generateVoucherBatch(tenantId: VerifiedTenantId, input: WriterInput<'generateVoucherBatch'>) {
+    return this.repository.generateVoucherBatch(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public redeemVoucher(tenantId: VerifiedTenantId, input: WriterInput<'redeemVoucher'>) {
+    return this.repository.redeemVoucher(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readWarehouses(tenantId: VerifiedTenantId, input: WriterInput<'readWarehouses'>) {
+    return this.repository.readWarehouses(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readInventoryItems(tenantId: VerifiedTenantId, input: WriterInput<'readInventoryItems'>) {
+    return this.repository.readInventoryItems(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readSerializedAssets(tenantId: VerifiedTenantId, input: WriterInput<'readSerializedAssets'>) {
+    return this.repository.readSerializedAssets(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readNasClients(tenantId: VerifiedTenantId, input: WriterInput<'readNasClients'>) {
+    return this.repository.readNasClients(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readRadiusSessions(tenantId: VerifiedTenantId, input: WriterInput<'readRadiusSessions'>) {
+    return this.repository.readRadiusSessions(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readIpPools(tenantId: VerifiedTenantId, input: WriterInput<'readIpPools'>) {
+    return this.repository.readIpPools(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readCpeDevices(tenantId: VerifiedTenantId, input: WriterInput<'readCpeDevices'>) {
+    return this.repository.readCpeDevices(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readNetworkAlarms(tenantId: VerifiedTenantId, input: WriterInput<'readNetworkAlarms'>) {
+    return this.repository.readNetworkAlarms(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readOutages(tenantId: VerifiedTenantId, input: WriterInput<'readOutages'>) {
+    return this.repository.readOutages(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readQosReports(tenantId: VerifiedTenantId, input: WriterInput<'readQosReports'>) {
+    return this.repository.readQosReports(this.database, tenantId, this.sign(tenantId, input));
   }
 
   private sign(

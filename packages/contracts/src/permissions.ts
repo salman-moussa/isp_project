@@ -36,6 +36,9 @@ export const permissions = [
   'tenant.report.export',
   'tenant.user.administer',
   'tenant.secret.manage',
+  'tenant.accounting.view',
+  'tenant.accounting.post',
+  'tenant.accounting.close',
   'tenant.audit.view',
 ] as const;
 
