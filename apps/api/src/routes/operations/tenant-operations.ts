@@ -1038,6 +1038,54 @@ export function registerTenantOperationsRoutes(
     app,
     options,
     {
+      path: '/v1/tenants/:tenantId/accounting/chart-of-accounts',
+      operationId: 'readChartOfAccounts',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.coa.read',
+      resourceType: 'chart_of_accounts',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readChartOfAccounts(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'coa-read',
+    'Authorized chart of accounts read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/journal-entries',
+      operationId: 'readJournalEntries',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.journal.read',
+      resourceType: 'journal_entries',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readJournalEntries(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'journal-read',
+    'Authorized journal entries read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/trial-balance',
+      operationId: 'readTrialBalance',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.trial_balance.read',
+      resourceType: 'trial_balance',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readTrialBalance(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'trial-balance-read',
+    'Authorized trial balance read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
       path: '/v1/tenants/:tenantId/operations/sales/workspace',
       operationId: 'readSalesWorkspace',
       permission: 'tenant.sales.view',

@@ -40,5 +40,10 @@
   "202609021100_tenant_invoice_documents.sql": "tenant",
   "202609021101_tenant_invoice_document_actor.sql": "tenant",
   "202609021200_tenant_customer_accounts.sql": "tenant",
-  "202609021201_tenant_customer_account_balance_reads.sql": "tenant"
+  "202609021201_tenant_customer_account_balance_reads.sql": "tenant",
+  "202609021300_tenant_accounting_system.sql": "tenant",
+  "202609021400_tenant_dealers_and_vouchers.sql": "tenant",
+  "202609021500_tenant_warehouse_inventory.sql": "tenant",
+  "202609021600_tenant_radius_ipam_cpe.sql": "tenant",
+  "202609021700_tenant_noc_outages_qos.sql": "tenant"
 }

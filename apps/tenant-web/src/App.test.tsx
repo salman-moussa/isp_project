@@ -106,7 +106,11 @@ describe('Orvex ISP Operations shell', () => {
 
       expect(navigationButton).toHaveAttribute('aria-current', 'page');
       const operationsTask = tenantOperationsTasks[item.id];
-      if (operationsTask) {
+      if (item.id === 'sales') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Sales' }),
+        ).toBeInTheDocument();
+      } else if (operationsTask) {
         expect(
           screen.getByRole('heading', {
             level: 1,
