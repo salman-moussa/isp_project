@@ -41,7 +41,11 @@ export async function readNetworkAlarms(
       messageEn: r.message_en,
       messageAr: r.message_ar,
       raisedAt: typeof r.raised_at === 'string' ? r.raised_at : r.raised_at.toISOString(),
-      clearedAt: r.cleared_at ? (typeof r.cleared_at === 'string' ? r.cleared_at : r.cleared_at.toISOString()) : null,
+      clearedAt: r.cleared_at
+        ? typeof r.cleared_at === 'string'
+          ? r.cleared_at
+          : r.cleared_at.toISOString()
+        : null,
       status: r.status,
     }));
   });
@@ -80,7 +84,11 @@ export async function readOutages(
       affectedRegion: r.affected_region,
       impactedSubscribersCount: r.impacted_subscribers_count,
       startedAt: typeof r.started_at === 'string' ? r.started_at : r.started_at.toISOString(),
-      resolvedAt: r.resolved_at ? (typeof r.resolved_at === 'string' ? r.resolved_at : r.resolved_at.toISOString()) : null,
+      resolvedAt: r.resolved_at
+        ? typeof r.resolved_at === 'string'
+          ? r.resolved_at
+          : r.resolved_at.toISOString()
+        : null,
       rootCauseEn: r.root_cause_en,
       rootCauseAr: r.root_cause_ar,
       status: r.status,
@@ -119,5 +127,55 @@ export async function readQosReports(
       mttrHours: parseFloat(r.mttr_hours),
       submittedToTra: r.submitted_to_tra,
     }));
+  });
+}
+
+export async function createOutageIncident(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly titleEn: string;
+    readonly titleAr: string;
+    readonly affectedRegion: string;
+    readonly impactedSubscribersCount: number;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly status: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [outage] = await transaction.execute<{ id: string }>(sql`
+      INSERT INTO operations_outages (
+        tenant_id, outage_title_en, outage_title_ar, affected_region,
+        impacted_subscribers_count, started_at, status
+      ) VALUES (
+        ${tenantId}, ${input.titleEn}, ${input.titleAr}, ${input.affectedRegion},
+        ${input.impactedSubscribersCount}, clock_timestamp(), 'investigating'
+      )
+      RETURNING id
+    `);
+
+    if (!outage) throw new Error('Failed to create outage incident.');
+    return { id: outage.id, status: 'investigating' };
+  });
+}
+
+export async function resolveOutageIncident(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly outageId: string;
+    readonly rootCauseEn: string;
+    readonly rootCauseAr: string;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly status: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`
+      UPDATE operations_outages
+      SET status = 'resolved', resolved_at = clock_timestamp(),
+          root_cause_en = ${input.rootCauseEn}, root_cause_ar = ${input.rootCauseAr}
+      WHERE tenant_id = ${tenantId} AND id = ${input.outageId}
+    `);
+
+    return { id: input.outageId, status: 'resolved' };
   });
 }

@@ -87,6 +87,26 @@ const english = buildRoutes(
         ['Open reports', 'Review currency-separated aging', 'reports'],
       ],
     ],
+    accounting: [
+      'General ledger & accounting',
+      'Double-entry accounting and trial balance',
+      'Manage chart of accounts, journal entries, trial balance, and accounting period closes.',
+      [
+        ['Accounts active', '12', 'Standard chart of accounts', 'Active', 'positive'],
+        ['Journal entries', '148', 'Posted this month', 'Posted', 'primary'],
+        ['Open period', '2026-Q3', 'Period close active', 'Open', 'warning'],
+      ],
+      'Accounting queue',
+      'Double-entry entries require debits to equal credits per currency.',
+      [
+        ['JE-2026-001', 'Posted', 'USD 450.00 · subscriber billing', 'positive'],
+        ['JE-2026-002', 'Posted', 'USD 120.00 · cashbox deposit', 'positive'],
+      ],
+      [
+        ['Open billing', 'Review subscriber invoices', 'billing'],
+        ['Open reports', 'Review financial statements', 'reports'],
+      ],
+    ],
     payments: [
       'Cashier workspace',
       'Post payments and close the shift',
@@ -314,8 +334,28 @@ const arabic = buildRoutes(
         ['BATCH-2608-A', 'مسودة', '١١٨ فاتورة · التحقق معلق', 'warning'],
       ],
       [
-        ['فتح الدفعات', 'تخصيص الإيصالات للفواتير المرحلة', 'payments'],
-        ['فتح التقارير', 'مراجعة الأعمار مفصولة بالعملة', 'reports'],
+        ['فتح الدفعات', 'تخصيص الإيصالات للفواتير', 'payments'],
+        ['فتح التقارير', 'مراجعة أرقام الذمم حسب العملة', 'reports'],
+      ],
+    ],
+    accounting: [
+      'الدفتر العام والمحاسبة',
+      'المحاسبة المزدوجة وميزان المراجعة',
+      'أدر دليل الحسابات والقيود اليومية وميزان المراجعة وإغلاق الفترات المحاسبية.',
+      [
+        ['حسابات مفعّلة', '١٢', 'دليل الحسابات القياسي', 'نشط', 'positive'],
+        ['قيود مرحّلة', '١٤٨', 'مرحّلة هذا الشهر', 'مرحّل', 'primary'],
+        ['فترة مفتوحة', '2026-Q3', 'إغلاق الفترة نشط', 'مفتوح', 'warning'],
+      ],
+      'قائمة المحاسبة',
+      'تتطلب قيود اليومية تساوي المدين والدائن لكل عملة.',
+      [
+        ['JE-2026-001', 'مرحّل', 'USD 450.00 · فوترة المشتركين', 'positive'],
+        ['JE-2026-002', 'مرحّل', 'USD 120.00 · إيداع صندوق', 'positive'],
+      ],
+      [
+        ['فتح الفوترة', 'مراجعة فواتير المشتركين', 'billing'],
+        ['فتح التقارير', 'مراجعة القوائم المالية', 'reports'],
       ],
     ],
     payments: [

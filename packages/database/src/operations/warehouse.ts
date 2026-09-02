@@ -114,3 +114,54 @@ export async function readSerializedAssets(
     }));
   });
 }
+
+export async function createPurchaseOrder(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly poNumber: string;
+    readonly supplierName: string;
+    readonly totalAmountMinor: number;
+    readonly currency: 'USD' | 'LBP';
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly poNumber: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [po] = await transaction.execute<{ id: string }>(sql`
+      INSERT INTO operations_purchase_orders (
+        tenant_id, po_number, supplier_name, status, total_amount_minor, currency
+      ) VALUES (
+        ${tenantId}, ${input.poNumber}, ${input.supplierName}, 'draft', ${input.totalAmountMinor}, ${input.currency}
+      )
+      RETURNING id
+    `);
+
+    if (!po) throw new Error('Failed to create purchase order.');
+    return { id: po.id, poNumber: input.poNumber };
+  });
+}
+
+export async function issueSerializedAsset(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly assetId: string;
+    readonly custodianUserId?: string;
+    readonly installedServiceId?: string;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly status: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const status = input.installedServiceId ? 'installed' : 'issued';
+
+    await transaction.execute(sql`
+      UPDATE operations_serialized_assets
+      SET status = ${status},
+          current_custodian_id = COALESCE(${input.custodianUserId ?? null}, current_custodian_id),
+          installed_service_id = COALESCE(${input.installedServiceId ?? null}, installed_service_id)
+      WHERE tenant_id = ${tenantId} AND id = ${input.assetId}
+    `);
+
+    return { id: input.assetId, status };
+  });
+}

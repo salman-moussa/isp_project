@@ -25,6 +25,73 @@ export function postCustomerAccountEntry(
       SELECT id,document_number FROM post_customer_account_entry(${JSON.stringify(payload)}::jsonb)
     `);
     if (!entry) throw new Error('Customer account append returned no record.');
+
+    // Seed default chart of accounts and auto-post balanced double-entry journal entry
+    await transaction.execute(sql`SELECT seed_tenant_default_chart_of_accounts(${tenantId})`);
+
+    const currency = 'currency' in payload ? payload.currency : 'USD';
+    const arCode = currency === 'LBP' ? '1110' : '1100';
+    const cashCode = currency === 'LBP' ? '1020' : '1010';
+    const revCode = currency === 'LBP' ? '4010' : '4000';
+
+    const [arAcc] = await transaction.execute<{ id: string }>(sql`
+      SELECT id FROM operations_chart_of_accounts WHERE tenant_id=${tenantId} AND account_code=${arCode}
+    `);
+    const [cashAcc] = await transaction.execute<{ id: string }>(sql`
+      SELECT id FROM operations_chart_of_accounts WHERE tenant_id=${tenantId} AND account_code=${cashCode}
+    `);
+    const [revAcc] = await transaction.execute<{ id: string }>(sql`
+      SELECT id FROM operations_chart_of_accounts WHERE tenant_id=${tenantId} AND account_code=${revCode}
+    `);
+
+    const [actor] = await transaction.execute<{ actor_id: string }>(sql`
+      SELECT actor_id FROM operations_current_context()
+    `);
+
+    if (arAcc && cashAcc && revAcc && actor?.actor_id) {
+      let amountMinor = 0;
+      if ('amountMinor' in payload) amountMinor = payload.amountMinor;
+      else if ('netMinor' in payload)
+        amountMinor = payload.netMinor + payload.vatMinor + payload.stampMinor;
+
+      if (amountMinor > 0) {
+        const [je] = await transaction.execute<{ id: string }>(sql`
+          INSERT INTO operations_journal_entries (
+            tenant_id, entry_number, entry_date, description_en, description_ar,
+            source_type, source_id, status, posted_by
+          ) VALUES (
+            ${tenantId}, ${'JE-' + entry.document_number}, CURRENT_DATE,
+            ${'Auto journal posting for ' + kind + ' ' + entry.document_number},
+            ${'ترحيل محاسبي تلقائي للعملية ' + entry.document_number},
+            ${kind.includes('credit') ? 'credit_note' : 'deposit'}, ${entry.id}, 'posted', ${actor.actor_id}
+          ) ON CONFLICT (tenant_id, entry_number) DO NOTHING
+          RETURNING id
+        `);
+
+        if (je?.id) {
+          const isCredit = kind === 'credit_note' || kind === 'deposit_received';
+          const debitAccId = isCredit
+            ? kind === 'deposit_received'
+              ? cashAcc.id
+              : revAcc.id
+            : arAcc.id;
+          const creditAccId = isCredit
+            ? arAcc.id
+            : kind === 'deposit_reversal'
+              ? cashAcc.id
+              : revAcc.id;
+
+          await transaction.execute(sql`
+            INSERT INTO operations_journal_lines (
+              journal_entry_id, tenant_id, account_id, debit_minor, credit_minor, currency
+            ) VALUES
+              (${je.id}, ${tenantId}, ${debitAccId}, ${amountMinor}, 0, ${currency}),
+              (${je.id}, ${tenantId}, ${creditAccId}, 0, ${amountMinor}, ${currency})
+          `);
+        }
+      }
+    }
+
     return { id: entry.id, documentNumber: entry.document_number };
   });
 }

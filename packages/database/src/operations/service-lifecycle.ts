@@ -52,7 +52,9 @@ export async function applyServiceChangeOrder(
         replay.action !== input.action ||
         replay.request_fingerprint !== fingerprint
       )
-        throw new OperationsConflictError('The service change idempotency key has different input.');
+        throw new OperationsConflictError(
+          'The service change idempotency key has different input.',
+        );
       return changeResult(replay, true);
     }
 
@@ -85,7 +87,9 @@ export async function applyServiceChangeOrder(
           AND archived_at IS NULL AND (branch_id IS NULL OR branch_id=${service.branch_id})
       `);
       if (!target || !target.network_profile_reference?.trim())
-        throw new OperationsConflictError('The selected plan is unavailable or has no network profile.');
+        throw new OperationsConflictError(
+          'The selected plan is unavailable or has no network profile.',
+        );
       toPlanId = target.id;
       networkAction = 'change_profile';
       networkPayload = { profileReference: target.network_profile_reference };

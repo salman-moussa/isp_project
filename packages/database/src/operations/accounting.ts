@@ -205,8 +205,50 @@ export async function readCustomerStatement(
     const currency = params.currency ?? 'USD';
     const offset = (params.page - 1) * params.pageSize;
 
-    // Fetch entries
-    const dbEntries = await transaction.execute<{
+    // 1. Invoices
+    const invoices = await transaction.execute<{
+      id: string;
+      posted_at: Date | string;
+      kind: string;
+      document_number: string;
+      amount_minor: string;
+      reason_en: string;
+      reason_ar: string;
+    }>(sql`
+      SELECT i.id, i.posted_at, 'invoice' AS kind, i.document_number, i.amount_minor::text,
+             'Invoice posted' AS reason_en, 'فاتورة مرحلة' AS reason_ar
+      FROM operations_invoice_preparations p
+      JOIN operations_services s ON s.tenant_id = p.tenant_id AND s.id = p.service_id
+      JOIN finance_invoices i ON i.tenant_id = p.tenant_id AND i.id = p.finance_invoice_id
+      WHERE p.tenant_id = ${tenantId} AND s.subscriber_id = ${params.subscriberId}
+        AND i.currency = ${currency} AND p.posting_status = 'posted' AND i.entry_kind = 'posted'
+    `);
+
+    // 2. Payments allocated
+    const payments = await transaction.execute<{
+      id: string;
+      posted_at: Date | string;
+      kind: string;
+      document_number: string;
+      amount_minor: string;
+      reason_en: string;
+      reason_ar: string;
+    }>(sql`
+      SELECT a.id, a.allocated_at AS posted_at, 'payment' AS kind, p.receipt_number AS document_number,
+             a.amount_minor::text,
+             ('Payment for invoice ' || i.document_number) AS reason_en,
+             ('دفعة للفاتورة ' || i.document_number) AS reason_ar
+      FROM operations_payment_allocations a
+      JOIN finance_payments p ON p.tenant_id = a.tenant_id AND p.id = a.payment_id
+      JOIN finance_invoices i ON i.tenant_id = a.tenant_id AND i.id = a.invoice_id
+      JOIN operations_invoice_preparations prep ON prep.tenant_id = i.tenant_id AND prep.finance_invoice_id = i.id
+      JOIN operations_services s ON s.tenant_id = prep.tenant_id AND s.id = prep.service_id
+      WHERE a.tenant_id = ${tenantId} AND s.subscriber_id = ${params.subscriberId}
+        AND p.currency = ${currency} AND a.status = 'active'
+    `);
+
+    // 3. Customer account adjustments & deposits
+    const accountEntries = await transaction.execute<{
       id: string;
       posted_at: Date | string;
       kind: string;
@@ -218,25 +260,47 @@ export async function readCustomerStatement(
       SELECT id, posted_at, kind, document_number, amount_minor::text, reason_en, reason_ar
       FROM operations_customer_account_entries
       WHERE tenant_id = ${tenantId} AND subscriber_id = ${params.subscriberId} AND currency = ${currency}
-      ORDER BY posted_at ASC, id ASC
     `);
+
+    // Combine all and sort chronologically
+    const allDbEntries = [...invoices, ...payments, ...accountEntries].sort((a, b) => {
+      const timeA = new Date(a.posted_at).getTime();
+      const timeB = new Date(b.posted_at).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return a.id.localeCompare(b.id);
+    });
 
     let runningBalance = 0;
     let totalDebits = 0;
     let totalCredits = 0;
 
-    const allFormattedEntries = dbEntries.map((e) => {
+    const allFormattedEntries = allDbEntries.map((e) => {
       const amt = parseInt(e.amount_minor, 10);
       let debit = 0;
       let credit = 0;
-      let entryType: 'invoice' | 'payment' | 'credit_note' | 'deposit' | 'reversal' = 'deposit';
+      let entryType: 'invoice' | 'payment' | 'credit_note' | 'deposit' | 'reversal' = 'invoice';
 
-      if (e.kind.includes('credit_note') || e.kind.includes('reversal')) {
+      if (e.kind === 'invoice') {
+        debit = amt;
+        entryType = 'invoice';
+      } else if (e.kind === 'payment') {
+        credit = amt;
+        entryType = 'payment';
+      } else if (e.kind === 'credit_note') {
         credit = amt;
         entryType = 'credit_note';
-      } else if (e.kind.includes('deposit')) {
+      } else if (e.kind === 'credit_reversal' || e.kind === 'deposit_reversal') {
+        // Reversal UNDOES credit/deposit -> restoring customer receivable balance (Debit)
+        debit = amt;
+        entryType = 'reversal';
+      } else if (e.kind === 'deposit_received') {
         credit = amt;
         entryType = 'deposit';
+      } else if (e.kind === 'deposit_applied' || e.kind === 'deposit_application_reversal') {
+        // Internal settlement allocation transfer -> 0 net change to total customer balance
+        debit = 0;
+        credit = 0;
+        entryType = 'reversal';
       } else {
         debit = amt;
         entryType = 'invoice';
@@ -390,7 +454,11 @@ export async function readAccountingPeriods(
       startDate: r.start_date,
       endDate: r.end_date,
       status: r.status,
-      closedAt: r.closed_at ? (typeof r.closed_at === 'string' ? r.closed_at : r.closed_at.toISOString()) : null,
+      closedAt: r.closed_at
+        ? typeof r.closed_at === 'string'
+          ? r.closed_at
+          : r.closed_at.toISOString()
+        : null,
       closedBy: r.closed_by,
     }));
   });

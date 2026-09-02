@@ -110,6 +110,10 @@ describe('Orvex ISP Operations shell', () => {
         expect(
           screen.getByRole('heading', { level: 3, name: 'Sign in to open Sales' }),
         ).toBeInTheDocument();
+      } else if (item.id === 'accounting') {
+        expect(
+          screen.getByRole('heading', { level: 1, name: 'Double-entry accounting and trial balance' }),
+        ).toBeInTheDocument();
       } else if (operationsTask) {
         expect(
           screen.getByRole('heading', {

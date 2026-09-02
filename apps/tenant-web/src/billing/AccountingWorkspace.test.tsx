@@ -9,7 +9,7 @@ describe('AccountingWorkspace component', () => {
     render(<AccountingWorkspace locale="en" />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Double-Entry Accounting & General Ledger' }),
+      screen.getByRole('heading', { level: 1, name: 'Double-entry accounting and trial balance' }),
     ).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: 'Chart of Accounts' })).toHaveAttribute(
@@ -18,17 +18,21 @@ describe('AccountingWorkspace component', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'General Ledger & Journals' }));
-    expect(screen.getByRole('heading', { level: 2, name: 'General Ledger Entries' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'General Ledger Entries' }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Trial Balance' }));
-    expect(screen.getByRole('heading', { level: 2, name: /Trial Balance as of/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: /Trial Balance as of/ }),
+    ).toBeInTheDocument();
   });
 
   it('renders Arabic RTL workspace correctly', () => {
     render(<AccountingWorkspace locale="ar" />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'المحاسبة المزدوجة والدفتر العام' }),
+      screen.getByRole('heading', { level: 1, name: 'المحاسبة المزدوجة وميزان المراجعة' }),
     ).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: 'دليل الحسابات' })).toHaveAttribute(

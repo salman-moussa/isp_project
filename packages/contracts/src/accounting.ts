@@ -37,7 +37,15 @@ export const journalEntryInputSchema = z
     entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     descriptionEn: z.string().trim().min(5).max(500),
     descriptionAr: z.string().trim().min(5).max(500),
-    sourceType: z.enum(['invoice', 'payment', 'credit_note', 'deposit', 'expense', 'manual', 'close']),
+    sourceType: z.enum([
+      'invoice',
+      'payment',
+      'credit_note',
+      'deposit',
+      'expense',
+      'manual',
+      'close',
+    ]),
     sourceId: z.string().uuid().optional(),
     lines: z.array(journalLineInputSchema).min(2),
   })
@@ -96,8 +104,14 @@ export interface JournalEntryRecord {
 
 export const customerStatementQuerySchema = z.object({
   subscriberId: z.string().uuid(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   currency: z.enum(['USD', 'LBP']).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
