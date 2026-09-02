@@ -212,9 +212,38 @@ const subscriberBody = z
   })
   .strict();
 const billingBody = z
-  .object({ periodStart: z.iso.date(), periodEnd: z.iso.date() })
+  .object({
+    periodStart: z.iso.date(),
+    periodEnd: z.iso.date(),
+    retryOfRunId: uuid.optional(),
+    reason: businessReason.optional(),
+  })
   .strict()
   .refine((body) => body.periodEnd > body.periodStart, 'Billing period end must follow its start.');
+const dunningPolicyBody = z
+  .object({
+    branchId: uuid.optional(),
+    version: z.number().int().positive(),
+    paymentTermsDays: z.number().int().min(0).max(365),
+    reminderAfterDays: z.number().int().min(0).max(365),
+    finalNoticeAfterDays: z.number().int().min(1).max(730),
+    suspensionReviewAfterDays: z.number().int().min(2).max(1095),
+    effectiveFrom: z.iso.date(),
+    effectiveTo: z.iso.date().optional(),
+    reason: businessReason,
+  })
+  .strict()
+  .refine(
+    (body) =>
+      body.reminderAfterDays < body.finalNoticeAfterDays &&
+      body.finalNoticeAfterDays < body.suspensionReviewAfterDays,
+    'Dunning thresholds must increase from reminder to final notice to suspension review.',
+  )
+  .refine(
+    (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
+    'Dunning policy end must follow its start.',
+  );
+const dunningEvaluationBody = z.object({ asOfDate: z.iso.date(), reason: businessReason }).strict();
 const officePaymentBody = z
   .object({
     subscriberId: uuid,
@@ -750,6 +779,24 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.prepareBilling(id, v as never),
     ),
     operation(
+      '/dunning-policy-versions',
+      'createOperationsDunningPolicyVersion',
+      'tenant.invoice.create',
+      'tenant.dunning.policy.version.create',
+      'dunning_policy',
+      dunningPolicyBody,
+      (w, id, v) => w.createDunningPolicyVersion(id, v as never),
+    ),
+    operation(
+      '/dunning-evaluations',
+      'evaluateOperationsDunning',
+      'tenant.invoice.create',
+      'tenant.dunning.evaluate',
+      'dunning_evaluation',
+      dunningEvaluationBody,
+      (w, id, v) => w.evaluateDunning(id, v as never),
+    ),
+    operation(
       '/office-payments',
       'recordOperationsOfficePayment',
       'tenant.payment.post',
@@ -931,6 +978,22 @@ export function registerTenantOperationsRoutes(
     'Tenant sales',
     'sales-read',
     'Authorized sales workspace read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/billing/workspace',
+      operationId: 'readBillingWorkspace',
+      permission: 'tenant.invoice.create',
+      action: 'tenant.billing.workspace.read',
+      resourceType: 'billing_workspace',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readBillingWorkspace(tenantId, input as never),
+    },
+    'Tenant billing',
+    'billing-read',
+    'Authorized billing and dunning workspace read',
   );
   registerWorkspaceRead(
     app,

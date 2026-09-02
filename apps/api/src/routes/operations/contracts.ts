@@ -20,6 +20,10 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  readBillingWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
   readSubscriberWorkspace(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
@@ -243,7 +247,25 @@ export interface OperationsWriter {
     input: OperationsMutationContext & {
       readonly periodStart: string;
       readonly periodEnd: string;
+      readonly retryOfRunId?: string;
     },
+  ): Promise<unknown>;
+  createDunningPolicyVersion(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly branchId?: string;
+      readonly version: number;
+      readonly paymentTermsDays: number;
+      readonly reminderAfterDays: number;
+      readonly finalNoticeAfterDays: number;
+      readonly suspensionReviewAfterDays: number;
+      readonly effectiveFrom: string;
+      readonly effectiveTo?: string;
+    },
+  ): Promise<unknown>;
+  evaluateDunning(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly asOfDate: string },
   ): Promise<unknown>;
   recordOfficePayment(
     tenantId: VerifiedTenantId,

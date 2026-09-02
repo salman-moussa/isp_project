@@ -39,6 +39,7 @@ const claims: SessionClaims = {
 
 function writerMocks() {
   return {
+    readBillingWorkspace: vi.fn(async () => ({ runs: [], dunningPolicies: [], dunningCases: [] })),
     readSubscriberWorkspace: vi.fn(async () => ({ subscribers: [], services: [] })),
     readSalesWorkspace: vi.fn(async () => ({ leads: [], offers: [], quotes: [], orders: [] })),
     applyServiceChangeOrder: vi.fn(async () => ({ id: 'change-order-a' })),
@@ -60,6 +61,8 @@ function writerMocks() {
     postSalesOrderFirstInvoice: vi.fn(async () => ({ id: 'invoice-a' })),
     createSubscriber: vi.fn(async () => ({ id: 'subscriber-a' })),
     prepareBilling: vi.fn(async () => ({ id: 'run-a', status: 'succeeded' })),
+    createDunningPolicyVersion: vi.fn(async () => ({ id: 'dunning-policy-a' })),
+    evaluateDunning: vi.fn(async () => ({ id: 'dunning-run-a', status: 'succeeded' })),
     recordOfficePayment: vi.fn(async () => ({ id: 'payment-a' })),
     recordPaymentCorrection: vi.fn(async () => ({ id: 'correction-a' })),
     createPlanVersion: vi.fn(async () => ({ id: 'plan-version-a' })),
@@ -623,6 +626,73 @@ describe('tenant operations API route plugin', () => {
     });
     expect(reconciliation.statusCode).toBe(500);
     expect(writer.reconcileCollector).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('reads billing recovery and governs failed-only retry and dunning evaluation', async () => {
+    const { app } = await makeApp(claims, writer);
+    const workspace = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/billing/workspace`,
+    });
+    expect(workspace.statusCode).toBe(200);
+    expect(writer.readBillingWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.invoice.create' }),
+    );
+
+    const sourceRunId = '90000000-0000-4000-8000-000000000001';
+    const retry = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/billing-runs`,
+      headers: { 'idempotency-key': 'billing-retry-001' },
+      payload: {
+        periodStart: '2026-08-01',
+        periodEnd: '2026-09-01',
+        retryOfRunId: sourceRunId,
+        reason: 'Retry only services with corrected billing policy coverage.',
+      },
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(writer.prepareBilling).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ retryOfRunId: sourceRunId }),
+    );
+
+    const policy = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/dunning-policy-versions`,
+      headers: { 'idempotency-key': 'dunning-policy-001' },
+      payload: {
+        version: 1,
+        paymentTermsDays: 10,
+        reminderAfterDays: 2,
+        finalNoticeAfterDays: 7,
+        suspensionReviewAfterDays: 14,
+        effectiveFrom: '2026-08-01',
+        reason: 'Owner approved staged collection review thresholds.',
+      },
+    });
+    expect(policy.statusCode).toBe(201);
+    expect(writer.createDunningPolicyVersion).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ suspensionReviewAfterDays: 14 }),
+    );
+
+    const evaluation = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/dunning-evaluations`,
+      headers: { 'idempotency-key': 'dunning-evaluation-001' },
+      payload: {
+        asOfDate: '2026-09-02',
+        reason: 'Evaluate overdue balances without automatic network suspension.',
+      },
+    });
+    expect(evaluation.statusCode).toBe(201);
+    expect(writer.evaluateDunning).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ asOfDate: '2026-09-02' }),
+    );
     await app.close();
   });
 

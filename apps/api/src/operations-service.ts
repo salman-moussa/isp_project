@@ -15,6 +15,7 @@ import {
   enqueueSalesOrderActivation,
   executeSalesOrderCommand,
   postSalesOrderFirstInvoice,
+  createDunningPolicyVersion,
   purchaseServiceAddon,
   createSalesQuote,
   createOperationsPlanVersion,
@@ -23,8 +24,10 @@ import {
   createSupportIssue,
   enqueueSubscriberNetworkAction,
   prepareRecurringInvoices,
+  evaluateDunning,
   qualifySalesLead,
   readSalesWorkspace,
+  readBillingWorkspace,
   readSubscriberWorkspace,
   recordServiceUsage,
   reconcileCollector,
@@ -50,6 +53,7 @@ export interface OperationsContextAuthorityConfig {
 }
 
 export interface OperationsRepositoryAdapter {
+  readonly readBillingWorkspace: typeof readBillingWorkspace;
   readonly readSalesWorkspace: typeof readSalesWorkspace;
   readonly readSubscriberWorkspace: typeof readSubscriberWorkspace;
   readonly applyServiceChangeOrder: typeof applyServiceChangeOrder;
@@ -71,6 +75,8 @@ export interface OperationsRepositoryAdapter {
   readonly postSalesOrderFirstInvoice: typeof postSalesOrderFirstInvoice;
   readonly createSubscriber: typeof createSubscriber;
   readonly prepareRecurringInvoices: typeof prepareRecurringInvoices;
+  readonly createDunningPolicyVersion: typeof createDunningPolicyVersion;
+  readonly evaluateDunning: typeof evaluateDunning;
   readonly recordOfficePaymentRequest: typeof recordOfficePaymentRequest;
   readonly recordOfficePaymentCorrection: typeof recordOfficePaymentCorrection;
   readonly createOperationsPlanVersion: typeof createOperationsPlanVersion;
@@ -88,6 +94,7 @@ export interface OperationsRepositoryAdapter {
 }
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
+  readBillingWorkspace,
   readSalesWorkspace,
   readSubscriberWorkspace,
   applyServiceChangeOrder,
@@ -109,6 +116,8 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   postSalesOrderFirstInvoice,
   createSubscriber,
   prepareRecurringInvoices,
+  createDunningPolicyVersion,
+  evaluateDunning,
   recordOfficePaymentRequest,
   recordOfficePaymentCorrection,
   createOperationsPlanVersion,
@@ -149,6 +158,15 @@ export class PostgresOperationsService implements OperationsWriter {
     private readonly now: () => Date = () => new Date(),
     private readonly repository: OperationsRepositoryAdapter = postgresOperationsRepository,
   ) {}
+
+  public readBillingWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readBillingWorkspace'>,
+  ) {
+    return this.repository.readBillingWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
 
   public readSalesWorkspace(tenantId: VerifiedTenantId, input: WriterInput<'readSalesWorkspace'>) {
     return this.repository.readSalesWorkspace(this.database, tenantId, {
@@ -335,6 +353,25 @@ export class PostgresOperationsService implements OperationsWriter {
 
   public prepareBilling(tenantId: VerifiedTenantId, input: WriterInput<'prepareBilling'>) {
     return this.repository.prepareRecurringInvoices(this.database, tenantId, {
+      ...input,
+      authorization: this.sign(tenantId, input),
+      requestedBy: input.actorId,
+    });
+  }
+
+  public createDunningPolicyVersion(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'createDunningPolicyVersion'>,
+  ) {
+    return this.repository.createDunningPolicyVersion(this.database, tenantId, {
+      ...input,
+      authorization: this.sign(tenantId, input),
+      createdBy: input.actorId,
+    });
+  }
+
+  public evaluateDunning(tenantId: VerifiedTenantId, input: WriterInput<'evaluateDunning'>) {
+    return this.repository.evaluateDunning(this.database, tenantId, {
       ...input,
       authorization: this.sign(tenantId, input),
       requestedBy: input.actorId,

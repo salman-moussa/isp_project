@@ -31,6 +31,7 @@ describe('database readiness', () => {
           plan_rating_ready: true,
           usage_rating_ready: true,
           legal_invoice_ready: true,
+          billing_recovery_ready: true,
         },
       ];
     });
@@ -70,6 +71,9 @@ describe('database readiness', () => {
     expect(query).toContain('202609020901_tenant_invoice_quote_discount_scope.sql');
     expect(query).toContain('202609020902_tenant_invoice_quote_scope_restore.sql');
     expect(query).toContain('legal_invoice_policy_readiness');
+    expect(query).toContain('202609021000_tenant_billing_recovery_dunning.sql');
+    expect(query).toContain('202609021001_tenant_billing_prepare_policy_read.sql');
+    expect(query).toContain('billing_recovery_dunning_readiness');
   });
 
   it('requires each background service readiness endpoint to succeed', async () => {

@@ -144,6 +144,9 @@ export async function prepareRecurringInvoices(
   input: PrepareBillingRunInput,
 ): Promise<BillingRunResult> {
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    if (input.retryOfRunId) {
+      await assertBillingRetrySource(transaction, tenantId, input);
+    }
     const [run] = await transaction.execute<{
       readonly id: string;
       readonly tenant_id: string;
@@ -155,57 +158,24 @@ export async function prepareRecurringInvoices(
     }>(sql`
       INSERT INTO operations_billing_runs
         (tenant_id, idempotency_key, period_start, period_end, requested_by,
-         scope_branch_ids, scope_area_ids, scope_route_ids, status)
+         scope_branch_ids, scope_area_ids, scope_route_ids, retry_of_run_id, status)
       VALUES
         (${tenantId}, ${input.idempotencyKey}, ${input.periodStart}::date, ${input.periodEnd}::date,
          ${input.requestedBy}, ${uuidArray(input.branchIds)}, ${uuidArray(input.areaIds)},
-         ${uuidArray(input.routeIds)}, 'running')
+         ${uuidArray(input.routeIds)}, ${input.retryOfRunId ?? null}, 'running')
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
       RETURNING *
     `);
     if (!run) return replayBillingRun(transaction, tenantId, input);
-    const [coverageGap] = await transaction.execute<{ readonly missing_count: string }>(sql`
-      SELECT count(*)::text AS missing_count
-      FROM operations_services s
-      CROSS JOIN LATERAL (
-        SELECT day_value::date AS billing_date
-        FROM generate_series(${input.periodStart}::date, ${input.periodEnd}::date - 1, interval '1 day') day_value
-        WHERE extract(day FROM day_value)::integer = s.billing_anchor_day
-        ORDER BY day_value LIMIT 1
-      ) due
-      WHERE s.tenant_id = ${tenantId} AND s.status = 'active'
-        AND s.activated_at::date <= due.billing_date
-        AND (s.terminated_at IS NULL OR s.terminated_at::date > due.billing_date)
-        AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id = ANY(${uuidArray(input.branchIds)}))
-        AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id = ANY(${uuidArray(input.areaIds)}))
-        AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id = ANY(${uuidArray(input.routeIds)}))
-        AND (
-          NOT EXISTS (
-            SELECT 1 FROM operations_plan_versions version
-            WHERE version.tenant_id = s.tenant_id AND version.plan_id = s.plan_id
-              AND version.effective_from <= due.billing_date
-              AND (version.effective_to IS NULL OR version.effective_to > due.billing_date)
-          )
-          OR NOT EXISTS (
-            SELECT 1 FROM operations_billing_policies policy
-            WHERE policy.tenant_id = s.tenant_id
-              AND (policy.branch_id = s.branch_id OR policy.branch_id IS NULL)
-              AND policy.effective_from <= due.billing_date
-              AND (policy.effective_to IS NULL OR policy.effective_to > due.billing_date)
-              AND policy.supplier_tax_registration_number IS NOT NULL
-              AND policy.retention_years IS NOT NULL
-          )
-        )
-    `);
-    if (safeInteger(coverageGap?.missing_count ?? '0') > 0) {
-      throw new Error(
-        'Effective plan or billing-policy coverage is missing for an eligible service.',
-      );
-    }
     await transaction.execute(sql`
       WITH source AS (
         SELECT s.tenant_id,s.id AS service_id,s.branch_id,s.area_id,s.route_id,due.billing_date,
-          pv.*,bp.id AS billing_policy_id,bp.vat_rate_basis_points,bp.rounding_mode,
+          pv.id AS plan_version_id,pv.version AS plan_version,pv.recurring_amount_minor,
+          pv.currency,pv.billing_interval_months,pv.access_technology,pv.downstream_mbps,
+          pv.upstream_mbps,pv.quota_gb,pv.billing_mode,pv.proration_mode,pv.fup_policy,
+          pv.included_addons,pv.overage_per_gb_minor,
+          bp.id AS billing_policy_id,bp.vat_rate_basis_points,bp.rounding_mode,
+          bp.stamp_duty_usd_minor,bp.stamp_duty_lbp_minor,
           greatest(1,${input.periodEnd}::date-${input.periodStart}::date)::bigint AS period_days,
           greatest(0,
             least(${input.periodEnd}::date,coalesce(s.terminated_at::date+1,${input.periodEnd}::date))
@@ -270,6 +240,12 @@ export async function prepareRecurringInvoices(
           AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id=ANY(${uuidArray(input.branchIds)}))
           AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id=ANY(${uuidArray(input.areaIds)}))
           AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id=ANY(${uuidArray(input.routeIds)}))
+          AND (${input.retryOfRunId ?? null}::uuid IS NULL OR EXISTS(
+            SELECT 1 FROM operations_billing_run_items failed_item
+            WHERE failed_item.tenant_id=s.tenant_id
+              AND failed_item.billing_run_id=${input.retryOfRunId ?? null}::uuid
+              AND failed_item.service_id=s.id AND failed_item.status='failed'
+          ))
       ), rated AS (
         SELECT source.*,
           CASE source.proration_mode WHEN 'daily' THEN
@@ -309,10 +285,10 @@ export async function prepareRecurringInvoices(
         CASE amounts.currency WHEN 'USD' THEN amounts.stamp_duty_usd_minor
           ELSE amounts.stamp_duty_lbp_minor END,
         amounts.currency,amounts.branch_id,amounts.area_id,amounts.route_id,amounts.billing_date,
-        ${input.periodStart}::date,${input.periodEnd}::date,amounts.id,amounts.billing_policy_id,
+        ${input.periodStart}::date,${input.periodEnd}::date,amounts.plan_version_id,amounts.billing_policy_id,
         amounts.base_amount_minor,amounts.addon_amount_minor,amounts.overage_amount_minor,
         jsonb_build_object(
-          'planVersionId',amounts.id,'planVersion',amounts.version,
+          'planVersionId',amounts.plan_version_id,'planVersion',amounts.plan_version,
           'accessTechnology',amounts.access_technology,'downstreamMbps',amounts.downstream_mbps,
           'upstreamMbps',amounts.upstream_mbps,'quotaGb',amounts.quota_gb,
           'billingMode',amounts.billing_mode,'prorationMode',amounts.proration_mode,
@@ -334,13 +310,137 @@ export async function prepareRecurringInvoices(
           'currency',amounts.currency,'billingDate',amounts.billing_date
         )
       FROM amounts
+      ON CONFLICT ON CONSTRAINT operations_invoice_preparations_service_period_key DO NOTHING
     `);
     await transaction.execute(sql`
-      UPDATE operations_billing_runs
-      SET status = 'succeeded', completed_at = now()
-      WHERE tenant_id = ${tenantId} AND id = ${run.id}
+      WITH candidates AS (
+        SELECT s.tenant_id,s.id AS service_id,s.branch_id,s.area_id,s.route_id,
+          s.plan_id,p.active AS plan_active,due.billing_date,pv.id AS plan_version_id
+        FROM operations_services s
+        JOIN operations_plans p ON p.tenant_id=s.tenant_id AND p.id=s.plan_id
+        CROSS JOIN LATERAL(
+          SELECT day_value::date AS billing_date
+          FROM generate_series(${input.periodStart}::date,${input.periodEnd}::date-1,interval '1 day') day_value
+          WHERE extract(day FROM day_value)::integer=s.billing_anchor_day
+          ORDER BY day_value LIMIT 1
+        ) due
+        LEFT JOIN LATERAL(
+          SELECT version.id,version.billing_interval_months
+          FROM operations_plan_versions version
+          WHERE version.tenant_id=s.tenant_id AND version.plan_id=s.plan_id
+            AND version.effective_from<=due.billing_date
+            AND (version.effective_to IS NULL OR version.effective_to>due.billing_date)
+          ORDER BY version.version DESC LIMIT 1
+        ) pv ON true
+        WHERE s.tenant_id=${tenantId} AND s.status='active'
+          AND (s.activated_at IS NULL OR s.activated_at::date<=due.billing_date)
+          AND (s.terminated_at IS NULL OR s.terminated_at::date>due.billing_date)
+          AND (pv.id IS NULL OR ((extract(year FROM age(due.billing_date,s.activated_at::date))::integer*12
+            +extract(month FROM age(due.billing_date,s.activated_at::date))::integer)
+            % pv.billing_interval_months=0))
+          AND (${uuidArray(input.branchIds)} IS NULL OR s.branch_id=ANY(${uuidArray(input.branchIds)}))
+          AND (${uuidArray(input.areaIds)} IS NULL OR s.area_id=ANY(${uuidArray(input.areaIds)}))
+          AND (${uuidArray(input.routeIds)} IS NULL OR s.route_id=ANY(${uuidArray(input.routeIds)}))
+          AND (${input.retryOfRunId ?? null}::uuid IS NULL OR EXISTS(
+            SELECT 1 FROM operations_billing_run_items failed_item
+            WHERE failed_item.tenant_id=s.tenant_id
+              AND failed_item.billing_run_id=${input.retryOfRunId ?? null}::uuid
+              AND failed_item.service_id=s.id AND failed_item.status='failed'
+          ))
+      )
+      INSERT INTO operations_billing_run_items(
+        tenant_id,billing_run_id,service_id,source_item_id,status,failure_code,
+        explanation_en,explanation_ar,attempt_number)
+      SELECT candidate.tenant_id,${run.id},candidate.service_id,source_item.id,
+        CASE
+          WHEN current_preparation.id IS NOT NULL THEN 'prepared'
+          WHEN existing_preparation.id IS NOT NULL THEN 'skipped'
+          ELSE 'failed'
+        END,
+        CASE
+          WHEN current_preparation.id IS NOT NULL OR existing_preparation.id IS NOT NULL THEN NULL
+          WHEN candidate.plan_version_id IS NULL THEN 'missing_plan_version'
+          WHEN NOT candidate.plan_active THEN 'inactive_plan'
+          WHEN NOT EXISTS(
+            SELECT 1 FROM operations_billing_policies policy
+            WHERE policy.tenant_id=candidate.tenant_id
+              AND (policy.branch_id=candidate.branch_id OR policy.branch_id IS NULL)
+              AND policy.effective_from<=candidate.billing_date
+              AND (policy.effective_to IS NULL OR policy.effective_to>candidate.billing_date)
+              AND policy.supplier_tax_registration_number IS NOT NULL
+              AND policy.retention_years IS NOT NULL
+          ) THEN 'missing_billing_policy'
+          ELSE 'rating_unavailable'
+        END,
+        CASE
+          WHEN current_preparation.id IS NOT NULL THEN 'Invoice draft prepared from effective plan and billing policy.'
+          WHEN existing_preparation.id IS NOT NULL THEN 'The service period already has an invoice preparation; no duplicate was created.'
+          WHEN candidate.plan_version_id IS NULL THEN 'No effective plan version covers the service billing date.'
+          WHEN NOT candidate.plan_active THEN 'The service plan is inactive and cannot produce a recurring draft.'
+          WHEN NOT EXISTS(
+            SELECT 1 FROM operations_billing_policies policy
+            WHERE policy.tenant_id=candidate.tenant_id
+              AND (policy.branch_id=candidate.branch_id OR policy.branch_id IS NULL)
+              AND policy.effective_from<=candidate.billing_date
+              AND (policy.effective_to IS NULL OR policy.effective_to>candidate.billing_date)
+              AND policy.supplier_tax_registration_number IS NOT NULL
+              AND policy.retention_years IS NOT NULL
+          ) THEN 'No effective legal billing policy covers the service billing date.'
+          ELSE 'The service could not be rated from the available effective configuration.'
+        END,
+        CASE
+          WHEN current_preparation.id IS NOT NULL THEN 'تم تحضير مسودة الفاتورة من نسخة الباقة وسياسة الفوترة النافذتين.'
+          WHEN existing_preparation.id IS NOT NULL THEN 'توجد مسودة فاتورة لهذه الخدمة والفترة، لذلك لم يتم إنشاء نسخة مكررة.'
+          WHEN candidate.plan_version_id IS NULL THEN 'لا توجد نسخة باقة نافذة تغطي تاريخ فوترة الخدمة.'
+          WHEN NOT candidate.plan_active THEN 'الباقة غير نشطة ولا يمكنها إنشاء مسودة فوترة دورية.'
+          WHEN NOT EXISTS(
+            SELECT 1 FROM operations_billing_policies policy
+            WHERE policy.tenant_id=candidate.tenant_id
+              AND (policy.branch_id=candidate.branch_id OR policy.branch_id IS NULL)
+              AND policy.effective_from<=candidate.billing_date
+              AND (policy.effective_to IS NULL OR policy.effective_to>candidate.billing_date)
+              AND policy.supplier_tax_registration_number IS NOT NULL
+              AND policy.retention_years IS NOT NULL
+          ) THEN 'لا توجد سياسة فوترة قانونية نافذة تغطي تاريخ فوترة الخدمة.'
+          ELSE 'تعذّر احتساب الخدمة باستخدام الإعدادات النافذة المتاحة.'
+        END,
+        coalesce(source_item.attempt_number+1,1)
+      FROM candidates candidate
+      LEFT JOIN operations_billing_run_items source_item
+        ON source_item.tenant_id=candidate.tenant_id
+        AND source_item.billing_run_id=${input.retryOfRunId ?? null}::uuid
+        AND source_item.service_id=candidate.service_id AND source_item.status='failed'
+      LEFT JOIN operations_invoice_preparations current_preparation
+        ON current_preparation.tenant_id=candidate.tenant_id
+        AND current_preparation.billing_run_id=${run.id}
+        AND current_preparation.service_id=candidate.service_id
+      LEFT JOIN operations_invoice_preparations existing_preparation
+        ON existing_preparation.tenant_id=candidate.tenant_id
+        AND existing_preparation.service_id=candidate.service_id
+        AND existing_preparation.period_start=${input.periodStart}::date
+        AND existing_preparation.period_end=${input.periodEnd}::date
+        AND existing_preparation.billing_run_id<>${run.id}
     `);
-    return billingResult(transaction, tenantId, run.id, input.idempotencyKey, 'succeeded');
+    const [completed] = await transaction.execute<{
+      readonly status: BillingRunResult['status'];
+    }>(sql`
+      UPDATE operations_billing_runs
+      SET status=CASE WHEN EXISTS(
+          SELECT 1 FROM operations_billing_run_items item
+          WHERE item.tenant_id=${tenantId} AND item.billing_run_id=${run.id}
+            AND item.status='failed'
+        ) THEN 'failed'::operations_job_status ELSE 'succeeded'::operations_job_status END,
+        error_summary=CASE WHEN EXISTS(
+          SELECT 1 FROM operations_billing_run_items item
+          WHERE item.tenant_id=${tenantId} AND item.billing_run_id=${run.id}
+            AND item.status='failed'
+        ) THEN 'One or more services require corrected effective billing configuration.' ELSE NULL END,
+        completed_at=now()
+      WHERE tenant_id = ${tenantId} AND id = ${run.id}
+      RETURNING status
+    `);
+    if (!completed) throw new Error('Unable to complete the billing run.');
+    return billingResult(transaction, tenantId, run.id, input.idempotencyKey, completed.status);
   });
 }
 
@@ -1288,9 +1388,10 @@ async function replayBillingRun(
     readonly scope_branch_ids: readonly string[] | null;
     readonly scope_area_ids: readonly string[] | null;
     readonly scope_route_ids: readonly string[] | null;
+    readonly retry_of_run_id: string | null;
   }>(sql`
     SELECT id, status, period_start, period_end, requested_by,
-      scope_branch_ids, scope_area_ids, scope_route_ids
+      scope_branch_ids, scope_area_ids, scope_route_ids,retry_of_run_id
     FROM operations_billing_runs
     WHERE tenant_id = ${tenantId} AND idempotency_key = ${input.idempotencyKey}
   `);
@@ -1301,11 +1402,49 @@ async function replayBillingRun(
     row.requested_by !== input.requestedBy ||
     stableJson(row.scope_branch_ids ?? undefined) !== stableJson(input.branchIds) ||
     stableJson(row.scope_area_ids ?? undefined) !== stableJson(input.areaIds) ||
-    stableJson(row.scope_route_ids ?? undefined) !== stableJson(input.routeIds)
+    stableJson(row.scope_route_ids ?? undefined) !== stableJson(input.routeIds) ||
+    (row.retry_of_run_id ?? undefined) !== input.retryOfRunId
   ) {
     throw new OperationsIdempotencyConflictError();
   }
   return billingResult(transaction, tenantId, row.id, input.idempotencyKey, row.status);
+}
+
+async function assertBillingRetrySource(
+  transaction: TenantTransaction,
+  tenantId: VerifiedTenantId,
+  input: PrepareBillingRunInput,
+): Promise<void> {
+  const [source] = await transaction.execute<{
+    readonly status: BillingRunResult['status'];
+    readonly period_start: Date | string;
+    readonly period_end: Date | string;
+    readonly scope_branch_ids: readonly string[] | null;
+    readonly scope_area_ids: readonly string[] | null;
+    readonly scope_route_ids: readonly string[] | null;
+    readonly failed_count: string;
+  }>(sql`
+    SELECT run.status,run.period_start,run.period_end,run.scope_branch_ids,
+      run.scope_area_ids,run.scope_route_ids,
+      count(item.id) FILTER(WHERE item.status='failed')::text AS failed_count
+    FROM operations_billing_runs run
+    LEFT JOIN operations_billing_run_items item
+      ON item.tenant_id=run.tenant_id AND item.billing_run_id=run.id
+    WHERE run.tenant_id=${tenantId} AND run.id=${input.retryOfRunId ?? null}
+    GROUP BY run.id
+  `);
+  if (
+    !source ||
+    source.status !== 'failed' ||
+    safeInteger(source.failed_count) === 0 ||
+    day(source.period_start) !== input.periodStart ||
+    day(source.period_end) !== input.periodEnd ||
+    stableJson(source.scope_branch_ids ?? undefined) !== stableJson(input.branchIds) ||
+    stableJson(source.scope_area_ids ?? undefined) !== stableJson(input.areaIds) ||
+    stableJson(source.scope_route_ids ?? undefined) !== stableJson(input.routeIds)
+  ) {
+    throw new OperationsIdempotencyConflictError();
+  }
 }
 
 async function billingResult(
@@ -1315,16 +1454,56 @@ async function billingResult(
   idempotencyKey: string,
   status: BillingRunResult['status'],
 ): Promise<BillingRunResult> {
-  const [count] = await transaction.execute<{ readonly prepared_count: string }>(sql`
-    SELECT count(*)::text AS prepared_count
-    FROM operations_invoice_preparations
-    WHERE tenant_id = ${tenantId} AND billing_run_id = ${id}
+  const [count] = await transaction.execute<{
+    readonly prepared_count: string;
+    readonly failed_count: string;
+    readonly skipped_count: string;
+    readonly retry_of_run_id: string | null;
+  }>(sql`
+    SELECT
+      (SELECT count(*) FROM operations_invoice_preparations preparation
+        WHERE preparation.tenant_id=run.tenant_id AND preparation.billing_run_id=run.id)::text
+        AS prepared_count,
+      count(item.id) FILTER(WHERE item.status='failed')::text AS failed_count,
+      count(item.id) FILTER(WHERE item.status='skipped')::text AS skipped_count,
+      run.retry_of_run_id
+    FROM operations_billing_runs run
+    LEFT JOIN operations_billing_run_items item
+      ON item.tenant_id=run.tenant_id AND item.billing_run_id=run.id
+    WHERE run.tenant_id=${tenantId} AND run.id=${id}
+    GROUP BY run.id
   `);
+  const failures = await transaction.execute<{
+    readonly id: string;
+    readonly service_id: string;
+    readonly failure_code: string;
+    readonly explanation_en: string;
+    readonly explanation_ar: string;
+    readonly attempt_number: number;
+  }>(sql`
+    SELECT id,service_id,failure_code,explanation_en,explanation_ar,attempt_number
+    FROM operations_billing_run_items
+    WHERE tenant_id=${tenantId} AND billing_run_id=${id} AND status='failed'
+    ORDER BY service_id
+  `);
+  const failedCount = safeInteger(count?.failed_count ?? '0');
   return {
     id,
     tenantId,
     status,
     preparedCount: safeInteger(count?.prepared_count ?? '0'),
+    failedCount,
+    skippedCount: safeInteger(count?.skipped_count ?? '0'),
+    retryableCount: failedCount,
+    ...(count?.retry_of_run_id ? { retryOfRunId: count.retry_of_run_id } : {}),
+    failures: failures.map((failure) => ({
+      itemId: failure.id,
+      serviceId: failure.service_id,
+      failureCode: failure.failure_code,
+      explanationEn: failure.explanation_en,
+      explanationAr: failure.explanation_ar,
+      attemptNumber: failure.attempt_number,
+    })),
     idempotencyKey,
   };
 }

@@ -8,6 +8,73 @@ export interface TenantSummary {
   readonly collections: { readonly USD: number; readonly LBP: number };
 }
 
+export interface BillingWorkspaceData {
+  readonly runs: readonly BillingWorkspaceRun[];
+  readonly dunningPolicies: readonly BillingDunningPolicy[];
+  readonly dunningCases: readonly BillingDunningCase[];
+}
+
+export interface BillingWorkspaceRunItem {
+  readonly id: string;
+  readonly serviceId: string;
+  readonly serviceNumber: string;
+  readonly subscriberName: string;
+  readonly status: 'prepared' | 'failed' | 'skipped';
+  readonly failureCode?: string;
+  readonly explanationEn: string;
+  readonly explanationAr: string;
+  readonly attemptNumber: number;
+}
+
+export interface BillingWorkspaceRun {
+  readonly id: string;
+  readonly periodStart: string;
+  readonly periodEnd: string;
+  readonly status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  readonly retryOfRunId?: string;
+  readonly preparedCount: number;
+  readonly failedCount: number;
+  readonly skippedCount: number;
+  readonly requestedAt: string;
+  readonly completedAt?: string;
+  readonly items: readonly BillingWorkspaceRunItem[];
+}
+
+export interface BillingDunningPolicy {
+  readonly id: string;
+  readonly branchId?: string;
+  readonly version: number;
+  readonly paymentTermsDays: number;
+  readonly reminderAfterDays: number;
+  readonly finalNoticeAfterDays: number;
+  readonly suspensionReviewAfterDays: number;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+}
+
+export interface BillingDunningCase {
+  readonly id: string;
+  readonly documentNumber: string;
+  readonly serviceNumber: string;
+  readonly subscriberName: string;
+  readonly currentStage: 'reminder' | 'final_notice' | 'suspension_review' | 'resolved';
+  readonly status: 'open' | 'resolved';
+  readonly dueOn: string;
+  readonly outstandingMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly version: number;
+  readonly events: readonly {
+    readonly id: string;
+    readonly fromStage?: string;
+    readonly toStage: 'reminder' | 'final_notice' | 'suspension_review' | 'resolved';
+    readonly daysOverdue: number;
+    readonly outstandingMinor: number;
+    readonly explanationEn: string;
+    readonly explanationAr: string;
+    readonly occurredAt: string;
+  }[];
+}
+
 export interface SubscriberWorkspaceData {
   readonly subscribers: readonly SubscriberWorkspaceSubscriber[];
   readonly services: readonly SubscriberWorkspaceService[];
@@ -622,6 +689,25 @@ export async function readSalesWorkspace(session: ApiSession): Promise<SalesWork
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Sales workspace');
   return (await response.json()) as SalesWorkspaceData;
+}
+
+export async function readBillingWorkspace(session: ApiSession): Promise<BillingWorkspaceData> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/billing/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Billing workspace');
+  return (await response.json()) as BillingWorkspaceData;
+}
+
+export async function submitBillingOperation(
+  session: ApiSession,
+  path: 'billing-runs' | 'dunning-policy-versions' | 'dunning-evaluations',
+  payload: Readonly<Record<string, unknown>>,
+): Promise<Record<string, unknown>> {
+  return submitTenantOperation(session, path, payload, crypto.randomUUID());
 }
 
 export async function readSubscriberWorkspace(

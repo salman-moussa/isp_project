@@ -48,8 +48,18 @@ export interface PrepareBillingRunInput
     OperationsScopeSelection {
   readonly periodStart: string;
   readonly periodEnd: string;
+  readonly retryOfRunId?: string;
   readonly idempotencyKey: string;
   readonly requestedBy: string;
+}
+
+export interface BillingRunFailure {
+  readonly itemId: string;
+  readonly serviceId: string;
+  readonly failureCode: string;
+  readonly explanationEn: string;
+  readonly explanationAr: string;
+  readonly attemptNumber: number;
 }
 
 export interface BillingRunResult {
@@ -57,7 +67,44 @@ export interface BillingRunResult {
   readonly tenantId: VerifiedTenantId;
   readonly status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   readonly preparedCount: number;
+  readonly failedCount: number;
+  readonly skippedCount: number;
+  readonly retryableCount: number;
+  readonly retryOfRunId?: string;
+  readonly failures: readonly BillingRunFailure[];
   readonly idempotencyKey: string;
+}
+
+export interface DunningPolicyVersionInput extends OperationsRepositoryRequest {
+  readonly branchId?: string;
+  readonly version: number;
+  readonly paymentTermsDays: number;
+  readonly reminderAfterDays: number;
+  readonly finalNoticeAfterDays: number;
+  readonly suspensionReviewAfterDays: number;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+  readonly createdBy: string;
+}
+
+export interface DunningEvaluationInput
+  extends OperationsRepositoryRequest,
+    OperationsScopeSelection {
+  readonly asOfDate: string;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+  readonly requestedBy: string;
+}
+
+export interface DunningEvaluationResult {
+  readonly id: string;
+  readonly status: 'succeeded';
+  readonly evaluatedCount: number;
+  readonly advancedCount: number;
+  readonly resolvedCount: number;
+  readonly replayed: boolean;
 }
 
 export type NetworkActionPayload =

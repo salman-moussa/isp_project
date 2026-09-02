@@ -83,6 +83,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        AND to_regclass('public.operations_addon_versions') IS NOT NULL
        AND to_regclass('public.operations_service_addon_purchases') IS NOT NULL
        AND to_regclass('public.operations_usage_events') IS NOT NULL
+       AND to_regclass('public.operations_billing_run_items') IS NOT NULL
+       AND to_regclass('public.operations_dunning_cases') IS NOT NULL
        AND to_regclass('public.collect_devices') IS NOT NULL
        AND to_regclass('public.collect_sync_operations') IS NOT NULL
        AND to_regclass('public.collect_audit_outbox') IS NOT NULL
@@ -145,6 +147,12 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        ) AND EXISTS (
          SELECT 1 FROM public._orvex_migrations
          WHERE name = '202609020902_tenant_invoice_quote_scope_restore.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202609021000_tenant_billing_recovery_dunning.sql'
+       ) AND EXISTS (
+         SELECT 1 FROM public._orvex_migrations
+         WHERE name = '202609021001_tenant_billing_prepare_policy_read.sql'
        ) AS migrations_ready,
        (
          SELECT count(*) = 5
@@ -209,7 +217,10 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
        usage_rating.migration_ready AND usage_rating.relations_ready
          AND usage_rating.guards_ready AS usage_rating_ready,
        legal_invoice.migration_ready AND legal_invoice.policy_ready
-         AND legal_invoice.invoice_ready AS legal_invoice_ready
+         AND legal_invoice.invoice_ready AS legal_invoice_ready,
+       billing_recovery.migration_ready AND billing_recovery.run_items_ready
+         AND billing_recovery.dunning_ready AND billing_recovery.audit_ready
+         AS billing_recovery_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
@@ -222,7 +233,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
      CROSS JOIN public.service_change_order_readiness() service_changes
      CROSS JOIN public.plan_rating_version_readiness() plan_rating
      CROSS JOIN public.usage_addon_rating_readiness() usage_rating
-     CROSS JOIN public.legal_invoice_policy_readiness() legal_invoice`,
+     CROSS JOIN public.legal_invoice_policy_readiness() legal_invoice
+     CROSS JOIN public.billing_recovery_dunning_readiness() billing_recovery`,
   );
   if (
     !state?.relations_ready ||
@@ -240,7 +252,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.service_changes_ready ||
     !state.plan_rating_ready ||
     !state.usage_rating_ready ||
-    !state.legal_invoice_ready
+    !state.legal_invoice_ready ||
+    !state.billing_recovery_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

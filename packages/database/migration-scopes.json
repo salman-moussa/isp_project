@@ -34,5 +34,7 @@
   "202608310800_tenant_usage_addon_rating.sql": "tenant",
   "202609020900_tenant_legal_invoice_policy.sql": "tenant",
   "202609020901_tenant_invoice_quote_discount_scope.sql": "tenant",
-  "202609020902_tenant_invoice_quote_scope_restore.sql": "tenant"
+  "202609020902_tenant_invoice_quote_scope_restore.sql": "tenant",
+  "202609021000_tenant_billing_recovery_dunning.sql": "tenant",
+  "202609021001_tenant_billing_prepare_policy_read.sql": "tenant"
 }

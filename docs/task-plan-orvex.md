@@ -50,6 +50,14 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
+- On 2026-09-02 recurring billing recovery and governed dunning passed a clean PostgreSQL 18
+  composed proof. A valid service retained its invoice preparation while a misconfigured service
+  produced a durable bilingual `missing_plan_version` outcome; after the effective plan version was
+  published, an exact retry processed only that failed service at attempt two. A versioned dunning
+  policy advanced the unpaid posted invoice to `suspension_review`, replayed exactly, exposed the
+  evidence in the bilingual Billing workspace, and created no network command. Focused migration,
+  readiness, API, UI/accessibility, type and live database checks pass.
+
 - On 2026-09-02 the legal-invoice tranche passed clean PostgreSQL 18 migrations and the composed
   sales proof. The accepted quote's 8% discount, branch-effective 11% VAT policy and explicit USD
   stamp duty produced exact minor-unit components: 18,000 gross, 1,440 discount, 16,560 taxable,

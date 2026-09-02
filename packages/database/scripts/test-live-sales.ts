@@ -10,6 +10,7 @@ import {
   createAddonVersion,
   createDatabase,
   createBillingPolicyVersion,
+  createDunningPolicyVersion,
   createOperationsPlanVersion,
   createSalesLead,
   createSalesOfferVersion,
@@ -18,12 +19,15 @@ import {
   convertSalesOrderSubscriber,
   createCapacityResource,
   enqueueSalesOrderActivation,
+  evaluateDunning,
   executeSalesOrderCommand,
   inOperationsTransaction,
   qualifySalesLead,
   postSalesOrderFirstInvoice,
+  prepareRecurringInvoices,
   purchaseServiceAddon,
   readSalesWorkspace,
+  readBillingWorkspace,
   readSubscriberWorkspace,
   recordServiceUsage,
   reserveSalesOrderResource,
@@ -787,6 +791,179 @@ try {
   assert.equal(subscriberWorkspace.usageBalances[0]?.overageGb, 50);
   assert.equal(subscriberWorkspace.usageBalances[0]?.projectedOverageMinor, 5_000);
 
+  const recoveryPlanId = randomUUID();
+  const recoveryServiceId = randomUUID();
+  const recoveryServiceNumber = `SVC-RECOVERY-${randomUUID().slice(0, 6)}`;
+  const recurringPeriodEnd = new Date(`${billingPeriodEndDate}T00:00:00.000Z`);
+  recurringPeriodEnd.setUTCDate(recurringPeriodEnd.getUTCDate() + 31);
+  const recurringPeriodEndDate = recurringPeriodEnd.toISOString().slice(0, 10);
+  await inOperationsTransaction(
+    runtime.db,
+    tenantId,
+    authorization(
+      'tenant.invoice.create',
+      'tenant.plan.version.create',
+      'billing-recovery-plan-seed-001',
+      { branchIds: [branchId] },
+    ),
+    async (transaction) => {
+      await transaction.execute(sql`
+        INSERT INTO operations_plans(
+          id,tenant_id,branch_id,code,name_en,name_ar,recurring_amount_minor,currency,
+          billing_interval_months,network_profile_reference,idempotency_key)
+        VALUES(${recoveryPlanId},${tenantId},${branchId},${`RECOVERY-${randomUUID().slice(0, 6)}`},
+          'Recovery proof plan','باقة إثبات المعالجة',9000,'USD',1,
+          'profile-recovery-proof','billing-recovery-plan-seed-001')
+      `);
+    },
+  );
+  await inOperationsTransaction(
+    runtime.db,
+    tenantId,
+    authorization(
+      'tenant.installation.manage',
+      'tenant.service.installation.create',
+      'billing-recovery-service-seed-001',
+    ),
+    async (transaction) => {
+      await transaction.execute(sql`
+        INSERT INTO operations_services(
+          id,tenant_id,subscriber_id,location_id,plan_id,service_number,status,
+          billing_anchor_day,activated_at,branch_id,area_id,route_id,idempotency_key)
+        VALUES(${recoveryServiceId},${tenantId},${conversion.subscriberId},
+          ${subscriberWorkspace.subscribers[0]?.locationId},${recoveryPlanId},
+          ${recoveryServiceNumber},'active',${Number(activationDate.slice(8, 10))},
+          ${activationDate}::date,${branchId},${areaId},${routeId},
+          'billing-recovery-service-seed-001')
+      `);
+    },
+  );
+  const failedRunInput = {
+    authorization: authorization(
+      'tenant.invoice.create' as const,
+      'tenant.billing.prepare',
+      'billing-recovery-run-001',
+    ),
+    periodStart: billingPeriodEndDate,
+    periodEnd: recurringPeriodEndDate,
+    requestedBy: actorId,
+    branchIds: [branchId],
+    areaIds: [areaId],
+    routeIds: [routeId],
+    idempotencyKey: 'billing-recovery-run-001',
+  };
+  const failedRun = await prepareRecurringInvoices(runtime.db, tenantId, failedRunInput);
+  assert.equal(failedRun.status, 'failed');
+  assert.equal(failedRun.preparedCount, 1);
+  assert.equal(failedRun.failedCount, 1);
+  assert.equal(failedRun.skippedCount, 0);
+  assert.equal(failedRun.failures[0]?.serviceId, recoveryServiceId);
+  assert.equal(failedRun.failures[0]?.failureCode, 'missing_plan_version');
+  const failedReplay = await prepareRecurringInvoices(runtime.db, tenantId, failedRunInput);
+  assert.equal(failedReplay.id, failedRun.id);
+  assert.equal(failedReplay.failedCount, 1);
+
+  await createOperationsPlanVersion(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.plan.version.create',
+      'billing-recovery-plan-fix-001',
+      { branchIds: [branchId] },
+    ),
+    planId: recoveryPlanId,
+    branchId,
+    code: 'RECOVERY-FIX',
+    nameEn: 'Recovery proof plan',
+    nameAr: 'باقة إثبات المعالجة',
+    networkProfileReference: 'profile-recovery-proof',
+    accessTechnology: 'fiber',
+    downstreamMbps: 50,
+    upstreamMbps: 20,
+    billingMode: 'postpaid',
+    prorationMode: 'none',
+    fupPolicy: { mode: 'none' },
+    includedAddons: [],
+    version: 1,
+    recurringAmountMinor: 9_000,
+    currency: 'USD',
+    billingIntervalMonths: 1,
+    effectiveFrom: activationDate,
+    createdBy: actorId,
+    idempotencyKey: 'billing-recovery-plan-fix-001',
+  });
+  const retryRunInput = {
+    ...failedRunInput,
+    authorization: authorization(
+      'tenant.invoice.create' as const,
+      'tenant.billing.prepare',
+      'billing-recovery-retry-001',
+    ),
+    retryOfRunId: failedRun.id,
+    idempotencyKey: 'billing-recovery-retry-001',
+  };
+  const retryRun = await prepareRecurringInvoices(runtime.db, tenantId, retryRunInput);
+  assert.equal(retryRun.status, 'succeeded');
+  assert.equal(retryRun.preparedCount, 1);
+  assert.equal(retryRun.failedCount, 0);
+  assert.equal(retryRun.skippedCount, 0);
+  assert.equal(retryRun.retryOfRunId, failedRun.id);
+
+  await createDunningPolicyVersion(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.dunning.policy.version.create',
+      'dunning-policy-live-001',
+      { branchIds: [branchId] },
+    ),
+    branchId,
+    version: 1,
+    paymentTermsDays: 0,
+    reminderAfterDays: 0,
+    finalNoticeAfterDays: 2,
+    suspensionReviewAfterDays: 5,
+    effectiveFrom: activationDate,
+    reason: 'Owner approved staged live dunning review thresholds.',
+    createdBy: actorId,
+    idempotencyKey: 'dunning-policy-live-001',
+  });
+  const dunningAsOf = new Date(`${activationDate}T00:00:00.000Z`);
+  dunningAsOf.setUTCDate(dunningAsOf.getUTCDate() + 7);
+  const dunningAsOfDate = dunningAsOf.toISOString().slice(0, 10);
+  const dunningInput = {
+    authorization: authorization(
+      'tenant.invoice.create' as const,
+      'tenant.dunning.evaluate',
+      'dunning-evaluate-live-001',
+    ),
+    asOfDate: dunningAsOfDate,
+    reason: 'Evaluate overdue live invoice without automatic network suspension.',
+    requestedBy: actorId,
+    branchIds: [branchId],
+    areaIds: [areaId],
+    routeIds: [routeId],
+    idempotencyKey: 'dunning-evaluate-live-001',
+  };
+  const dunning = await evaluateDunning(runtime.db, tenantId, dunningInput);
+  assert.equal(dunning.evaluatedCount, 1);
+  assert.equal(dunning.advancedCount, 1);
+  assert.equal(dunning.resolvedCount, 0);
+  assert.equal(dunning.replayed, false);
+  assert.equal((await evaluateDunning(runtime.db, tenantId, dunningInput)).replayed, true);
+
+  const billingWorkspace = await readBillingWorkspace(runtime.db, tenantId, {
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.billing.workspace.read',
+      'billing-workspace-read-live-001',
+    ),
+  });
+  assert.equal(billingWorkspace.runs[0]?.id, retryRun.id);
+  assert.equal(billingWorkspace.runs[0]?.items[0]?.serviceId, recoveryServiceId);
+  assert.equal(billingWorkspace.runs[0]?.items[0]?.attemptNumber, 2);
+  assert.equal(billingWorkspace.dunningCases[0]?.currentStage, 'suspension_review');
+  assert.equal(billingWorkspace.dunningCases[0]?.outstandingMinor, 18_482);
+  assert.equal(billingWorkspace.dunningCases[0]?.events[0]?.daysOverdue, 7);
+
   const upgradedPlan = await createOperationsPlanVersion(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.invoice.create',
@@ -864,7 +1041,7 @@ try {
   assert.equal(lifecycleWorkspace.services[0]?.upstreamMbps, 100);
   assert.equal(lifecycleWorkspace.services[0]?.quotaGb, 2000);
   assert.equal(lifecycleWorkspace.services[0]?.fupMode, 'bill');
-  assert.equal(lifecycleWorkspace.subscribers[0]?.status, 'closed');
+  assert.equal(lifecycleWorkspace.subscribers[0]?.status, 'active');
   assert.equal(lifecycleWorkspace.serviceChanges.length, 4);
   assert.equal(lifecycleWorkspace.serviceChanges[0]?.action, 'terminate');
 
@@ -877,6 +1054,7 @@ try {
         'tenant.resource.reserve','tenant.plan.version.create','tenant.service.installation.create',
         'tenant.installation.transition','tenant.network.job.create','tenant.network.job.complete',
         'tenant.billing.policy.version.create','tenant.order.first_invoice.post',
+        'tenant.billing.prepare','tenant.dunning.policy.version.create','tenant.dunning.evaluate',
         'tenant.order.command','tenant.subscriber.workspace.read','tenant.service.change.apply')`;
   assert((audit?.count ?? 0) >= 80, 'the sales vertical must emit atomic record and read evidence');
   assert.equal(audit?.actor_matches, true);
