@@ -2,6 +2,8 @@ import type { SupportedCurrency, VerifiedTenantId } from '@isp/contracts';
 import { sql } from 'drizzle-orm';
 import type { Database } from './client.js';
 import { inTenantTransaction } from './tenant-transaction.js';
+import { inOperationsTransaction } from './operations/context.js';
+import type { SignedOperationsDatabaseContext } from './operations/types.js';
 
 export class IdempotencyConflictError extends Error {
   public readonly code = 'IDEMPOTENCY_CONFLICT';
@@ -54,6 +56,7 @@ export interface PostDocumentInput {
   readonly actorId: string;
   readonly postedAt: Date;
   readonly audit: FinanceRequestAuditContext;
+  readonly authorization?: SignedOperationsDatabaseContext;
 }
 
 export interface FinanceRequestAuditContext {
@@ -74,6 +77,7 @@ export interface ReverseDocumentInput {
   readonly actorId: string;
   readonly postedAt: Date;
   readonly audit: FinanceRequestAuditContext;
+  readonly authorization?: SignedOperationsDatabaseContext;
 }
 
 export interface AllocatePaymentInput {
@@ -85,6 +89,7 @@ export interface AllocatePaymentInput {
   readonly actorId: string;
   readonly postedAt: Date;
   readonly audit: FinanceRequestAuditContext;
+  readonly authorization?: SignedOperationsDatabaseContext;
 }
 
 export interface ReverseAllocationInput {
@@ -93,6 +98,7 @@ export interface ReverseAllocationInput {
   readonly actorId: string;
   readonly postedAt: Date;
   readonly audit: FinanceRequestAuditContext;
+  readonly authorization?: SignedOperationsDatabaseContext;
 }
 
 interface DocumentRow {
@@ -168,7 +174,7 @@ async function reverseDocument(
   type: 'invoice' | 'payment',
   input: ReverseDocumentInput,
 ): Promise<PostedFinanceDocument> {
-  return inTenantTransaction(database, tenantId, async (transaction) => {
+  return inFinanceTransaction(database, tenantId, input.authorization, async (transaction) => {
     const table = type === 'invoice' ? 'finance_invoices' : 'finance_payments';
     const [original] = await transaction.execute<DocumentRow>(sql`
       SELECT * FROM ${sql.identifier(table)}
@@ -185,6 +191,7 @@ async function reverseDocument(
       actorId: input.actorId,
       postedAt: input.postedAt,
       audit: input.audit,
+      ...(input.authorization ? { authorization: input.authorization } : {}),
       reversesId: original.id,
     });
   });
@@ -197,9 +204,20 @@ async function writeDocument(
   entryKind: 'posted' | 'reversal',
   input: PostDocumentInput & { readonly reversesId?: string },
 ): Promise<PostedFinanceDocument> {
-  return inTenantTransaction(database, tenantId, (transaction) =>
+  return inFinanceTransaction(database, tenantId, input.authorization, (transaction) =>
     writeDocumentInTransaction(transaction, tenantId, type, entryKind, input),
   );
+}
+
+function inFinanceTransaction<T>(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  authorization: SignedOperationsDatabaseContext | undefined,
+  work: (transaction: TenantTransaction) => Promise<T>,
+): Promise<T> {
+  return authorization
+    ? inOperationsTransaction(database, tenantId, authorization, work)
+    : inTenantTransaction(database, tenantId, work);
 }
 
 type TenantTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -255,7 +273,7 @@ export async function allocatePayment(
   input: AllocatePaymentInput,
 ): Promise<PostedAllocation> {
   return translateFinanceErrors(() =>
-    inTenantTransaction(database, tenantId, (transaction) =>
+    inFinanceTransaction(database, tenantId, input.authorization, (transaction) =>
       writeAllocationInTransaction(transaction, tenantId, 'allocation', input),
     ),
   );
@@ -267,11 +285,10 @@ export async function reverseAllocation(
   input: ReverseAllocationInput,
 ): Promise<PostedAllocation> {
   return translateFinanceErrors(() =>
-    inTenantTransaction(database, tenantId, async (transaction) => {
+    inFinanceTransaction(database, tenantId, input.authorization, async (transaction) => {
       const [original] = await transaction.execute<AllocationRow>(sql`
       SELECT * FROM finance_payment_allocations
       WHERE tenant_id = ${tenantId} AND id = ${input.originalId}
-      FOR UPDATE
     `);
       if (!original || original.entry_kind !== 'allocation') {
         throw new FinanceConflictError();

@@ -60,7 +60,10 @@ try {
       "JOIN finance_document_guards g ON g.tenant_id=i.tenant_id AND g.document_id=i.id AND g.document_type='invoice' " +
       "WHERE t.code LIKE 'SALES-%' AND g.reversed_at IS NULL AND i.currency='USD' " +
       'AND i.amount_minor-g.allocated_minor-g.credited_minor>1000 AND p.subtotal_minor-g.credited_net_minor>1000 ' +
-      'ORDER BY i.posted_at DESC LIMIT 1',
+      'AND NOT EXISTS(SELECT 1 FROM operations_accounting_periods ap WHERE ap.tenant_id=t.id ' +
+      "AND ap.status<>'open' AND (clock_timestamp() AT TIME ZONE 'UTC')::date BETWEEN ap.start_date AND ap.end_date) " +
+      'AND EXISTS(SELECT 1 FROM operations_journal_entries j WHERE j.tenant_id=i.tenant_id AND j.finance_source_id=i.id) ' +
+      'ORDER BY i.created_at DESC,i.id LIMIT 1',
   );
   assert(fixture, 'Run the sales live fixture first; need an unpaid synthetic sales invoice.');
   const tenantId = fixture.tenant_id as VerifiedTenantId;
@@ -604,18 +607,18 @@ try {
     postManual(randomUUID(), { entryNumber: run + '-closed' }),
     'closed-period posting denied',
   );
-  await assert.rejects(
-    closeAccountingPeriod(runtime.db, tenantId, {
-      request: {
-        ...request,
-        periodName: run + '-current',
-        startDate: new Date().toISOString().slice(0, 10),
-        endDate: new Date().toISOString().slice(0, 10),
-      },
-      authorization: accountingAuth('tenant.accounting.period.close', 'tenant.accounting.close'),
-    }),
-    'incomplete invoice coverage cannot be certified as a closed period',
+  const currentCoverage = await readTrialBalance(
+    runtime.db,
+    tenantId,
+    accountingAuth('tenant.accounting.trial_balance.read'),
+    new Date().toISOString().slice(0, 10),
   );
+  assert.equal(
+    currentCoverage.coverage?.hasUnjournaledInvoices,
+    false,
+    'governed invoices now have source journals; the prior missing-coverage assertion is obsolete',
+  );
+  assert.equal(currentCoverage.coverage?.hasUnjournaledSources, false);
   assert(
     (
       await readJournalEntries(

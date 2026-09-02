@@ -45,6 +45,7 @@ export const journalEntryInputSchema = z
     descriptionEn: z.string().trim().min(5).max(500),
     descriptionAr: z.string().trim().min(5).max(500),
     sourceType: z.literal('manual'),
+    classifiesJournalId: z.uuid().optional(),
     lines: z.array(journalLineInputSchema).min(2).max(200),
   })
   .refine((data) => {
@@ -86,6 +87,7 @@ export interface JournalEntryRecord {
   readonly status: 'posted' | 'reversed';
   readonly postedAt: string;
   readonly postedBy: string;
+  readonly classificationRequired?: boolean;
   readonly lines: readonly {
     readonly id: string;
     readonly accountId: string;
@@ -162,6 +164,7 @@ export interface TrialBalanceResponse {
   readonly asOfDate: string;
   readonly coverage?: {
     readonly hasUnjournaledSources?: boolean;
+    readonly hasUnclassifiedEntries?: boolean;
     readonly hasLegacyEntries: boolean;
     readonly hasUnjournaledInvoices: boolean;
   };

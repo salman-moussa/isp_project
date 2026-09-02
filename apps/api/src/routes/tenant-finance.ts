@@ -366,6 +366,10 @@ async function executeMutation(
     ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
     permission: definition.permission,
     reason: request.auth.supportGrant?.reason ?? 'Authorized tenant finance mutation.',
+    ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
+    ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
+    ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),
+    ...(request.auth.recordIds !== undefined ? { recordIds: request.auth.recordIds } : {}),
   };
   const commonAudit = {
     tenantId: context.tenantId,

@@ -66,3 +66,71 @@ describe('accounting forward integrity', () => {
     expect(owner).not.toContain('TO orvex_runtime');
   });
 });
+describe('financial sources and collector locking', () => {
+  it('binds financial source posting, replay and close locks to signed authority', async () => {
+    const migration = await readFile(
+      resolve(
+        import.meta.dirname,
+        '../../migrations/202609021803_tenant_financial_source_journals.sql',
+      ),
+      'utf8',
+    );
+    for (const invariant of [
+      'journal_finance_source_once',
+      'DEFERRABLE INITIALLY DEFERRED',
+      'accounting_lock_financial_request',
+      'classification_required',
+      'NEW.posted_at AT TIME ZONE',
+      'c.support_grant_id IS NOT NULL',
+    ]) {
+      expect(migration).toContain(invariant);
+    }
+    const attribution = await readFile(
+      resolve(
+        import.meta.dirname,
+        '../../migrations/202609021804_tenant_finance_attribution_classification.sql',
+      ),
+      'utf8',
+    );
+    expect(attribution).toContain('finance audit attribution must match signed request');
+  });
+  it('keeps classification immutable, currency-exact and date-bound on reversal', async () => {
+    const classification = await readFile(
+      resolve(
+        import.meta.dirname,
+        '../../migrations/202609021805_tenant_accounting_classification.sql',
+      ),
+      'utf8',
+    );
+    expect(classification).toContain('FORCE ROW LEVEL SECURITY');
+    expect(classification).toContain('operations_reject_append_only_mutation');
+    const reversal = await readFile(
+      resolve(
+        import.meta.dirname,
+        '../../migrations/202609021806_tenant_classified_source_reversals.sql',
+      ),
+      'utf8',
+    );
+    expect(reversal).toContain('classify_accounting_journal.source_id');
+    expect(reversal).toContain('GROUP BY');
+    expect(reversal).toContain('HAVING');
+  });
+  it('mediates collector locks without granting raw table update rights', async () => {
+    const migration = await readFile(
+      resolve(import.meta.dirname, '../../migrations/202609021807_tenant_collect_payment_lock.sql'),
+      'utf8',
+    );
+    for (const invariant of [
+      'SECURITY DEFINER SET search_path=pg_catalog,public',
+      "c.permission<>'tenant.payment.post'",
+      "c.action<>'tenant.collection.evidence.record'",
+      'a.collector_user_id::text=c.actor_id',
+      'operations_scope_allows_route',
+      'FOR UPDATE OF a,g',
+      'FROM PUBLIC',
+    ]) {
+      expect(migration).toContain(invariant);
+    }
+    expect(migration).not.toMatch(/GRANT\s+(?:UPDATE|SELECT).*TABLE/i);
+  });
+});

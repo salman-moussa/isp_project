@@ -63,6 +63,10 @@ export interface FinanceDocumentWrite {
 }
 
 export interface FinanceMutationAuditContext {
+  readonly branchIds?: readonly string[];
+  readonly areaIds?: readonly string[];
+  readonly routeIds?: readonly string[];
+  readonly recordIds?: readonly string[];
   readonly sessionId: string;
   readonly supportGrantId?: string;
   readonly action: string;

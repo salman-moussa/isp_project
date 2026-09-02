@@ -72,7 +72,13 @@ switch back to d0c726f after these guards: that binary performs the removed dupl
 request-derived journal insert. Use a reviewed forward fix; do not drop immutable guards to make an
 old binary run.
 
-## Remaining work / next owners
+## Subsequent checkpoint
+
+The [financial-source checkpoint](financial-source-journals-2026-09-02.md) supersedes the invoice,
+payment, close-coordination and forms gaps listed below. GitHub authentication and feature-branch
+push are also resolved. This earlier evidence is retained as historical context.
+
+## Remaining work / next owners (at this checkpoint)
 
 1. **Finance implementation + independent reviewer:** automatic invoice, ordinary payment,
    allocation and reversal posting across all writers; legacy reconciliation/opening journals;

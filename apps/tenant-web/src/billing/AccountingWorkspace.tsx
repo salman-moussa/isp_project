@@ -1,3 +1,6 @@
+import './billing.css';
+import { CustomerStatement } from './CustomerStatement';
+import { AccountingForms } from './AccountingForms';
 import type {
   ChartOfAccountRecord,
   JournalEntryRecord,
@@ -19,9 +22,9 @@ interface AccountingWorkspaceProps {
 }
 
 export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<'coa' | 'journal' | 'trial_balance' | 'periods'>(
-    'coa',
-  );
+  const [activeTab, setActiveTab] = useState<
+    'coa' | 'journal' | 'trial_balance' | 'periods' | 'statement'
+  >('coa');
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [retry, setRetry] = useState(0);
   const [trialCurrency, setTrialCurrency] = useState<'USD' | 'LBP'>('USD');
@@ -84,6 +87,7 @@ export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProp
     };
   }, [session, retry]);
   const empty =
+    activeTab !== 'statement' &&
     loadState === 'ready' &&
     (activeTab === 'coa'
       ? accounts.length === 0
@@ -137,6 +141,7 @@ export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProp
         (!trialBalance?.coverage ||
           trialBalance.coverage.hasUnjournaledSources !== false ||
           trialBalance.coverage.hasLegacyEntries ||
+          trialBalance.coverage.hasUnclassifiedEntries !== false ||
           trialBalance.coverage.hasUnjournaledInvoices) && (
           <p role="alert">
             {isAr
@@ -176,6 +181,13 @@ export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProp
           onClick={() => setActiveTab('periods')}
         >
           {isAr ? 'الفترات المحاسبية والإغلاق' : 'Accounting Periods & Close'}
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeTab === 'statement'}
+          onClick={() => setActiveTab('statement')}
+        >
+          {isAr ? 'كشف حساب العميل' : 'Customer statement'}
         </button>
       </nav>
 
@@ -235,6 +247,11 @@ export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProp
                 <strong>{je.entryNumber}</strong> — {je.entryDate} |{' '}
                 {isAr ? je.descriptionAr : je.descriptionEn}
                 <span className="badge badge--posted">{labels[je.status]}</span>
+                {je.classificationRequired && (
+                  <span className="badge">
+                    {isAr ? 'يحتاج إلى تصنيف' : 'Classification required'}
+                  </span>
+                )}
               </div>
               <table className="account-table">
                 <thead>
@@ -383,7 +400,7 @@ export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProp
                   <td>{p.startDate}</td>
                   <td>{p.endDate}</td>
                   <td>
-                    <span className={`badge badge--${labels[p.status]}`}>{p.status}</span>
+                    <span className={`badge badge--${p.status}`}>{p.status}</span>
                   </td>
                   <td>{p.closedAt ?? (isAr ? 'مفتوحة' : 'Open')}</td>
                 </tr>
@@ -391,6 +408,21 @@ export function AccountingWorkspace({ locale, session }: AccountingWorkspaceProp
             </tbody>
           </table>
         </div>
+      )}
+      {session && activeTab === 'statement' && (
+        <CustomerStatement key={session.tenantId} locale={locale} session={session} />
+      )}
+      {session && (activeTab === 'journal' || activeTab === 'periods') && (
+        <AccountingForms
+          key={session.tenantId}
+          locale={locale}
+          session={session}
+          mode={activeTab}
+          accounts={accounts}
+          journals={journalEntries}
+          disabled={loadState !== 'ready'}
+          onPosted={() => setRetry((v) => v + 1)}
+        />
       )}
     </section>
   );

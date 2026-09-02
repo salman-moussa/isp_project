@@ -58,7 +58,7 @@ const authDelivery =
     : new DevelopmentAuthDeliveryAdapter();
 const app = await buildApp(config, {
   audit: new PostgresAuditWriter(authControlDatabase.db),
-  finance: new PostgresFinanceWriter(tenantDatabase.db),
+  finance: new PostgresFinanceWriter(tenantDatabase.db, operationsAuthority),
   securityAudit: new PostgresSecurityAuditWriter(authControlDatabase.db),
   sessions: sessionStatus,
   tenantMemberships: new PostgresTenantMembershipStatusReader(authControlDatabase.db),
