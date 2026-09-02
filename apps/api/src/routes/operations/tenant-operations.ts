@@ -388,6 +388,10 @@ const billingPolicyBody = z
     supplierAddressEn: z.string().trim().min(1).max(500),
     supplierAddressAr: z.string().trim().min(1).max(500),
     supplierTaxRegistrationNumber: z.string().trim().min(1).max(100),
+    taxTreatment: z.enum(['taxable', 'exempt', 'out_of_scope']),
+    taxReasonEn: z.string().trim().min(8).max(500).optional(),
+    taxReasonAr: z.string().trim().min(8).max(500).optional(),
+    taxAuthorityReference: z.string().trim().min(3).max(200).optional(),
     stampDutyUsdMinor: z.number().int().nonnegative().safe(),
     stampDutyLbpMinor: z.number().int().nonnegative().safe(),
     retentionYears: z.number().int().min(1).max(50),
@@ -399,7 +403,22 @@ const billingPolicyBody = z
   .refine(
     (body) => body.effectiveTo === undefined || body.effectiveTo > body.effectiveFrom,
     'Billing policy end must follow its start.',
-  );
+  )
+  .superRefine((body, context) => {
+    const eligible =
+      body.taxTreatment === 'taxable'
+        ? !body.taxReasonEn && !body.taxReasonAr && !body.taxAuthorityReference
+        : body.vatRateBasisPoints === 0 &&
+          Boolean(body.taxReasonEn && body.taxReasonAr && body.taxAuthorityReference);
+    if (!eligible) {
+      context.addIssue({
+        code: 'custom',
+        path: ['taxTreatment'],
+        message:
+          'Exempt/out-of-scope policies require zero VAT and bilingual authority evidence; taxable policies must omit exemption evidence.',
+      });
+    }
+  });
 const assignmentBody = z
   .object({
     collectorUserId: uuid,
@@ -610,6 +629,7 @@ export const operationsRequestSchemas = {
 } as const;
 
 interface RouteSpec extends OperationsDefinition {
+  readonly download?: boolean;
   readonly schema: z.ZodType;
   readonly requiresRecentMfa?: boolean;
   readonly additionalPermissions?: readonly Permission[];
@@ -631,6 +651,15 @@ export function registerTenantOperationsRoutes(
   options: TenantOperationsRouteOptions,
 ): void {
   const routes: readonly RouteSpec[] = [
+    operation(
+      '/invoice-documents',
+      'generateInvoiceDocument',
+      'tenant.invoice.create',
+      'tenant.invoice.document.generate',
+      'invoice_document',
+      z.object({ invoiceId: uuid }).strict(),
+      (writer, tenantId, input) => writer.generateInvoiceDocument(tenantId, input as never),
+    ),
     operation(
       '/sales/leads',
       'createSalesLead',
@@ -1013,6 +1042,24 @@ export function registerTenantOperationsRoutes(
     'Authorized subscriber workspace read',
   );
   for (const spec of routes) registerMutation(app, options, spec);
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/invoice-documents/:artifactId/pdf',
+      operationId: 'downloadInvoiceDocument',
+      permission: 'tenant.invoice.create',
+      action: 'tenant.invoice.document.download',
+      resourceType: 'invoice_document',
+      download: true,
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) =>
+        writer.downloadInvoiceDocument(tenantId, input as never),
+    },
+    'Tenant billing',
+    'document-read',
+    'Authorized invoice document download',
+  );
 }
 
 function operation(
@@ -1057,7 +1104,7 @@ function registerWorkspaceRead(
         tags: [tag],
         security: [{ bearerAuth: [] }],
         response: {
-          200: { type: 'object', additionalProperties: true },
+          ...(!spec.download ? { 200: { type: 'object', additionalProperties: true } } : {}),
           400: errorResponseJsonSchema,
           401: errorResponseJsonSchema,
           403: errorResponseJsonSchema,
@@ -1067,6 +1114,9 @@ function registerWorkspaceRead(
     },
     async (request, reply) => {
       const { tenantId: requestedTenantId } = tenantParams.parse(request.params);
+      const artifactId = spec.download
+        ? z.object({ artifactId: uuid }).parse(request.params).artifactId
+        : undefined;
       const idempotencyKey = `${idempotencyPrefix}:${request.id}`;
       let context: ReturnType<typeof assertTenantContext>;
       try {
@@ -1079,21 +1129,51 @@ function registerWorkspaceRead(
         await auditDenial(request, options, spec, requestedTenantId, idempotencyKey, error);
         throw error;
       }
-      const result = await spec.execute(options.writer, context.tenantId, {
-        actorId: request.auth.sub,
-        sessionId: request.auth.sessionId,
-        idempotencyKey,
-        requestId: request.id,
-        ipAddress: request.ip,
-        ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
-        permission: spec.permission,
-        auditAction: spec.action,
-        reason,
-        ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
-        ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
-        ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),
-        ...(request.auth.recordIds !== undefined ? { recordIds: request.auth.recordIds } : {}),
-      });
+      let result: unknown;
+      try {
+        result = await spec.execute(options.writer, context.tenantId, {
+          ...(artifactId ? { artifactId } : {}),
+          actorId: request.auth.sub,
+          sessionId: request.auth.sessionId,
+          idempotencyKey,
+          requestId: request.id,
+          ipAddress: request.ip,
+          ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+          permission: spec.permission,
+          auditAction: spec.action,
+          reason,
+          ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
+          ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
+          ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),
+          ...(request.auth.recordIds !== undefined ? { recordIds: request.auth.recordIds } : {}),
+        });
+      } catch (error) {
+        if (spec.download)
+          await auditDenial(request, options, spec, requestedTenantId, idempotencyKey, error);
+        throw error;
+      }
+      if (spec.download) {
+        const document = result as { bytes: Buffer; filename: string };
+        await options.audit.append({
+          tenantId: context.tenantId,
+          actorId: request.auth.sub,
+          sessionId: request.auth.sessionId,
+          action: spec.action,
+          resourceType: spec.resourceType,
+          resourceId: artifactId!,
+          requestId: request.id,
+          ipAddress: request.ip,
+          result: 'allowed',
+          metadata: { permission: spec.permission },
+          occurredAt: options.now().toISOString(),
+        });
+        return reply
+          .header('cache-control', 'private, no-store')
+          .header('x-content-type-options', 'nosniff')
+          .header('content-disposition', `attachment; filename="${document.filename}"`)
+          .type('application/pdf')
+          .send(document.bytes);
+      }
       return reply.header('cache-control', 'private, no-store').send(result);
     },
   );

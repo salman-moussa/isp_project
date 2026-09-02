@@ -35,6 +35,16 @@ Token rotation/revoke does not alter the posted document.
 
 ## Consequences
 
+### 2026-09-02 bounded invoice implementation
+
+Posted legal-snapshot invoices now have a private retained archive. The first implementation
+reserves durable pending metadata, generates in the authorized request, and supports manual recovery
+by invoice identity; a background bulk worker remains future work. Downloads stream through the API
+after scope, checksum and audit checks instead of issuing a signed URL. This trades API bandwidth
+for strict per-download authorization and avoids bearer URLs. User-upload scanning and the public
+verifier remain separate unfinished surfaces. Activation and rollback details are in
+[the invoice archive runbook](../operations/invoice-document-archive.md).
+
 - Upload completion is asynchronous and requires clear scanning states.
 - Signed URLs reduce API bandwidth but object IAM/prefix policies and short TTL are critical.
 - File content and business metadata have coordinated lifecycle/restore manifests.

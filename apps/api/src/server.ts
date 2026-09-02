@@ -1,4 +1,6 @@
 import { createDatabase, PostgresAuthRepository } from '@isp/database';
+import { S3Client } from '@aws-sdk/client-s3';
+import { S3InvoiceDocumentStore } from './documents/invoice-store.js';
 import { buildApp } from './app.js';
 import { readConfig } from './config.js';
 import {
@@ -28,6 +30,17 @@ import { TenantStaffService } from './staff.js';
 import { PostgresTenantStaffScopeService } from './staff-scope-service.js';
 
 const config = readConfig(process.env);
+const documentStore = config.DOCUMENT_S3_BUCKET
+  ? new S3InvoiceDocumentStore(
+      new S3Client({
+        region: config.DOCUMENT_S3_REGION ?? 'us-east-1',
+        ...(config.DOCUMENT_S3_ENDPOINT ? { endpoint: config.DOCUMENT_S3_ENDPOINT } : {}),
+        forcePathStyle: config.DOCUMENT_S3_FORCE_PATH_STYLE === 'true',
+        maxAttempts: 2,
+      }),
+      config.DOCUMENT_S3_BUCKET,
+    )
+  : undefined;
 const authControlDatabase = createDatabase(config.AUTH_CONTROL_DATABASE_URL);
 const controlDatabase = createDatabase(config.CONTROL_DATABASE_URL);
 const tenantDatabase = createDatabase(config.TENANT_DATABASE_URL);
@@ -64,7 +77,13 @@ const app = await buildApp(config, {
     keyId: config.CONTROL_CONTEXT_KEY_ID,
     secret: decodeControlContextSecret(config.CONTROL_CONTEXT_SECRET_BASE64),
   }),
-  operations: new PostgresOperationsService(tenantDatabase.db, operationsAuthority),
+  operations: new PostgresOperationsService(
+    tenantDatabase.db,
+    operationsAuthority,
+    undefined,
+    undefined,
+    documentStore,
+  ),
   collect: new CollectApiService(
     new PostgresCollectBackendRepository(tenantDatabase.db),
     sessionStatus,
@@ -93,6 +112,7 @@ const app = await buildApp(config, {
     await Promise.all([
       assertControlDatabaseReady(controlDatabase.client),
       assertTenantDatabaseReady(tenantDatabase.client),
+      ...(documentStore ? [documentStore.ready()] : []),
       assertHttpDependencyReady(
         required(config.FINANCE_AUDIT_READINESS_URL, 'FINANCE_AUDIT_READINESS_URL'),
       ),

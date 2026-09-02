@@ -1,4 +1,5 @@
 import type { VerifiedTenantId } from '@isp/contracts';
+import { createHash } from 'node:crypto';
 import {
   assignCollectorInvoice,
   applyServiceChangeOrder,
@@ -28,6 +29,9 @@ import {
   qualifySalesLead,
   readSalesWorkspace,
   readBillingWorkspace,
+  prepareInvoiceDocument,
+  completeInvoiceDocument,
+  readInvoiceDocument,
   readSubscriberWorkspace,
   recordServiceUsage,
   reconcileCollector,
@@ -44,6 +48,8 @@ import {
   type SignedOperationsDatabaseContext,
 } from '@isp/database';
 import type { OperationsMutationContext, OperationsWriter } from './routes/operations/contracts.js';
+import { renderInvoicePdf } from './documents/invoice-pdf.js';
+import { invoiceStorageKey, type InvoiceDocumentStore } from './documents/invoice-store.js';
 
 type WriterInput<Key extends keyof OperationsWriter> = Parameters<OperationsWriter[Key]>[1];
 
@@ -53,6 +59,9 @@ export interface OperationsContextAuthorityConfig {
 }
 
 export interface OperationsRepositoryAdapter {
+  readonly prepareInvoiceDocument: typeof prepareInvoiceDocument;
+  readonly completeInvoiceDocument: typeof completeInvoiceDocument;
+  readonly readInvoiceDocument: typeof readInvoiceDocument;
   readonly readBillingWorkspace: typeof readBillingWorkspace;
   readonly readSalesWorkspace: typeof readSalesWorkspace;
   readonly readSubscriberWorkspace: typeof readSubscriberWorkspace;
@@ -94,6 +103,9 @@ export interface OperationsRepositoryAdapter {
 }
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
+  prepareInvoiceDocument,
+  completeInvoiceDocument,
+  readInvoiceDocument,
   readBillingWorkspace,
   readSalesWorkspace,
   readSubscriberWorkspace,
@@ -157,15 +169,85 @@ export class PostgresOperationsService implements OperationsWriter {
     private readonly authority: OperationsContextAuthorityConfig,
     private readonly now: () => Date = () => new Date(),
     private readonly repository: OperationsRepositoryAdapter = postgresOperationsRepository,
+    private readonly documentStore?: InvoiceDocumentStore,
   ) {}
 
-  public readBillingWorkspace(
+  public async generateInvoiceDocument(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'generateInvoiceDocument'>,
+  ) {
+    const store = this.requireDocumentStore();
+    const source = await this.repository.prepareInvoiceDocument(this.database, tenantId, {
+      ...input,
+      requestedBy: input.actorId,
+      authorization: this.sign(tenantId, input),
+    });
+    if (source.status === 'ready') {
+      return {
+        id: source.id,
+        invoiceId: source.invoiceId,
+        documentNumber: source.documentNumber,
+        status: source.status,
+        rendererVersion: source.rendererVersion,
+        retentionUntil: source.retentionUntil,
+        sha256: source.sha256,
+        sizeBytes: source.sizeBytes,
+        completedAt: source.completedAt,
+      };
+    }
+    const bytes = await renderInvoicePdf(source.legalInvoiceSnapshot);
+    const storageKey = invoiceStorageKey(tenantId, source.id);
+    await store.put(storageKey, bytes, source.retentionUntil);
+    return this.repository.completeInvoiceDocument(this.database, tenantId, {
+      artifactId: source.id,
+      storageKey,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      sizeBytes: bytes.length,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public async downloadInvoiceDocument(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'downloadInvoiceDocument'>,
+  ) {
+    const store = this.requireDocumentStore();
+    const { archive, storageKey } = await this.repository.readInvoiceDocument(
+      this.database,
+      tenantId,
+      {
+        artifactId: input.artifactId,
+        authorization: this.sign(tenantId, input),
+      },
+    );
+    if (storageKey !== invoiceStorageKey(tenantId, archive.id))
+      throw new Error('Invoice storage namespace mismatch.');
+    const bytes = await store.get(storageKey);
+    if (
+      bytes.length !== archive.sizeBytes ||
+      createHash('sha256').update(bytes).digest('hex') !== archive.sha256
+    ) {
+      throw new Error('Invoice archive integrity verification failed.');
+    }
+    return { bytes, filename: `invoice-${archive.id}.pdf` };
+  }
+
+  private requireDocumentStore(): InvoiceDocumentStore {
+    if (!this.documentStore)
+      throw Object.assign(new Error('Private invoice storage is not configured.'), {
+        statusCode: 503,
+      });
+    return this.documentStore;
+  }
+
+  public async readBillingWorkspace(
     tenantId: VerifiedTenantId,
     input: WriterInput<'readBillingWorkspace'>,
   ) {
-    return this.repository.readBillingWorkspace(this.database, tenantId, {
+    const workspace = await this.repository.readBillingWorkspace(this.database, tenantId, {
       authorization: this.sign(tenantId, input),
     });
+    return { ...workspace, documentStorageConfigured: Boolean(this.documentStore) };
   }
 
   public readSalesWorkspace(tenantId: VerifiedTenantId, input: WriterInput<'readSalesWorkspace'>) {

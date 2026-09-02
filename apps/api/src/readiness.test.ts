@@ -32,6 +32,7 @@ describe('database readiness', () => {
           usage_rating_ready: true,
           legal_invoice_ready: true,
           billing_recovery_ready: true,
+          invoice_documents_ready: true,
         },
       ];
     });

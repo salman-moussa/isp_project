@@ -25,6 +25,7 @@ COPY --from=build --chown=node:node /workspace/packages/database/migration-scope
 COPY --from=build --chown=node:node /workspace/packages/database/scripts ./packages/database/scripts
 COPY --from=build --chown=node:node /workspace/apps/api/package.json ./apps/api/package.json
 COPY --from=build --chown=node:node /workspace/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=node:node /workspace/apps/api/assets ./apps/api/assets
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \

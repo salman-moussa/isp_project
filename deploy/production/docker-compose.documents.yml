@@ -1,0 +1,16 @@
+# Opt-in overlay for an already provisioned, private Object Lock enabled bucket.
+# No existing bucket, reverse proxy, port, or host service is modified by this file.
+services:
+  api:
+    environment:
+      DOCUMENT_S3_BUCKET: ${DOCUMENT_S3_BUCKET:?Dedicated private invoice bucket is required}
+      DOCUMENT_S3_REGION: ${DOCUMENT_S3_REGION:?Storage region is required}
+      DOCUMENT_S3_ENDPOINT: ${DOCUMENT_S3_ENDPOINT:?HTTPS S3 endpoint is required}
+      DOCUMENT_S3_FORCE_PATH_STYLE: ${DOCUMENT_S3_FORCE_PATH_STYLE:-false}
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/invoice-s3-credentials
+    secrets:
+      - invoice-s3-credentials
+
+secrets:
+  invoice-s3-credentials:
+    file: ${DOCUMENT_S3_CREDENTIALS_FILE:?Operator-managed workload credential file is required}

@@ -220,7 +220,9 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
          AND legal_invoice.invoice_ready AS legal_invoice_ready,
        billing_recovery.migration_ready AND billing_recovery.run_items_ready
          AND billing_recovery.dunning_ready AND billing_recovery.audit_ready
-         AS billing_recovery_ready
+         AS billing_recovery_ready,
+       invoice_documents.migration_ready AND invoice_documents.tax_ready
+         AND invoice_documents.archive_ready AND invoice_documents.audit_ready AS invoice_documents_ready
      FROM public.operations_readiness() operations
      CROSS JOIN public.sales_order_readiness() sales
      CROSS JOIN public.sales_order_execution_readiness() execution
@@ -234,7 +236,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
      CROSS JOIN public.plan_rating_version_readiness() plan_rating
      CROSS JOIN public.usage_addon_rating_readiness() usage_rating
      CROSS JOIN public.legal_invoice_policy_readiness() legal_invoice
-     CROSS JOIN public.billing_recovery_dunning_readiness() billing_recovery`,
+     CROSS JOIN public.billing_recovery_dunning_readiness() billing_recovery
+     CROSS JOIN public.invoice_document_readiness() invoice_documents`,
   );
   if (
     !state?.relations_ready ||
@@ -253,7 +256,8 @@ export async function assertTenantDatabaseReady(client: DatabaseClient): Promise
     !state.plan_rating_ready ||
     !state.usage_rating_ready ||
     !state.legal_invoice_ready ||
-    !state.billing_recovery_ready
+    !state.billing_recovery_ready ||
+    !state.invoice_documents_ready
   ) {
     throw new Error('Tenant database finance schema or guard invariant is not ready.');
   }

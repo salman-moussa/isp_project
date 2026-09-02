@@ -978,13 +978,15 @@ export async function createBillingPolicyVersion(
       INSERT INTO operations_billing_policies (
         tenant_id, branch_id, version, vat_rate_basis_points, rounding_mode,
         supplier_name_en,supplier_name_ar,supplier_address_en,supplier_address_ar,
-        supplier_tax_registration_number,stamp_duty_usd_minor,stamp_duty_lbp_minor,retention_years,
+        supplier_tax_registration_number,tax_treatment,tax_reason_en,tax_reason_ar,
+        tax_authority_reference,stamp_duty_usd_minor,stamp_duty_lbp_minor,retention_years,
         effective_from, effective_to, created_by, idempotency_key
       ) VALUES (
         ${tenantId}, ${input.branchId ?? null}, ${input.version}, ${input.vatRateBasisPoints},
         ${input.roundingMode},${input.supplierNameEn},${input.supplierNameAr},
         ${input.supplierAddressEn},${input.supplierAddressAr},
-        ${input.supplierTaxRegistrationNumber},${input.stampDutyUsdMinor},
+        ${input.supplierTaxRegistrationNumber},${input.taxTreatment},${input.taxReasonEn ?? null},
+        ${input.taxReasonAr ?? null},${input.taxAuthorityReference ?? null},${input.stampDutyUsdMinor},
         ${input.stampDutyLbpMinor},${input.retentionYears},
         ${input.effectiveFrom}::date, ${input.effectiveTo ?? null}::date,
         ${input.createdBy}, ${input.idempotencyKey}
@@ -1004,6 +1006,10 @@ export async function createBillingPolicyVersion(
       readonly supplier_address_en: string | null;
       readonly supplier_address_ar: string | null;
       readonly supplier_tax_registration_number: string | null;
+      readonly tax_treatment: BillingPolicyVersionInput['taxTreatment'];
+      readonly tax_reason_en: string | null;
+      readonly tax_reason_ar: string | null;
+      readonly tax_authority_reference: string | null;
       readonly stamp_duty_usd_minor: string;
       readonly stamp_duty_lbp_minor: string;
       readonly retention_years: number | null;
@@ -1013,7 +1019,8 @@ export async function createBillingPolicyVersion(
     }>(sql`
       SELECT id, branch_id, version, vat_rate_basis_points, rounding_mode,
         supplier_name_en,supplier_name_ar,supplier_address_en,supplier_address_ar,
-        supplier_tax_registration_number,stamp_duty_usd_minor::text,stamp_duty_lbp_minor::text,
+        supplier_tax_registration_number,tax_treatment,tax_reason_en,tax_reason_ar,
+        tax_authority_reference,stamp_duty_usd_minor::text,stamp_duty_lbp_minor::text,
         retention_years,
         effective_from, effective_to, created_by
       FROM operations_billing_policies
@@ -1030,6 +1037,10 @@ export async function createBillingPolicyVersion(
       existing.supplier_address_en !== input.supplierAddressEn ||
       existing.supplier_address_ar !== input.supplierAddressAr ||
       existing.supplier_tax_registration_number !== input.supplierTaxRegistrationNumber ||
+      existing.tax_treatment !== input.taxTreatment ||
+      (existing.tax_reason_en ?? undefined) !== input.taxReasonEn ||
+      (existing.tax_reason_ar ?? undefined) !== input.taxReasonAr ||
+      (existing.tax_authority_reference ?? undefined) !== input.taxAuthorityReference ||
       safeInteger(existing.stamp_duty_usd_minor) !== input.stampDutyUsdMinor ||
       safeInteger(existing.stamp_duty_lbp_minor) !== input.stampDutyLbpMinor ||
       existing.retention_years !== input.retentionYears ||

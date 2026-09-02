@@ -107,6 +107,23 @@ export interface DunningEvaluationResult {
   readonly replayed: boolean;
 }
 
+export interface InvoiceDocumentRequestInput extends OperationsRepositoryRequest {
+  readonly invoiceId: string;
+  readonly requestedBy: string;
+  readonly idempotencyKey: string;
+}
+
+export interface InvoiceDocumentCompleteInput extends OperationsRepositoryRequest {
+  readonly artifactId: string;
+  readonly storageKey: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+}
+
+export interface InvoiceDocumentReadInput extends OperationsRepositoryRequest {
+  readonly artifactId: string;
+}
+
 export type NetworkActionPayload =
   | { readonly action: 'activate' | 'restore'; readonly payload: Readonly<Record<string, never>> }
   | { readonly action: 'change_profile'; readonly payload: { readonly profileReference: string } }
@@ -241,6 +258,10 @@ export interface BillingPolicyVersionInput extends OperationsRepositoryRequest {
   readonly supplierAddressEn: string;
   readonly supplierAddressAr: string;
   readonly supplierTaxRegistrationNumber: string;
+  readonly taxTreatment: 'taxable' | 'exempt' | 'out_of_scope';
+  readonly taxReasonEn?: string;
+  readonly taxReasonAr?: string;
+  readonly taxAuthorityReference?: string;
   readonly stampDutyUsdMinor: number;
   readonly stampDutyLbpMinor: number;
   readonly retentionYears: number;

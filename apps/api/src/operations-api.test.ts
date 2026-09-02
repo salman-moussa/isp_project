@@ -39,6 +39,11 @@ const claims: SessionClaims = {
 
 function writerMocks() {
   return {
+    generateInvoiceDocument: vi.fn(async () => ({ id: serviceId, status: 'ready' })),
+    downloadInvoiceDocument: vi.fn(async () => ({
+      bytes: Buffer.from('%PDF-test'),
+      filename: 'invoice.pdf',
+    })),
     readBillingWorkspace: vi.fn(async () => ({ runs: [], dunningPolicies: [], dunningCases: [] })),
     readSubscriberWorkspace: vi.fn(async () => ({ subscribers: [], services: [] })),
     readSalesWorkspace: vi.fn(async () => ({ leads: [], offers: [], quotes: [], orders: [] })),
@@ -706,6 +711,7 @@ describe('tenant operations API route plugin', () => {
         branchId,
         version: 2,
         vatRateBasisPoints: 1100,
+        taxTreatment: 'taxable',
         roundingMode: 'half_up',
         supplierNameEn: 'Cedar Net SAL',
         supplierNameAr: 'شركة سيدر نت ش.م.ل.',
@@ -748,6 +754,65 @@ describe('tenant operations API route plugin', () => {
     });
     expect(response.statusCode).toBe(403);
     expect(writer.assignCollector).not.toHaveBeenCalled();
+    await app.close();
+  });
+});
+
+describe('invoice document authorization and download evidence', () => {
+  it('derives generation identity from the verified session and refuses cross-tenant requests', async () => {
+    const writer = writerMocks();
+    const { app } = await makeApp(claims, writer);
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/invoice-documents`,
+      headers: { 'idempotency-key': 'archive-request-001' },
+      payload: { invoiceId: serviceId },
+    });
+    expect(allowed.statusCode).toBe(201);
+    expect(writer.generateInvoiceDocument).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        actorId: claims.sub,
+        branchIds: [branchId],
+        auditAction: 'tenant.invoice.document.generate',
+      }),
+    );
+    const denied = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${otherTenantId}/operations/invoice-documents`,
+      headers: { 'idempotency-key': 'archive-request-002' },
+      payload: { invoiceId: serviceId },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.generateInvoiceDocument).toHaveBeenCalledOnce();
+    await app.close();
+  });
+  it('serves an attachment only after successful access audit', async () => {
+    const writer = writerMocks();
+    const { app, audit } = await makeApp(claims, writer);
+    const url = `/v1/tenants/${tenantId}/operations/invoice-documents/${serviceId}/pdf`;
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/pdf');
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.body).toBe('%PDF-test');
+    expect(writer.downloadInvoiceDocument).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ artifactId: serviceId, branchIds: [branchId] }),
+    );
+    vi.spyOn(audit, 'append').mockRejectedValueOnce(new Error('Audit unavailable'));
+    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(500);
+    await app.close();
+  });
+  it('denies downloads with no invoice permission', async () => {
+    const writer = writerMocks();
+    const { app } = await makeApp({ ...claims, permissions: [] }, writer);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/invoice-documents/${serviceId}/pdf`,
+    });
+    expect(response.statusCode).toBe(403);
+    expect(writer.downloadInvoiceDocument).not.toHaveBeenCalled();
     await app.close();
   });
 });

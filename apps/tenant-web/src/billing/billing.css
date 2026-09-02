@@ -133,6 +133,7 @@
   font-weight: 700;
 }
 .billing-command input,
+.billing-command select,
 .billing-command textarea {
   width: 100%;
   box-sizing: border-box;
@@ -173,6 +174,24 @@
   border: 1px solid #d6e3e4;
   border-radius: 1.2rem;
   background: #f9fbfb;
+}
+.billing-archive {
+  grid-column: 1 / -1;
+}
+.billing-archive form,
+.billing-archive-item {
+  display: grid;
+  gap: 0.65rem;
+}
+.billing-archive-item {
+  padding: 1rem;
+  border: 1px solid #d6e3e4;
+  border-radius: 0.85rem;
+  background: #fff;
+}
+.billing-archive p,
+.billing-archive-item small {
+  color: #536970;
 }
 .billing-panel__heading {
   display: flex;

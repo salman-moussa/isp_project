@@ -20,6 +20,14 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  generateInvoiceDocument(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly invoiceId: string },
+  ): Promise<unknown>;
+  downloadInvoiceDocument(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly artifactId: string },
+  ): Promise<{ readonly bytes: Buffer; readonly filename: string }>;
   readBillingWorkspace(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
@@ -328,6 +336,10 @@ export interface OperationsWriter {
       readonly supplierAddressEn: string;
       readonly supplierAddressAr: string;
       readonly supplierTaxRegistrationNumber: string;
+      readonly taxTreatment: 'taxable' | 'exempt' | 'out_of_scope';
+      readonly taxReasonEn?: string;
+      readonly taxReasonAr?: string;
+      readonly taxAuthorityReference?: string;
       readonly stampDutyUsdMinor: number;
       readonly stampDutyLbpMinor: number;
       readonly retentionYears: number;

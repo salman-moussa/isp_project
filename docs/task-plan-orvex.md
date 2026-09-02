@@ -50,6 +50,14 @@ enterprise capabilities are complete.
 
 ## Latest product and launch evidence
 
+- On 2026-09-02 the posted-invoice document slice added versioned taxable/exempt/out-of-scope policy
+  evidence, deterministic bilingual PDFs, durable pending/ready archive metadata and an authorized
+  retry/download UI. PostgreSQL reserve/replay/finalize, conflicting checksum, branch denial,
+  immutable deletion and atomic audit passed. Storage code enforces private namespaces, conditional
+  writes and COMPLIANCE retention; production S3/provider/restore acceptance and independent review
+  remain required. Two additive tenant migrations preserve applied history. See
+  [the invoice archive runbook](operations/invoice-document-archive.md). No production change.
+
 - On 2026-09-02 recurring billing recovery and governed dunning passed a clean PostgreSQL 18
   composed proof. A valid service retained its invoice preparation while a misconfigured service
   produced a durable bilingual `missing_plan_version` outcome; after the effective plan version was

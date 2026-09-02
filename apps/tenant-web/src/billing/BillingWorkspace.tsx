@@ -8,6 +8,7 @@ import {
   type BillingWorkspaceRun,
 } from '../api';
 import './billing.css';
+import { InvoiceArchive } from './InvoiceArchive';
 
 interface BillingWorkspaceProps {
   readonly locale: 'en' | 'ar';
@@ -177,6 +178,7 @@ export function BillingWorkspace({ locale, session }: BillingWorkspaceProps) {
       </section>
 
       <div className="billing-command-grid">
+        <InvoiceArchive locale={locale} session={session} workspace={workspace} reload={load} />
         <RunForm
           locale={locale}
           defaults={defaults}
@@ -285,9 +287,9 @@ function RunForm({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     onSubmit({
-      periodStart: String(form.get('periodStart')),
-      periodEnd: String(form.get('periodEnd')),
-      reason: String(form.get('reason')),
+      periodStart: formText(form, 'periodStart'),
+      periodEnd: formText(form, 'periodEnd'),
+      reason: formText(form, 'reason'),
     });
   }
   return (
@@ -333,7 +335,7 @@ function EvaluationForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    onSubmit({ asOfDate: String(form.get('asOfDate')), reason: String(form.get('reason')) });
+    onSubmit({ asOfDate: formText(form, 'asOfDate'), reason: formText(form, 'reason') });
   }
   return (
     <form className="billing-command" onSubmit={submit}>
@@ -380,8 +382,8 @@ function PolicyForm({
       reminderAfterDays: Number(form.get('reminderAfterDays')),
       finalNoticeAfterDays: Number(form.get('finalNoticeAfterDays')),
       suspensionReviewAfterDays: Number(form.get('suspensionReviewAfterDays')),
-      effectiveFrom: String(form.get('effectiveFrom')),
-      reason: String(form.get('reason')),
+      effectiveFrom: formText(form, 'effectiveFrom'),
+      reason: formText(form, 'reason'),
     });
   }
   return (
@@ -565,5 +567,10 @@ function money(amountMinor: number, currency: 'USD' | 'LBP', locale: 'en' | 'ar'
     style: 'currency',
     currency,
     maximumFractionDigits: currency === 'LBP' ? 0 : 2,
-  }).format(amountMinor / 100);
+  }).format(currency === 'USD' ? amountMinor / 100 : amountMinor);
+}
+
+function formText(form: FormData, key: string): string {
+  const value = form.get(key);
+  return typeof value === 'string' ? value : '';
 }

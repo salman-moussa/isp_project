@@ -317,6 +317,12 @@ with guessed credentials, simulated production success, or a silent fallback.
 | Testing and release             | [Test strategy](docs/testing/strategy.md), [UAT checklist](docs/testing/uat-checklist.md), and [release evidence](docs/release/final-release-evidence-template.md)                                   |
 | Delivery status                 | [Orvex task plan](docs/task-plan-orvex.md)                                                                                                                                                           |
 
+Invoice PDF generation, tax-treatment configuration, archive recovery, storage activation and
+rollback are explained in the
+[invoice archive runbook](docs/operations/invoice-document-archive.md). This covers posted
+legal-snapshot invoices; it does not claim a completed public verifier or bulk background document
+scheduler.
+
 ## Non-negotiable product rules
 
 Contributions must preserve these rules:

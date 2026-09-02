@@ -1260,6 +1260,7 @@ function BillingPolicyPublicationForm({
   readonly onSubmit: (payload: Readonly<Record<string, unknown>>) => Promise<void>;
 }) {
   const isEnglish = locale === 'en';
+  const [taxTreatment, setTaxTreatment] = useState('taxable');
   return (
     <form
       className="sales-order-execution"
@@ -1269,7 +1270,16 @@ function BillingPolicyPublicationForm({
         void onSubmit({
           branchId,
           version: nextVersion,
-          vatRateBasisPoints: Number(formText(form, 'vatRateBasisPoints')),
+          vatRateBasisPoints:
+            taxTreatment === 'taxable' ? Number(formText(form, 'vatRateBasisPoints')) : 0,
+          taxTreatment,
+          ...(taxTreatment === 'taxable'
+            ? {}
+            : {
+                taxReasonEn: formText(form, 'taxReasonEn'),
+                taxReasonAr: formText(form, 'taxReasonAr'),
+                taxAuthorityReference: formText(form, 'taxAuthorityReference'),
+              }),
           roundingMode: formText(form, 'roundingMode'),
           supplierNameEn: formText(form, 'supplierNameEn'),
           supplierNameAr: formText(form, 'supplierNameAr'),
@@ -1315,8 +1325,45 @@ function BillingPolicyPublicationForm({
         <input name="supplierTaxRegistrationNumber" required maxLength={100} />
       </label>
       <label>
+        <span>{isEnglish ? 'Tax treatment' : 'المعاملة الضريبية'}</span>
+        <select value={taxTreatment} onChange={(event) => setTaxTreatment(event.target.value)}>
+          <option value="taxable">{isEnglish ? 'Taxable' : 'خاضعة للضريبة'}</option>
+          <option value="exempt">{isEnglish ? 'VAT exempt' : 'معفاة من الضريبة'}</option>
+          <option value="out_of_scope">
+            {isEnglish ? 'Outside VAT scope' : 'خارج نطاق الضريبة'}
+          </option>
+        </select>
+      </label>
+      {taxTreatment !== 'taxable' ? (
+        <>
+          <label>
+            <span>Tax reason · English</span>
+            <textarea name="taxReasonEn" required minLength={8} maxLength={500} />
+          </label>
+          <label>
+            <span>السبب الضريبي · عربي</span>
+            <textarea name="taxReasonAr" dir="rtl" required minLength={8} maxLength={500} />
+          </label>
+          <label>
+            <span>
+              {isEnglish
+                ? 'Approved tax authority / legal reference'
+                : 'المرجع الضريبي / القانوني المعتمد'}
+            </span>
+            <input name="taxAuthorityReference" required minLength={3} maxLength={200} />
+          </label>
+        </>
+      ) : null}
+      <label>
         <span>{isEnglish ? 'VAT basis points (0–10000)' : 'نقاط أساس الضريبة (٠–١٠٠٠٠)'}</span>
-        <input name="vatRateBasisPoints" type="number" min="0" max="10000" required />
+        <input
+          name="vatRateBasisPoints"
+          type="number"
+          min="0"
+          max="10000"
+          required
+          disabled={taxTreatment !== 'taxable'}
+        />
       </label>
       <label>
         <span>{isEnglish ? 'Stamp duty · USD' : 'رسم الطابع · دولار'}</span>

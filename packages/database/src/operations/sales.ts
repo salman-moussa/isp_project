@@ -180,6 +180,10 @@ export interface SalesBillingPolicy {
   readonly supplierAddressEn?: string;
   readonly supplierAddressAr?: string;
   readonly supplierTaxRegistrationNumber?: string;
+  readonly taxTreatment: 'taxable' | 'exempt' | 'out_of_scope';
+  readonly taxReasonEn?: string;
+  readonly taxReasonAr?: string;
+  readonly taxAuthorityReference?: string;
   readonly stampDutyUsdMinor: number;
   readonly stampDutyLbpMinor: number;
   readonly retentionYears?: number;
@@ -277,7 +281,8 @@ export async function readSalesWorkspace(
       transaction.execute<SalesBillingPolicyRow>(sql`
           SELECT id,branch_id,version,vat_rate_basis_points,rounding_mode,
             supplier_name_en,supplier_name_ar,supplier_address_en,supplier_address_ar,
-            supplier_tax_registration_number,stamp_duty_usd_minor::text,
+            supplier_tax_registration_number,tax_treatment,tax_reason_en,tax_reason_ar,
+            tax_authority_reference,stamp_duty_usd_minor::text,
             stamp_duty_lbp_minor::text,retention_years,
             effective_from,effective_to
           FROM operations_billing_policies WHERE tenant_id=${tenantId}
@@ -1223,6 +1228,10 @@ export async function postSalesOrderFirstInvoice(
       readonly supplier_address_en: string;
       readonly supplier_address_ar: string;
       readonly supplier_tax_registration_number: string;
+      readonly tax_treatment: 'taxable' | 'exempt' | 'out_of_scope';
+      readonly tax_reason_en: string | null;
+      readonly tax_reason_ar: string | null;
+      readonly tax_authority_reference: string | null;
       readonly stamp_duty_usd_minor: string;
       readonly stamp_duty_lbp_minor: string;
       readonly retention_years: number;
@@ -1254,7 +1263,9 @@ export async function postSalesOrderFirstInvoice(
         billing_policy.vat_rate_basis_points,billing_policy.rounding_mode,
         quote.discount_basis_points,billing_policy.supplier_name_en,billing_policy.supplier_name_ar,
         billing_policy.supplier_address_en,billing_policy.supplier_address_ar,
-        billing_policy.supplier_tax_registration_number,
+        billing_policy.supplier_tax_registration_number,billing_policy.tax_treatment,
+        billing_policy.tax_reason_en,billing_policy.tax_reason_ar,
+        billing_policy.tax_authority_reference,
         billing_policy.stamp_duty_usd_minor::text,billing_policy.stamp_duty_lbp_minor::text,
         billing_policy.retention_years,plan_version.currency,service.service_number,
         plan.name_en AS plan_name_en,plan.name_ar AS plan_name_ar,
@@ -1435,7 +1446,16 @@ export async function postSalesOrderFirstInvoice(
         stampDutyMinor,
         totalMinor: amountMinor,
       },
-      tax: { rateBasisPoints: target.vat_rate_basis_points, amountMinor: vatMinor },
+      tax: {
+        treatment: target.tax_treatment,
+        rateBasisPoints: target.vat_rate_basis_points,
+        amountMinor: vatMinor,
+        ...(target.tax_reason_en ? { reasonEn: target.tax_reason_en } : {}),
+        ...(target.tax_reason_ar ? { reasonAr: target.tax_reason_ar } : {}),
+        ...(target.tax_authority_reference
+          ? { authorityReference: target.tax_authority_reference }
+          : {}),
+      },
     };
 
     const [existingInvoice] = await transaction.execute<{ readonly id: string }>(sql`
@@ -1851,6 +1871,10 @@ interface SalesBillingPolicyRow extends Record<string, unknown> {
   readonly supplier_address_en: string | null;
   readonly supplier_address_ar: string | null;
   readonly supplier_tax_registration_number: string | null;
+  readonly tax_treatment: SalesBillingPolicy['taxTreatment'];
+  readonly tax_reason_en: string | null;
+  readonly tax_reason_ar: string | null;
+  readonly tax_authority_reference: string | null;
   readonly stamp_duty_usd_minor: string;
   readonly stamp_duty_lbp_minor: string;
   readonly retention_years: number | null;
@@ -2027,6 +2051,10 @@ function mapBillingPolicy(row: SalesBillingPolicyRow): SalesBillingPolicy {
     ...(row.supplier_tax_registration_number
       ? { supplierTaxRegistrationNumber: row.supplier_tax_registration_number }
       : {}),
+    taxTreatment: row.tax_treatment,
+    ...(row.tax_reason_en ? { taxReasonEn: row.tax_reason_en } : {}),
+    ...(row.tax_reason_ar ? { taxReasonAr: row.tax_reason_ar } : {}),
+    ...(row.tax_authority_reference ? { taxAuthorityReference: row.tax_authority_reference } : {}),
     stampDutyUsdMinor: safeNonnegativeMinor(row.stamp_duty_usd_minor),
     stampDutyLbpMinor: safeNonnegativeMinor(row.stamp_duty_lbp_minor),
     ...(row.retention_years ? { retentionYears: row.retention_years } : {}),

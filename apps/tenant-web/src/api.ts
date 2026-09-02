@@ -12,6 +12,20 @@ export interface BillingWorkspaceData {
   readonly runs: readonly BillingWorkspaceRun[];
   readonly dunningPolicies: readonly BillingDunningPolicy[];
   readonly dunningCases: readonly BillingDunningCase[];
+  readonly documentStorageConfigured: boolean;
+  readonly documentInvoices: readonly { readonly id: string; readonly documentNumber: string }[];
+  readonly invoiceDocuments: readonly InvoiceDocumentArchive[];
+}
+
+export interface InvoiceDocumentArchive {
+  readonly id: string;
+  readonly invoiceId: string;
+  readonly documentNumber: string;
+  readonly status: 'pending' | 'ready';
+  readonly rendererVersion: string;
+  readonly retentionUntil: string;
+  readonly sha256?: string;
+  readonly sizeBytes?: number;
 }
 
 export interface BillingWorkspaceRunItem {
@@ -387,6 +401,10 @@ export interface SalesPlan {
 }
 
 export interface SalesBillingPolicy {
+  readonly taxTreatment: 'taxable' | 'exempt' | 'out_of_scope';
+  readonly taxReasonEn?: string;
+  readonly taxReasonAr?: string;
+  readonly taxAuthorityReference?: string;
   readonly id: string;
   readonly branchId?: string;
   readonly version: number;
@@ -704,10 +722,24 @@ export async function readBillingWorkspace(session: ApiSession): Promise<Billing
 
 export async function submitBillingOperation(
   session: ApiSession,
-  path: 'billing-runs' | 'dunning-policy-versions' | 'dunning-evaluations',
+  path: 'billing-runs' | 'dunning-policy-versions' | 'dunning-evaluations' | 'invoice-documents',
   payload: Readonly<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
   return submitTenantOperation(session, path, payload, crypto.randomUUID());
+}
+
+export async function downloadInvoiceDocument(
+  session: ApiSession,
+  artifactId: string,
+): Promise<Blob> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/invoice-documents/${encodeURIComponent(artifactId)}/pdf`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Invoice document');
+  return response.blob();
 }
 
 export async function readSubscriberWorkspace(

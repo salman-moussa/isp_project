@@ -13,6 +13,7 @@ tmp/
 data/
 artifacts/
 outputs/
+output/
 playwright-report/
 test-results/
 *.tsbuildinfo

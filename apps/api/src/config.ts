@@ -20,10 +20,24 @@ const configSchema = z
     AUTH_DELIVERY_TOKEN: z.string().min(32).optional(),
     FINANCE_AUDIT_READINESS_URL: z.string().url().optional(),
     NETWORK_WORKER_READINESS_URL: z.string().url().optional(),
+    DOCUMENT_S3_BUCKET: z.string().min(3).max(63).optional(),
+    DOCUMENT_S3_REGION: z.string().min(1).optional(),
+    DOCUMENT_S3_ENDPOINT: z.string().url().optional(),
+    DOCUMENT_S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).optional(),
     CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174'),
   })
   .superRefine((configuration, context) => {
     if (configuration.NODE_ENV !== 'production') return;
+    if (
+      configuration.DOCUMENT_S3_ENDPOINT &&
+      !configuration.DOCUMENT_S3_ENDPOINT.startsWith('https://')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DOCUMENT_S3_ENDPOINT'],
+        message: 'Production document storage requires HTTPS.',
+      });
+    }
     for (const field of ['FINANCE_AUDIT_READINESS_URL', 'NETWORK_WORKER_READINESS_URL'] as const) {
       if (!configuration[field]) {
         context.addIssue({

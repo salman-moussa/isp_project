@@ -25,6 +25,9 @@ import {
   qualifySalesLead,
   postSalesOrderFirstInvoice,
   prepareRecurringInvoices,
+  prepareInvoiceDocument,
+  completeInvoiceDocument,
+  readInvoiceDocument,
   purchaseServiceAddon,
   readSalesWorkspace,
   readBillingWorkspace,
@@ -599,6 +602,7 @@ try {
     branchId,
     version: 1,
     vatRateBasisPoints: 1100,
+    taxTreatment: 'taxable',
     roundingMode: 'half_up',
     supplierNameEn: 'Orvex Live ISP SAL',
     supplierNameAr: 'شركة أورفكس لايف ش.م.ل.',
@@ -758,6 +762,79 @@ try {
   assert.equal(posted?.legal_invoice_snapshot.service.number, installationInput.serviceNumber);
   assert.equal(posted?.legal_invoice_snapshot.amounts.totalMinor, 18_482);
   assert.equal(posted?.legal_invoice_snapshot.tax.rateBasisPoints, 1100);
+  assert.equal(posted?.legal_invoice_snapshot.tax.treatment, 'taxable');
+  const docAuth = (key: string, scopes = {}) =>
+    authorization('tenant.invoice.create', 'tenant.invoice.document.generate', key, scopes);
+  const requestDocument = {
+    invoiceId: firstBilling.invoiceId,
+    requestedBy: actorId,
+    idempotencyKey: 'document-generate-001',
+    authorization: docAuth('document-generate-001'),
+  };
+  const pending = await prepareInvoiceDocument(runtime.db, tenantId, requestDocument);
+  assert.equal(pending.status, 'pending');
+  assert.equal(
+    (await prepareInvoiceDocument(runtime.db, tenantId, requestDocument)).id,
+    pending.id,
+  );
+  await assert.rejects(
+    prepareInvoiceDocument(runtime.db, tenantId, {
+      ...requestDocument,
+      invoiceId: randomUUID(),
+    }),
+  );
+  await assert.rejects(
+    prepareInvoiceDocument(runtime.db, tenantId, {
+      ...requestDocument,
+      authorization: docAuth('document-generate-001', { branchIds: [] }),
+    }),
+  );
+  const completeDocument = {
+    artifactId: pending.id,
+    storageKey: `tenants/${tenantId}/invoices/${pending.id}.pdf`,
+    sha256: 'a'.repeat(64),
+    sizeBytes: 100,
+    authorization: docAuth('document-generate-001'),
+  };
+  assert.equal(
+    (await completeInvoiceDocument(runtime.db, tenantId, completeDocument)).status,
+    'ready',
+  );
+  assert.equal(
+    (await completeInvoiceDocument(runtime.db, tenantId, completeDocument)).id,
+    pending.id,
+  );
+  await assert.rejects(
+    completeInvoiceDocument(runtime.db, tenantId, { ...completeDocument, sha256: 'b'.repeat(64) }),
+  );
+  const archived = await readInvoiceDocument(runtime.db, tenantId, {
+    artifactId: pending.id,
+    authorization: authorization(
+      'tenant.invoice.create',
+      'tenant.invoice.document.download',
+      'document-read-001',
+    ),
+  });
+  assert.equal(archived.archive.sha256, 'a'.repeat(64));
+  await assert.rejects(
+    readInvoiceDocument(runtime.db, tenantId, {
+      artifactId: pending.id,
+      authorization: authorization(
+        'tenant.invoice.create',
+        'tenant.invoice.document.download',
+        'document-read-deny',
+        { branchIds: [] },
+      ),
+    }),
+  );
+  await assert.rejects(admin`DELETE FROM operations_invoice_documents WHERE id=${pending.id}`);
+  const [docAudit] = await admin`SELECT count(*)::int AS count FROM operations_audit_outbox
+    WHERE tenant_id=${tenantId} AND resource_id=${pending.id}
+      AND action='tenant.invoice.document.generate'`;
+  assert.equal(docAudit?.count, 2);
+  console.log(
+    'Invoice archive: reserve/replay/finalize/checksum conflict/scoped denial/immutability/audit passed.',
+  );
   const subscriberWorkspace = await readSubscriberWorkspace(runtime.db, tenantId, {
     authorization: authorization(
       'tenant.subscriber.view',

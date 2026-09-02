@@ -7,6 +7,9 @@ import type {
   DunningEvaluationInput,
   DunningEvaluationResult,
   DunningPolicyVersionInput,
+  InvoiceDocumentCompleteInput,
+  InvoiceDocumentReadInput,
+  InvoiceDocumentRequestInput,
   SignedOperationsDatabaseContext,
 } from './types.js';
 
@@ -79,6 +82,25 @@ export interface BillingWorkspaceData {
   readonly runs: readonly BillingWorkspaceRun[];
   readonly dunningPolicies: readonly BillingWorkspaceDunningPolicy[];
   readonly dunningCases: readonly BillingWorkspaceDunningCase[];
+  readonly invoiceDocuments: readonly InvoiceDocumentArchive[];
+  readonly documentInvoices: readonly { readonly id: string; readonly documentNumber: string }[];
+}
+
+export interface InvoiceDocumentArchive {
+  readonly id: string;
+  readonly invoiceId: string;
+  readonly documentNumber: string;
+  readonly status: 'pending' | 'ready';
+  readonly rendererVersion: string;
+  readonly retentionUntil: string;
+  readonly sha256?: string;
+  readonly sizeBytes?: number;
+  readonly completedAt?: string;
+}
+
+export interface InvoiceDocumentRenderSource extends InvoiceDocumentArchive {
+  readonly storageKey?: string;
+  readonly legalInvoiceSnapshot: unknown;
 }
 
 interface AuthorizedBillingRead {
@@ -91,7 +113,7 @@ export async function readBillingWorkspace(
   input: AuthorizedBillingRead,
 ): Promise<BillingWorkspaceData> {
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
-    const [runs, items, policies, cases, events] = await Promise.all([
+    const [runs, items, policies, cases, events, documents, invoices] = await Promise.all([
       transaction.execute<RunRow>(sql`
         SELECT run.id,run.period_start,run.period_end,run.status,run.retry_of_run_id,
           run.requested_at,run.completed_at,
@@ -153,6 +175,24 @@ export async function readBillingWorkspace(
           )
         ORDER BY event.occurred_at,event.id
       `),
+      transaction.execute<InvoiceDocumentRow>(sql`
+        SELECT document.id,document.finance_invoice_id,invoice.document_number,document.status,
+          document.renderer_version,document.retention_until,document.sha256,
+          document.size_bytes::text,document.completed_at
+        FROM operations_invoice_documents document
+        JOIN finance_invoices invoice ON invoice.tenant_id=document.tenant_id
+          AND invoice.id=document.finance_invoice_id
+        WHERE document.tenant_id=${tenantId}
+        ORDER BY document.created_at DESC,document.id DESC LIMIT 250
+      `),
+      transaction.execute<{ id: string; document_number: string }>(sql`
+        SELECT invoice.id,invoice.document_number FROM operations_invoice_preparations preparation
+        JOIN finance_invoices invoice ON invoice.tenant_id=preparation.tenant_id
+          AND invoice.id=preparation.finance_invoice_id
+        WHERE preparation.tenant_id=${tenantId} AND preparation.posting_status='posted'
+          AND preparation.legal_invoice_snapshot IS NOT NULL AND invoice.entry_kind='posted'
+        ORDER BY invoice.posted_at DESC,invoice.id DESC LIMIT 250
+      `),
     ]);
 
     const itemsByRun = groupBy(items, (item) => item.billing_run_id);
@@ -195,7 +235,125 @@ export async function readBillingWorkspace(
         version: dunningCase.version,
         events: (eventsByCase.get(dunningCase.id) ?? []).map(mapDunningEvent),
       })),
+      invoiceDocuments: documents.map(mapInvoiceDocument),
+      documentInvoices: invoices.map((invoice) => ({
+        id: invoice.id,
+        documentNumber: invoice.document_number,
+      })),
     };
+  });
+}
+
+export const invoiceDocumentRendererVersion = 'orvex-invoice-pdf-v1';
+
+export async function prepareInvoiceDocument(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: InvoiceDocumentRequestInput,
+): Promise<InvoiceDocumentRenderSource> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const fingerprint = createHash('sha256')
+      .update(
+        stableJson({ invoiceId: input.invoiceId, rendererVersion: invoiceDocumentRendererVersion }),
+      )
+      .digest('hex');
+    await transaction.execute(sql`
+      INSERT INTO operations_invoice_documents(
+        tenant_id,finance_invoice_id,invoice_preparation_id,renderer_version,retention_until,
+        requested_by,idempotency_key,request_fingerprint)
+      SELECT preparation.tenant_id,invoice.id,preparation.id,${invoiceDocumentRendererVersion},
+        invoice.posted_at::date+make_interval(years=>(preparation.legal_invoice_snapshot->>'retentionYears')::integer),
+        ${input.requestedBy},${input.idempotencyKey},${fingerprint}
+      FROM operations_invoice_preparations preparation
+      JOIN finance_invoices invoice ON invoice.tenant_id=preparation.tenant_id
+        AND invoice.id=preparation.finance_invoice_id AND invoice.entry_kind='posted'
+      WHERE preparation.tenant_id=${tenantId} AND invoice.id=${input.invoiceId}
+        AND preparation.posting_status='posted' AND preparation.legal_invoice_snapshot IS NOT NULL
+      ON CONFLICT DO NOTHING
+    `);
+    const [document] = await transaction.execute<InvoiceDocumentSourceRow>(sql`
+      SELECT document.id,document.finance_invoice_id,invoice.document_number,document.status,
+        document.renderer_version,document.retention_until,document.sha256,
+        document.size_bytes::text,document.completed_at,document.storage_key,
+        preparation.legal_invoice_snapshot
+      FROM operations_invoice_documents document
+      JOIN operations_invoice_preparations preparation ON preparation.tenant_id=document.tenant_id
+        AND preparation.id=document.invoice_preparation_id
+      JOIN finance_invoices invoice ON invoice.tenant_id=document.tenant_id
+        AND invoice.id=document.finance_invoice_id
+      WHERE document.tenant_id=${tenantId} AND (
+        document.idempotency_key=${input.idempotencyKey}
+        OR (document.finance_invoice_id=${input.invoiceId}
+          AND document.renderer_version=${invoiceDocumentRendererVersion})
+      )
+      ORDER BY (document.idempotency_key=${input.idempotencyKey}) DESC LIMIT 1
+    `);
+    if (!document || document.finance_invoice_id !== input.invoiceId) {
+      throw new OperationsConflictError(
+        'The invoice is unavailable, lacks a legal snapshot, or the idempotency key belongs elsewhere.',
+      );
+    }
+    return mapInvoiceDocumentSource(document);
+  });
+}
+
+export async function completeInvoiceDocument(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: InvoiceDocumentCompleteInput,
+): Promise<InvoiceDocumentArchive> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`
+      UPDATE operations_invoice_documents SET status='ready',storage_key=${input.storageKey},
+        sha256=${input.sha256},size_bytes=${input.sizeBytes},content_type='application/pdf',
+        completed_at=clock_timestamp()
+      WHERE tenant_id=${tenantId} AND id=${input.artifactId} AND status='pending'
+    `);
+    const [document] = await transaction.execute<InvoiceDocumentSourceRow>(sql`
+      SELECT document.id,document.finance_invoice_id,invoice.document_number,document.status,
+        document.renderer_version,document.retention_until,document.sha256,
+        document.size_bytes::text,document.completed_at,document.storage_key
+      FROM operations_invoice_documents document
+      JOIN finance_invoices invoice ON invoice.tenant_id=document.tenant_id
+        AND invoice.id=document.finance_invoice_id
+      WHERE document.tenant_id=${tenantId} AND document.id=${input.artifactId}
+    `);
+    if (
+      !document ||
+      document.status !== 'ready' ||
+      document.sha256 !== input.sha256 ||
+      document.storage_key !== input.storageKey ||
+      Number(document.size_bytes) !== input.sizeBytes
+    ) {
+      throw new OperationsConflictError(
+        'The invoice document could not be finalized exactly once.',
+      );
+    }
+    return mapInvoiceDocument(document);
+  });
+}
+
+export async function readInvoiceDocument(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: InvoiceDocumentReadInput,
+): Promise<{ readonly archive: InvoiceDocumentArchive; readonly storageKey: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [document] = await transaction.execute<InvoiceDocumentSourceRow>(sql`
+      SELECT document.id,document.finance_invoice_id,invoice.document_number,document.status,
+        document.renderer_version,document.retention_until,document.sha256,
+        document.size_bytes::text,document.completed_at,document.storage_key,
+        preparation.legal_invoice_snapshot
+      FROM operations_invoice_documents document
+      JOIN operations_invoice_preparations preparation ON preparation.tenant_id=document.tenant_id
+        AND preparation.id=document.invoice_preparation_id
+      JOIN finance_invoices invoice ON invoice.tenant_id=document.tenant_id
+        AND invoice.id=document.finance_invoice_id
+      WHERE document.tenant_id=${tenantId} AND document.id=${input.artifactId}
+        AND document.status='ready'
+    `);
+    if (!document?.storage_key) throw new OperationsConflictError('Invoice document not found.');
+    return { archive: mapInvoiceDocument(document), storageKey: document.storage_key };
   });
 }
 
@@ -568,6 +726,28 @@ function mapDunningEvent(event: DunningEventRow): BillingWorkspaceDunningEvent {
   };
 }
 
+function mapInvoiceDocument(document: InvoiceDocumentRow): InvoiceDocumentArchive {
+  return {
+    id: document.id,
+    invoiceId: document.finance_invoice_id,
+    documentNumber: document.document_number,
+    status: document.status,
+    rendererVersion: document.renderer_version,
+    retentionUntil: date(document.retention_until),
+    ...(document.sha256 ? { sha256: document.sha256 } : {}),
+    ...(document.size_bytes ? { sizeBytes: count(document.size_bytes) } : {}),
+    ...(document.completed_at ? { completedAt: timestamp(document.completed_at) } : {}),
+  };
+}
+
+function mapInvoiceDocumentSource(document: InvoiceDocumentSourceRow): InvoiceDocumentRenderSource {
+  return {
+    ...mapInvoiceDocument(document),
+    ...(document.storage_key ? { storageKey: document.storage_key } : {}),
+    legalInvoiceSnapshot: document.legal_invoice_snapshot,
+  };
+}
+
 function mapEvaluationRun(run: EvaluationRunRow, replayed: boolean): DunningEvaluationResult {
   return {
     id: run.id,
@@ -650,6 +830,23 @@ interface DunningPolicyRow extends Record<string, unknown> {
   readonly suspension_review_after_days: number;
   readonly effective_from: Date | string;
   readonly effective_to: Date | string | null;
+}
+
+interface InvoiceDocumentRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly finance_invoice_id: string;
+  readonly document_number: string;
+  readonly status: InvoiceDocumentArchive['status'];
+  readonly renderer_version: string;
+  readonly retention_until: Date | string;
+  readonly sha256: string | null;
+  readonly size_bytes: string | null;
+  readonly completed_at: Date | string | null;
+}
+
+interface InvoiceDocumentSourceRow extends InvoiceDocumentRow {
+  readonly storage_key: string | null;
+  readonly legal_invoice_snapshot: unknown;
 }
 
 interface DunningCaseRow extends Record<string, unknown> {

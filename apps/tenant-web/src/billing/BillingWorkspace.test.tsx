@@ -103,7 +103,9 @@ describe('BillingWorkspace', () => {
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Retry failed services' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
-    const request = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/billing-runs'));
+    const request = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].endsWith('/billing-runs'),
+    );
     expect(request?.[1]?.body).toContain('retryOfRunId');
 
     expect(
