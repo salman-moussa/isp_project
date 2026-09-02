@@ -37,3 +37,77 @@ export const qosReportRecordSchema = z.object({
   submittedToTra: z.boolean(),
 });
 export type QosReportRecord = z.infer<typeof qosReportRecordSchema>;
+export const nocStatusSchema = z.enum(['investigating', 'identified', 'monitoring', 'resolved']);
+const nocReason = {
+  reasonEn: z.string().trim().min(8).max(1000),
+  reasonAr: z.string().trim().min(8).max(1000),
+};
+export const createOutageSchema = z
+  .object({
+    titleEn: z.string().trim().min(3).max(200),
+    titleAr: z.string().trim().min(3).max(200),
+    routeId: z.uuid(),
+    severity: z.enum(['critical', 'major', 'minor', 'warning']),
+    serviceIds: z
+      .array(z.uuid())
+      .min(1)
+      .max(200)
+      .refine((ids) => new Set(ids).size === ids.length, 'Duplicate services.'),
+    ...nocReason,
+  })
+  .strict();
+export const transitionOutageSchema = z
+  .object({
+    outageId: z.uuid(),
+    expectedVersion: z.number().int().positive(),
+    status: nocStatusSchema,
+    ...nocReason,
+    rootCauseEn: z.string().trim().min(8).max(1000).optional(),
+    rootCauseAr: z.string().trim().min(8).max(1000).optional(),
+    resolutionEvidence: z.string().trim().min(8).max(1000).optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.status !== 'resolved' || Boolean(v.rootCauseEn && v.rootCauseAr && v.resolutionEvidence),
+    'Resolution requires bilingual root cause and evidence.',
+  );
+export const nocQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(100000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(25),
+    status: z.enum(['all', 'open', 'resolved']).default('open'),
+  })
+  .strict();
+export type CreateOutageCommand = z.infer<typeof createOutageSchema>;
+export type TransitionOutageCommand = z.infer<typeof transitionOutageSchema>;
+export type NocQuery = z.infer<typeof nocQuerySchema>;
+export interface NocIncident extends OutageRecord {
+  readonly routeId: string | null;
+  readonly severity: 'critical' | 'major' | 'minor' | 'warning';
+  readonly version: number;
+  readonly serviceIds: readonly string[];
+  readonly events: readonly {
+    id: string;
+    version: number;
+    status: z.infer<typeof nocStatusSchema>;
+    reasonEn: string;
+    reasonAr: string;
+    occurredAt: string;
+    resolutionEvidence: string | null;
+  }[];
+}
+export interface NocWorkspace {
+  readonly incidents: readonly NocIncident[];
+  readonly routes: readonly { id: string; nameEn: string; nameAr: string }[];
+  readonly services: readonly {
+    id: string;
+    routeId: string;
+    serviceNumber: string;
+    subscriberName: string;
+  }[];
+  readonly serviceDirectoryTruncated: boolean;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalCount: number;
+}

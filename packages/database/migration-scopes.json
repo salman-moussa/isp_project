@@ -53,5 +53,6 @@
   "202609021804_tenant_finance_attribution_classification.sql": "tenant",
   "202609021805_tenant_accounting_classification.sql": "tenant",
   "202609021806_tenant_classified_source_reversals.sql": "tenant",
-  "202609021807_tenant_collect_payment_lock.sql": "tenant"
+  "202609021807_tenant_collect_payment_lock.sql": "tenant",
+  "202609021808_tenant_noc_incident_workflow.sql": "tenant"
 }

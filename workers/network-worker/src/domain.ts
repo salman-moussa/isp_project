@@ -25,6 +25,8 @@ export interface PppoeDesiredState {
 
 export interface PppoeObservedState extends PppoeDesiredState {
   readonly activeSessionId?: string;
+  /** Complete bounded active-session observation; undefined means not verified. */
+  readonly activeSessionIds?: readonly string[];
   readonly lastLoginAt?: string;
   readonly sampledAt: string;
 }
@@ -177,6 +179,7 @@ export interface SafeUsageSample {
 }
 
 export interface RouterCommandContext {
+  readonly signal?: AbortSignal;
   readonly requestId: string;
   readonly timeoutMs: number;
   readonly credentialReference: SecretReference;
@@ -208,5 +211,17 @@ export function observedMatchesDesired(
     observed.profileId === desired.profileId &&
     observed.vlanId === desired.vlanId &&
     JSON.stringify(observed.ipAssignment) === JSON.stringify(desired.ipAssignment)
+  );
+}
+/** Configuration equality alone does not prove that a specific session disappeared. */
+export function observedConfirmsAction(
+  observed: PppoeObservedState | undefined,
+  action: NetworkAction,
+): boolean {
+  if (!observedMatchesDesired(observed, action.desired)) return false;
+  return (
+    action.kind !== 'session.disconnect' ||
+    (observed?.activeSessionIds !== undefined &&
+      !observed.activeSessionIds.includes(action.sessionId))
   );
 }

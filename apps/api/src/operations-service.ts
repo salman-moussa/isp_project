@@ -1,6 +1,9 @@
 import type { VerifiedTenantId } from '@isp/contracts';
 import { createHash } from 'node:crypto';
 import {
+  readNocWorkspace,
+  createOutageIncident,
+  transitionOutageIncident,
   postCustomerAccountEntry,
   readCustomerAccounts,
   readChartOfAccounts,
@@ -81,6 +84,9 @@ export interface OperationsContextAuthorityConfig {
 }
 
 export interface OperationsRepositoryAdapter {
+  readonly readNocWorkspace: typeof readNocWorkspace;
+  readonly createOutageIncident: typeof createOutageIncident;
+  readonly transitionOutageIncident: typeof transitionOutageIncident;
   readonly postCustomerAccountEntry: typeof postCustomerAccountEntry;
   readonly readCustomerAccounts: typeof readCustomerAccounts;
   readonly readChartOfAccounts: typeof readChartOfAccounts;
@@ -147,6 +153,9 @@ export interface OperationsRepositoryAdapter {
 }
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
+  readNocWorkspace,
+  createOutageIncident,
+  transitionOutageIncident,
   postCustomerAccountEntry,
   readCustomerAccounts,
   readChartOfAccounts,
@@ -809,6 +818,30 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.readQosReports(this.database, tenantId, this.sign(tenantId, input));
   }
 
+  public readNocWorkspace(tenantId: VerifiedTenantId, input: WriterInput<'readNocWorkspace'>) {
+    return this.repository.readNocWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+  public createOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'createOutageIncident'>,
+  ) {
+    return this.repository.createOutageIncident(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+  public transitionOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'transitionOutageIncident'>,
+  ) {
+    return this.repository.transitionOutageIncident(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
   private sign(
     tenantId: VerifiedTenantId,
     context: OperationsMutationContext,

@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type {
   NetworkAction,
   PppoeObservedState,
@@ -60,23 +61,23 @@ function parseBoolean(value: string): boolean {
   throw new Error('Router returned a malformed response.');
 }
 
-function recordToObserved(record: RouterRecord, sampledAt: string): PppoeObservedState {
+function recordToObserved(
+  record: RouterRecord,
+  sampledAt: string,
+  activeSessionIds: readonly string[],
+): PppoeObservedState {
   const remoteAddress = optionalString(record, 'remote-address');
-  const pool = optionalString(record, 'remote-address-pool');
-  const activeSessionId = optionalString(record, 'active-session-id', 64);
-  const lastLoginAt = optionalString(record, 'last-logged-out', 64);
-  const vlanId = optionalString(record, 'caller-id', 64);
+  if (!remoteAddress || remoteAddress === '0.0.0.0')
+    throw new Error('Effective PPP address assignment is unavailable.');
   return {
     accountName: requireString(record, 'name', 128),
     enabled: !parseBoolean(requireString(record, 'disabled', 5)),
     profileId: requireString(record, 'profile', 128),
-    ipAssignment:
-      remoteAddress === undefined || remoteAddress === ''
-        ? { mode: 'dynamic', poolId: pool ?? 'default' }
-        : { mode: 'static', address: remoteAddress },
-    ...(vlanId === undefined || vlanId === '' ? {} : { vlanId }),
-    ...(activeSessionId === undefined ? {} : { activeSessionId }),
-    ...(lastLoginAt === undefined ? {} : { lastLoginAt }),
+    ipAssignment: isIP(remoteAddress)
+      ? { mode: 'static', address: remoteAddress }
+      : { mode: 'dynamic', poolId: remoteAddress },
+    activeSessionIds,
+    ...(activeSessionIds.length === 1 ? { activeSessionId: activeSessionIds[0] } : {}),
     sampledAt,
   };
 }
@@ -198,7 +199,9 @@ export class RouterOsRestAdapter implements RouterAdapter {
       const response = await this.#fetch(new URL(path, registration.endpoint), {
         method,
         redirect: 'error',
-        signal: controller.signal,
+        signal: context.signal
+          ? AbortSignal.any([controller.signal, context.signal])
+          : controller.signal,
         headers: {
           authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`, 'utf8').toString('base64')}`,
           accept: 'application/json',
@@ -227,8 +230,7 @@ export class RouterOsRestAdapter implements RouterAdapter {
   ): Promise<RouterRecord | undefined> {
     const query = new URLSearchParams({
       comment: subscriberServiceId,
-      '.proplist':
-        '.id,name,disabled,profile,remote-address,remote-address-pool,caller-id,last-logged-out',
+      '.proplist': '.id,name,comment,disabled,profile,remote-address',
     });
     const response = await this.#request(
       registration,
@@ -240,7 +242,10 @@ export class RouterOsRestAdapter implements RouterAdapter {
     if (response.status < 200 || response.status >= 300)
       throw new Error('Router observation failed.');
     if (response.records.length > 1) throw new Error('Router returned ambiguous subscriber state.');
-    return response.records[0];
+    const record = response.records[0];
+    if (record && record.comment !== subscriberServiceId)
+      throw new Error('Router subscriber ownership tag mismatch.');
+    return record;
   }
 
   async probe(registration: RouterRegistration): Promise<RouterHealth> {
@@ -281,10 +286,57 @@ export class RouterOsRestAdapter implements RouterAdapter {
   ): Promise<PppoeObservedState | undefined> {
     try {
       const record = await this.#findSecret(registration, subscriberServiceId, context);
-      return record === undefined ? undefined : recordToObserved(record, this.#now().toISOString());
+      if (!record) return undefined;
+      if (!record['remote-address'] || record['remote-address'] === '0.0.0.0') {
+        const query = new URLSearchParams({
+          name: requireString(record, 'profile', 128),
+          '.proplist': 'name,remote-address',
+        });
+        const profile = await this.#request(
+          registration,
+          context,
+          'GET',
+          `/rest/ppp/profile?${query.toString()}`,
+        );
+        if (
+          profile.status !== 200 ||
+          profile.records.length !== 1 ||
+          profile.records[0]?.name !== record.profile
+        )
+          throw new Error('Effective PPP profile is unavailable.');
+        record['remote-address'] = profile.records[0]?.['remote-address'] ?? '';
+      }
+      const active = await this.#activeSessions(
+        registration,
+        requireString(record, 'name', 128),
+        context,
+      );
+      return recordToObserved(
+        record,
+        this.#now().toISOString(),
+        active.map((s) => requireString(s, '.id', 64)),
+      );
     } catch {
       throw new Error('Router observation failed.');
     }
+  }
+
+  async #activeSessions(
+    registration: RouterRegistration,
+    accountName: string,
+    context: RouterCommandContext,
+  ) {
+    const query = new URLSearchParams({ name: accountName, '.proplist': '.id,name' });
+    const result = await this.#request(
+      registration,
+      context,
+      'GET',
+      `/rest/ppp/active?${query.toString()}`,
+    );
+    if (result.status !== 200 || result.records.some((r) => r.name !== accountName))
+      throw new Error('Active session ownership could not be verified.');
+    for (const record of result.records) safeResourceSegment(requireString(record, '.id', 64));
+    return result.records;
   }
 
   async execute(
@@ -295,11 +347,51 @@ export class RouterOsRestAdapter implements RouterAdapter {
   ): Promise<RouterCommandOutcome> {
     const startedAt = Date.now();
     try {
+      if (action.desired.vlanId !== undefined)
+        return {
+          classification: 'definite_failure',
+          requestId: context.requestId,
+          errorClass: 'invalid_request',
+          retryable: false,
+          safeMessage:
+            'VLAN configuration requires an interface-aware adapter; PPP caller-id is not a VLAN field.',
+        };
+      if (action.kind === 'session.disconnect') safeResourceSegment(action.sessionId);
       const existing = await this.#findSecret(registration, subscriberServiceId, context);
+      if (existing && existing.name !== action.desired.accountName)
+        return {
+          classification: 'definite_failure',
+          requestId: context.requestId,
+          errorClass: 'invalid_request',
+          retryable: false,
+          safeMessage: 'Desired PPP account does not match the managed service.',
+        };
       let method: 'PUT' | 'PATCH' | 'DELETE';
       let path: string;
       let body: Record<string, string> | undefined;
       if (action.kind === 'session.disconnect') {
+        if (!existing)
+          return {
+            classification: 'definite_failure',
+            requestId: context.requestId,
+            errorClass: 'invalid_request',
+            retryable: false,
+            safeMessage: 'Managed PPP service is missing.',
+          };
+        const sessions = await this.#activeSessions(
+          registration,
+          action.desired.accountName,
+          context,
+        );
+        if (!sessions.some((s) => s['.id'] === action.sessionId)) {
+          return {
+            classification: 'definite_failure',
+            requestId: context.requestId,
+            errorClass: 'invalid_request',
+            retryable: false,
+            safeMessage: 'Target session is not active for this managed service.',
+          };
+        }
         method = 'DELETE';
         path = `/rest/ppp/active/${safeResourceSegment(action.sessionId)}`;
       } else {
@@ -324,8 +416,7 @@ export class RouterOsRestAdapter implements RouterAdapter {
           comment: subscriberServiceId,
           ...(action.desired.ipAssignment.mode === 'static'
             ? { 'remote-address': action.desired.ipAssignment.address }
-            : { 'remote-address-pool': action.desired.ipAssignment.poolId }),
-          ...(action.desired.vlanId === undefined ? {} : { 'caller-id': action.desired.vlanId }),
+            : { 'remote-address': action.desired.ipAssignment.poolId }),
         };
         if (action.kind === 'pppoe.create' || action.kind === 'pppoe.password.change') {
           body.password = await this.options.secrets.resolveSubscriberPassword(

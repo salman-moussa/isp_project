@@ -39,6 +39,25 @@ const claims: SessionClaims = {
 
 function writerMocks() {
   return {
+    readNocWorkspace: vi.fn(async () => ({
+      incidents: [],
+      routes: [],
+      services: [],
+      page: 1,
+      pageSize: 25,
+      totalCount: 0,
+      serviceDirectoryTruncated: false,
+    })),
+    createOutageIncident: vi.fn(async () => ({
+      id: serviceId,
+      status: 'investigating',
+      version: 1,
+    })),
+    transitionOutageIncident: vi.fn(async () => ({
+      id: serviceId,
+      status: 'identified',
+      version: 2,
+    })),
     postCustomerAccountEntry: vi.fn(async () => ({ id: serviceId })),
     readCustomerAccounts: vi.fn(async () => ({ subscribers: [], invoices: [], entries: [] })),
     generateInvoiceDocument: vi.fn(async () => ({ id: serviceId, status: 'ready' })),
@@ -1052,5 +1071,136 @@ describe('customer account authority', () => {
       }),
     );
     await allowed.app.close();
+  });
+});
+describe('NOC incident routes', () => {
+  it('serves scoped paged data and records a validated incident command', async () => {
+    const writer = writerMocks(),
+      { app } = await makeApp(
+        { ...claims, permissions: ['tenant.network.view', 'tenant.network.job.create'] },
+        writer,
+      );
+    const result = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/noc/workspace?page=2&status=resolved`,
+    });
+    expect(result.statusCode).toBe(200);
+    expect(writer.readNocWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        branchIds: [branchId],
+        routeIds: [routeId],
+        query: { page: 2, pageSize: 25, status: 'resolved' },
+      }),
+    );
+    const command = {
+      routeId,
+      serviceIds: [serviceId],
+      severity: 'major',
+      titleEn: 'Circuit interruption',
+      titleAr: 'انقطاع الدارة الرئيسية',
+      reasonEn: 'Confirmed by the operator',
+      reasonAr: 'تم التحقق من الانقطاع بواسطة المشغل',
+    };
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents`,
+      headers: { 'idempotency-key': 'noc-create-test' },
+      payload: { command },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(writer.createOutageIncident).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command,
+        permission: 'tenant.network.job.create',
+        auditAction: 'tenant.noc.incident.create',
+        idempotencyKey: 'noc-create-test',
+      }),
+    );
+    await app.close();
+  });
+  it('denies missing authority/cross-tenant reads and does not accept invented impact counts', async () => {
+    const writer = writerMocks(),
+      { app } = await makeApp({ ...claims, permissions: ['tenant.network.view'] }, writer);
+    const denied = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents`,
+      headers: { 'idempotency-key': 'noc-denied-test' },
+      payload: {
+        command: {
+          routeId,
+          serviceIds: [serviceId],
+          severity: 'major',
+          titleEn: 'Circuit interruption',
+          titleAr: 'انقطاع الدارة الرئيسية',
+          reasonEn: 'Confirmed by operator',
+          reasonAr: 'تم التحقق بواسطة المشغل',
+        },
+      },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.createOutageIncident).not.toHaveBeenCalled();
+    const crossed = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${otherTenantId}/operations/noc/workspace`,
+    });
+    expect(crossed.statusCode).toBe(403);
+    expect(writer.readNocWorkspace).not.toHaveBeenCalled();
+    await app.close();
+    const allowed = await makeApp(claims, writer);
+    const bad = await allowed.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents`,
+      headers: { 'idempotency-key': 'noc-invalid-test' },
+      payload: {
+        command: {
+          routeId,
+          serviceIds: [serviceId],
+          severity: 'major',
+          titleEn: 'Circuit interruption',
+          titleAr: 'انقطاع الدارة الرئيسية',
+          reasonEn: 'Confirmed by operator',
+          reasonAr: 'تم التحقق بواسطة المشغل',
+          impactedSubscribersCount: 9000,
+        },
+      },
+    });
+    expect(bad.statusCode).not.toBe(201);
+    expect(writer.createOutageIncident).not.toHaveBeenCalled();
+    await allowed.app.close();
+  });
+  it('requires expected version and resolution evidence before invoking the writer', async () => {
+    const writer = writerMocks(),
+      { app } = await makeApp(claims, writer);
+    const base = {
+      method: 'POST' as const,
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents/transition`,
+      headers: { 'idempotency-key': 'noc-transition-test' },
+    };
+    const command = {
+      outageId: serviceId,
+      expectedVersion: 3,
+      status: 'resolved',
+      reasonEn: 'Recovery observed at customer',
+      reasonAr: 'تم التحقق من استعادة الخدمة لدى العميل',
+    };
+    const bad = await app.inject({ ...base, payload: { command } });
+    expect(bad.statusCode).not.toBe(201);
+    expect(writer.transitionOutageIncident).not.toHaveBeenCalled();
+    const good = await app.inject({
+      ...base,
+      payload: {
+        command: {
+          ...command,
+          rootCauseEn: 'Power supply was interrupted',
+          rootCauseAr: 'انقطاع الطاقة في موقع الشبكة',
+          resolutionEvidence: 'Power restored and service verified.',
+        },
+      },
+    });
+    expect(good.statusCode).toBe(201);
+    expect(writer.transitionOutageIncident).toHaveBeenCalledTimes(1);
+    await app.close();
   });
 });

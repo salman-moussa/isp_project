@@ -87,6 +87,16 @@ const english = buildRoutes(
         ['Open reports', 'Review currency-separated aging', 'reports'],
       ],
     ],
+    noc: [
+      'Network operations',
+      'NOC incidents',
+      'Scoped incidents, impact and resolution history.',
+      [],
+      'Incidents',
+      'Operator-recorded evidence.',
+      [],
+      [],
+    ],
     accounting: [
       'General ledger & accounting',
       'Double-entry accounting and trial balance',
