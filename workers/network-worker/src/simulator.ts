@@ -121,6 +121,7 @@ export class RouterOsSimulator implements RouterAdapter {
         this.fixture.scenario === 'inconsistent_observed_state'
           ? `${action.desired.profileId}-unexpected`
           : action.desired.profileId,
+      ...(action.kind === 'session.disconnect' ? { activeSessionIds: [] } : {}),
       sampledAt: '2026-08-13T08:00:01.000Z',
     };
     this.#states.set(subscriberServiceId, observed);

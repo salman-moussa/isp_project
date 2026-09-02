@@ -33,6 +33,7 @@ import { StaffWorkspace } from './staff/StaffWorkspace';
 import { SalesWorkspace } from './sales/SalesWorkspace';
 import { SubscriberWorkspace } from './subscribers/SubscriberWorkspace';
 import { BillingWorkspace } from './billing/BillingWorkspace';
+import { NocWorkspace } from './noc/NocWorkspace';
 import { AccountingWorkspace } from './billing/AccountingWorkspace';
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
@@ -398,6 +399,8 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <SubscriberWorkspace locale={locale} session={session} onNavigate={navigate} />
       ) : activeNavigationId === 'billing' && session ? (
         <BillingWorkspace locale={locale} session={session} />
+      ) : activeNavigationId === 'noc' ? (
+        <NocWorkspace locale={locale} session={session} key={session?.tenantId ?? 'signed-out'} />
       ) : activeNavigationId === 'accounting' ? (
         <AccountingWorkspace locale={locale} session={session} />
       ) : activeNavigationId === 'sales' ? (

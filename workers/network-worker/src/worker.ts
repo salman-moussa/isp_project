@@ -1,6 +1,6 @@
 import {
   destructiveActionKinds,
-  observedMatchesDesired,
+  observedConfirmsAction,
   type NetworkJob,
   type NetworkJobAttempt,
   type RouterAdapter,
@@ -61,22 +61,53 @@ export class NetworkWorker {
       return this.rescheduleWithoutAttempt(job, 'circuit_open', this.#retryPolicy.baseDelayMs);
     }
 
+    const commandAbort = new AbortController();
     const context = {
+      signal: commandAbort.signal,
       requestId: job.request.requestId,
       timeoutMs: this.options.timeoutMs,
       credentialReference: router.credentialReference,
     };
-    const observedBefore = await this.adapter.observe(
-      router,
-      job.request.subscriberServiceId,
-      context,
-    );
+    let observedBefore;
+    try {
+      observedBefore = await this.adapter.observe(router, job.request.subscriberServiceId, context);
+    } catch {
+      return this.applyOutcome(
+        job,
+        {
+          attempt: job.attempts.length + 1,
+          startedAt: now.toISOString(),
+          finishedAt: this.#now().toISOString(),
+          outcome: {
+            classification: 'definite_failure',
+            requestId: context.requestId,
+            errorClass: 'transport',
+            retryable: true,
+            safeMessage: 'Preflight observation failed; no command was sent.',
+          },
+        },
+        now,
+      );
+    }
     const priorAttempt = job.attempts.at(-1);
+    if (
+      priorAttempt?.outcome.classification === 'uncertain' &&
+      job.request.action.kind === 'pppoe.password.change'
+    ) {
+      // Secret read-back is deliberately unavailable; unchanged profile data cannot prove rotation.
+      const held = {
+        ...job,
+        state: 'dead_lettered' as const,
+        lastErrorClass: 'observed_state_mismatch' as const,
+      };
+      await this.store.save(held);
+      return held;
+    }
     if (
       priorAttempt?.outcome.classification === 'uncertain' &&
       destructiveActionKinds.has(job.request.action.kind) &&
       observedBefore !== undefined &&
-      observedMatchesDesired(observedBefore, job.request.action.desired)
+      observedConfirmsAction(observedBefore, job.request.action)
     ) {
       const reconciled = {
         ...job,
@@ -97,16 +128,15 @@ export class NetworkWorker {
       context,
     );
     const timedOut = new Promise<RouterCommandOutcome>((resolve) => {
-      timeout = setTimeout(
-        () =>
-          resolve({
-            classification: 'uncertain',
-            requestId: context.requestId,
-            errorClass: 'timeout',
-            safeMessage: 'Router outcome is unknown after the configured timeout.',
-          }),
-        this.options.timeoutMs,
-      );
+      timeout = setTimeout(() => {
+        commandAbort.abort();
+        resolve({
+          classification: 'uncertain',
+          requestId: context.requestId,
+          errorClass: 'timeout',
+          safeMessage: 'Router outcome is unknown after the configured timeout.',
+        });
+      }, this.options.timeoutMs);
     });
     let outcome: RouterCommandOutcome;
     try {
@@ -123,7 +153,7 @@ export class NetworkWorker {
     }
     if (
       outcome.classification === 'definite_success' &&
-      !observedMatchesDesired(outcome.observed, job.request.action.desired)
+      !observedConfirmsAction(outcome.observed, job.request.action)
     ) {
       outcome = {
         classification: 'uncertain',

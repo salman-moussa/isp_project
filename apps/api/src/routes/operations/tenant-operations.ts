@@ -1,4 +1,7 @@
 import {
+  createOutageSchema,
+  transitionOutageSchema,
+  nocQuerySchema,
   journalEntryInputSchema,
   periodCloseRequestSchema,
   customerStatementQuerySchema,
@@ -669,6 +672,24 @@ export function registerTenantOperationsRoutes(
   } as const;
   const routes: readonly RouteSpec[] = [
     operation(
+      '/noc/incidents',
+      'createOutageIncident',
+      'tenant.network.job.create',
+      'tenant.noc.incident.create',
+      'noc_incident',
+      z.object({ command: createOutageSchema }).strict(),
+      (w, id, v) => w.createOutageIncident(id, v as never),
+    ),
+    operation(
+      '/noc/incidents/transition',
+      'transitionOutageIncident',
+      'tenant.network.job.create',
+      'tenant.noc.incident.transition',
+      'noc_incident',
+      z.object({ command: transitionOutageSchema }).strict(),
+      (w, id, v) => w.transitionOutageIncident(id, v as never),
+    ),
+    operation(
       '/accounting/journals',
       'postJournalEntry',
       'tenant.accounting.post',
@@ -1046,6 +1067,23 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueNetworkAction(id, v as never),
     ),
   ];
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/noc/workspace',
+      operationId: 'readNocWorkspace',
+      permission: 'tenant.network.view',
+      action: 'tenant.noc.workspace.read',
+      resourceType: 'noc_workspace',
+      schema: z.object({}).strict(),
+      querySchema: nocQuerySchema,
+      execute: (w, id, v) => w.readNocWorkspace(id, v as never),
+    },
+    'Tenant NOC',
+    'noc-read',
+    'Read scoped incident workspace',
+  );
   registerWorkspaceRead(
     app,
     options,

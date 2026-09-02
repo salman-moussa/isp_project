@@ -7,7 +7,7 @@ import {
 } from '@isp/contracts';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
-import { inOperationsTransaction } from './context.js';
+import { inOperationsTransaction, OperationsConflictError } from './context.js';
 import type { SignedOperationsDatabaseContext } from './types.js';
 
 export async function readNasClients(
@@ -168,13 +168,11 @@ export async function disconnectRadiusSession(
     readonly authorization: SignedOperationsDatabaseContext;
   },
 ): Promise<{ readonly id: string; readonly status: string }> {
-  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
-    await transaction.execute(sql`
-      UPDATE operations_radius_sessions
-      SET stopped_at = clock_timestamp(), terminate_cause = ${input.reason}
-      WHERE tenant_id = ${tenantId} AND id = ${input.sessionId}
-    `);
-
-    return { id: input.sessionId, status: 'disconnected' };
+  return inOperationsTransaction(database, tenantId, input.authorization, async () => {
+    // RADIUS Acct-Session-Id is not a RouterOS active resource identifier. Never fake an ACK
+    // by changing accounting history. A NAS-bound durable execution adapter must own this.
+    throw new OperationsConflictError(
+      'RADIUS disconnect requires a configured NAS execution adapter and acknowledgement.',
+    );
   });
 }

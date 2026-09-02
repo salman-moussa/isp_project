@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { confirmBulkBatch, previewBulkImpact } from './batch.js';
-import type { NetworkJobRequest, PppoeDesiredState, RouterRegistration } from './domain.js';
+import type {
+  NetworkJobRequest,
+  PppoeDesiredState,
+  RouterAdapter,
+  RouterRegistration,
+} from './domain.js';
 import { RouterEgressPolicy } from './egress.js';
 import { eventCanEnqueueSubscriberNetworkWork, handleNetworkIngress } from './ingress.js';
 import { RouterCircuitBreaker, RouterConcurrencyLimiter, retryDelayMs } from './policy.js';
@@ -215,5 +220,123 @@ describe('immutable bulk impact model (REQ-NET-002)', () => {
     expect(batch.excluded[0]?.exclusionReason).toBe('Already suspended');
     expect(Object.isFrozen(batch)).toBe(true);
     expect(batch.digest).toMatch(/^fnv1a-/);
+  });
+});
+describe('action-specific acknowledgement', () => {
+  it('does not reconcile a disconnect while the target session remains or no active list was observed', async () => {
+    for (const active of [undefined, ['*A']] as const) {
+      const { store, simulator, worker } = await harness('timeout');
+      await store.enqueue(
+        request({ action: { kind: 'session.disconnect', desired, sessionId: '*A' } }),
+        now,
+      );
+      const first = await worker.processNext();
+      simulator.seed('service-1', {
+        ...desired,
+        sampledAt: now.toISOString(),
+        ...(active ? { activeSessionIds: active } : {}),
+      });
+      await store.save({ ...first!, availableAt: now.toISOString() });
+      const retry = await worker.processNext();
+      expect(retry?.state).toBe('dead_lettered');
+      expect(simulator.calls('service-1')).toBe(2);
+    }
+  });
+  it('reconciles a timed-out disconnect only after a full observation excludes the target', async () => {
+    const { store, simulator, worker } = await harness('timeout');
+    await store.enqueue(
+      request({ action: { kind: 'session.disconnect', desired, sessionId: '*A' } }),
+      now,
+    );
+    const first = await worker.processNext();
+    simulator.seed('service-1', {
+      ...desired,
+      sampledAt: now.toISOString(),
+      activeSessionIds: ['*B'],
+    });
+    await store.save({ ...first!, availableAt: now.toISOString() });
+    expect((await worker.processNext())?.state).toBe('reconciled');
+    expect(simulator.calls('service-1')).toBe(1);
+  });
+  it('does not infer a successful password rotation from unchanged profile fields or resend it after timeout', async () => {
+    const { store, simulator, worker } = await harness('timeout');
+    await store.enqueue(
+      request({
+        action: {
+          kind: 'pppoe.password.change',
+          desired,
+          passwordSecretReference: 'secret://test/password',
+        },
+      }),
+      now,
+    );
+    const first = await worker.processNext();
+    simulator.seed('service-1', { ...desired, sampledAt: now.toISOString() });
+    await store.save({ ...first!, availableAt: now.toISOString() });
+    expect((await worker.processNext())?.state).toBe('dead_lettered');
+    expect(simulator.calls('service-1')).toBe(1);
+  });
+  it('counts preflight failures without sending a mutation or stranding the claimed job', async () => {
+    const { store, simulator, worker } = await harness('success');
+    vi.spyOn(simulator, 'observe').mockRejectedValue(new Error('offline'));
+    await store.enqueue(request(), now);
+    const first = await worker.processNext();
+    expect(first?.state).toBe('retry_scheduled');
+    expect(first?.attempts).toHaveLength(1);
+    expect(simulator.calls('service-1')).toBe(0);
+  });
+  it('aborts the adapter transport when the worker deadline expires', async () => {
+    const store = new InMemoryDurableNetworkStore();
+    await store.registerRouter(router);
+    let aborted = false;
+    const adapter: RouterAdapter = {
+      probe: async () => ({
+        available: true,
+        cpuPercent: 0,
+        memoryUsedPercent: 0,
+        uptimeSeconds: 1,
+        latencyMs: 0,
+        routerClock: now.toISOString(),
+        checkedAt: now.toISOString(),
+      }),
+      observe: async () => ({ ...desired, sampledAt: now.toISOString() }),
+      execute: async (_router, _service, _action, commandContext) =>
+        new Promise((resolve) => {
+          commandContext.signal?.addEventListener(
+            'abort',
+            () => {
+              aborted = true;
+              resolve({
+                classification: 'uncertain',
+                requestId: commandContext.requestId,
+                errorClass: 'timeout',
+                safeMessage: 'Aborted by the worker deadline.',
+              });
+            },
+            { once: true },
+          );
+        }),
+    };
+    const worker = new NetworkWorker(
+      store,
+      adapter,
+      new RouterEgressPolicy([router.endpoint.origin]),
+      new RouterConcurrencyLimiter(1),
+      new RouterCircuitBreaker({ failureThreshold: 3, resetAfterMs: 10_000 }),
+      {
+        timeoutMs: 10,
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 1_000, jitterRatio: 0 },
+        now: () => now,
+        random: () => 0.5,
+      },
+    );
+    await store.enqueue(request(), now);
+    const result = await worker.processNext();
+    expect(aborted).toBe(true);
+    expect(result?.state).toBe('reconciling');
+    expect(result?.attempts[0]?.outcome).toMatchObject({
+      classification: 'uncertain',
+      errorClass: 'timeout',
+    });
   });
 });

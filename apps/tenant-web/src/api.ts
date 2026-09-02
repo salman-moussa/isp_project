@@ -1,3 +1,4 @@
+import type { NocWorkspace, NocQuery } from '@isp/contracts';
 import type { CustomerStatementQuery, CustomerStatementResponse } from '@isp/contracts';
 import type {
   CustomerAccountsWorkspace,
@@ -926,4 +927,20 @@ export async function readCustomerStatement(
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Customer statement');
   return (await response.json()) as CustomerStatementResponse;
+}
+export async function readNocWorkspace(
+  session: ApiSession,
+  query: Partial<NocQuery> = {},
+): Promise<NocWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query))
+    if (value !== undefined) params.set(key, String(value));
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/noc/workspace?${params}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'NOC workspace');
+  return (await response.json()) as NocWorkspace;
 }

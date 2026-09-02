@@ -1,4 +1,7 @@
 import type {
+  CreateOutageCommand,
+  TransitionOutageCommand,
+  NocQuery,
   CustomerAccountCommand,
   Permission,
   SupportedCurrency,
@@ -30,6 +33,18 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  readNocWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<NocQuery> },
+  ): Promise<unknown>;
+  createOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { command: CreateOutageCommand },
+  ): Promise<unknown>;
+  transitionOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { command: TransitionOutageCommand },
+  ): Promise<unknown>;
   postCustomerAccountEntry(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {
