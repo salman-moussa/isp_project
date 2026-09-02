@@ -447,7 +447,7 @@ async function createPayment(
     readonly outstanding_minor: string;
   }>(sql`
     SELECT assignment.finance_invoice_id AS invoice_id, assignment.currency,
-      (invoice.amount_minor - guard.allocated_minor)::text AS outstanding_minor
+      (invoice.amount_minor - guard.allocated_minor - guard.credited_minor)::text AS outstanding_minor
     FROM operations_collector_assignments assignment
     JOIN finance_invoices invoice ON invoice.tenant_id = assignment.tenant_id AND invoice.id = assignment.finance_invoice_id
       AND invoice.entry_kind = 'posted'
@@ -672,7 +672,7 @@ async function currentAssignments(
     SELECT assignment.id AS assignment_id, assignment.subscriber_id, subscriber.subscriber_number,
       subscriber.display_name, location.address_line, assignment.route_id, assignment.route_reference,
       assignment.finance_invoice_id, invoice.document_number, assignment.due_on,
-      greatest(invoice.amount_minor - guard.allocated_minor, 0)::text AS outstanding_minor,
+      greatest(invoice.amount_minor - guard.allocated_minor - guard.credited_minor, 0)::text AS outstanding_minor,
       assignment.currency, assignment.status
     FROM operations_collector_assignments assignment
     JOIN operations_subscribers subscriber ON subscriber.tenant_id = assignment.tenant_id
@@ -686,7 +686,7 @@ async function currentAssignments(
     WHERE assignment.tenant_id = ${device.tenantId}
       AND assignment.collector_user_id = ${device.collectorUserId}::uuid
       AND assignment.status IN ('assigned','visited','returned')
-      AND invoice.amount_minor > guard.allocated_minor
+      AND invoice.amount_minor > guard.allocated_minor + guard.credited_minor
       ${
         assignmentIds
           ? sql`AND assignment.id IN (${sql.join(

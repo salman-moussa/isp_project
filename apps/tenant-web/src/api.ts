@@ -1,3 +1,4 @@
+import type { CustomerAccountsWorkspace } from '@isp/contracts';
 import type { ApiSession } from '@isp/ui';
 
 export interface TenantSummary {
@@ -150,6 +151,8 @@ export interface SubscriberWorkspaceInvoice {
   readonly documentNumber: string;
   readonly amountMinor: number;
   readonly allocatedMinor: number;
+  readonly creditedMinor?: number;
+  readonly reversed?: boolean;
   readonly outstandingMinor: number;
   readonly currency: 'USD' | 'LBP';
   readonly postedAt: string;
@@ -837,4 +840,16 @@ export async function submitTenantOperation(
     throw new Error(result.error?.message ?? `Operation failed (${response.status}).`);
   }
   return result;
+}
+export async function readCustomerAccounts(
+  session: ApiSession,
+): Promise<CustomerAccountsWorkspace> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/customer-accounts/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Customer accounts');
+  return (await response.json()) as CustomerAccountsWorkspace;
 }

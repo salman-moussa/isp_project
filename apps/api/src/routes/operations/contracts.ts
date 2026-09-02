@@ -1,4 +1,9 @@
-import type { Permission, SupportedCurrency, VerifiedTenantId } from '@isp/contracts';
+import type {
+  CustomerAccountCommand,
+  Permission,
+  SupportedCurrency,
+  VerifiedTenantId,
+} from '@isp/contracts';
 
 export interface OperationsMutationContext {
   readonly actorId: string;
@@ -20,6 +25,16 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  postCustomerAccountEntry(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: CustomerAccountCommand;
+    },
+  ): Promise<unknown>;
+  readCustomerAccounts(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
   generateInvoiceDocument(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly invoiceId: string },

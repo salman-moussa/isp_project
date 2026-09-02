@@ -9,6 +9,7 @@ import {
 } from '../api';
 import './billing.css';
 import { InvoiceArchive } from './InvoiceArchive';
+import { CustomerAccounts } from './CustomerAccounts';
 
 interface BillingWorkspaceProps {
   readonly locale: 'en' | 'ar';
@@ -179,6 +180,7 @@ export function BillingWorkspace({ locale, session }: BillingWorkspaceProps) {
 
       <div className="billing-command-grid">
         <InvoiceArchive locale={locale} session={session} workspace={workspace} reload={load} />
+        <CustomerAccounts locale={locale} session={session} />
         <RunForm
           locale={locale}
           defaults={defaults}

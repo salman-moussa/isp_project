@@ -1,3 +1,4 @@
+import { customerAccountSchemas, type CustomerAccountKind } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
 import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -650,7 +651,32 @@ export function registerTenantOperationsRoutes(
   app: FastifyInstance,
   options: TenantOperationsRouteOptions,
 ): void {
+  const accountPermissions = {
+    credit_note: 'tenant.invoice.reverse',
+    credit_reversal: 'tenant.invoice.reverse',
+    deposit_received: 'tenant.payment.post',
+    deposit_applied: 'tenant.payment.post',
+    deposit_application_reversal: 'tenant.payment.reverse',
+    deposit_reversal: 'tenant.payment.reverse',
+  } as const;
   const routes: readonly RouteSpec[] = [
+    ...Object.entries(customerAccountSchemas).map(([key, schema]) => {
+      const kind = key as CustomerAccountKind;
+      return operation(
+        '/customer-accounts/' + kind,
+        'customerAccount_' + kind,
+        accountPermissions[kind],
+        'tenant.customer_account.' + kind,
+        'customer_account_entry',
+        schema,
+        (writer, tenantId, input) => {
+          // Only body fields enter the monetary payload, never auth/session metadata.
+          const command = { ...schema.parse(inputBody(input)), kind };
+          return writer.postCustomerAccountEntry(tenantId, { ...input, command } as never);
+        },
+        true,
+      );
+    }),
     operation(
       '/invoice-documents',
       'generateInvoiceDocument',
@@ -992,6 +1018,22 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueNetworkAction(id, v as never),
     ),
   ];
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/customer-accounts/workspace',
+      operationId: 'readCustomerAccounts',
+      permission: 'tenant.billing.view',
+      action: 'tenant.customer_account.read',
+      resourceType: 'customer_accounts',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readCustomerAccounts(tenantId, input as never),
+    },
+    'Tenant billing',
+    'account-read',
+    'Authorized customer account read',
+  );
   registerWorkspaceRead(
     app,
     options,
@@ -1357,4 +1399,21 @@ function containsSecretKey(value: unknown): boolean {
     ([key, item]) =>
       /secret|password|credential|token|private[_-]?key/i.test(key) || containsSecretKey(item),
   );
+}
+function inputBody(input: Record<string, unknown>): Record<string, unknown> {
+  const fields = [
+    'documentNumber',
+    'reasonEn',
+    'reasonAr',
+    'subscriberId',
+    'invoiceId',
+    'currency',
+    'netMinor',
+    'vatMinor',
+    'stampMinor',
+    'amountMinor',
+    'sourceReference',
+    'sourceEntryId',
+  ];
+  return Object.fromEntries(fields.filter((key) => key in input).map((key) => [key, input[key]]));
 }

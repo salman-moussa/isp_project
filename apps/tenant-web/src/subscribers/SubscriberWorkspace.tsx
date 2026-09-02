@@ -486,6 +486,15 @@ function InvoiceDocument({
           <small>{isEnglish ? 'outstanding · open details' : 'متبقٍ · فتح التفاصيل'}</small>
         </span>
       </summary>
+      {invoice.reversed && (
+        <p role="status">{isEnglish ? 'Invoice reversed' : 'الفاتورة معكوسة'}</p>
+      )}
+      {(invoice.creditedMinor ?? 0) > 0 && (
+        <p>
+          {isEnglish ? 'Credit notes: ' : 'الإشعارات الدائنة: '}
+          {money(invoice.creditedMinor ?? 0, invoice.currency, locale)}
+        </p>
+      )}
       {legal ? (
         <div className="invoice-sheet" dir={isEnglish ? 'ltr' : 'rtl'}>
           <header>

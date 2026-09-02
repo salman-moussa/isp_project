@@ -63,7 +63,10 @@ export async function assertControlDatabaseReady(client: DatabaseClient): Promis
 export async function assertTenantDatabaseReady(client: DatabaseClient): Promise<void> {
   const [state] = await client.unsafe(
     `SELECT
-       to_regclass('public.tenant_dashboard_snapshots') IS NOT NULL
+       to_regclass('public.operations_customer_account_entries') IS NOT NULL
+       AND to_regprocedure('public.post_customer_account_entry(jsonb)') IS NOT NULL
+       AND to_regprocedure('public.operations_finance_balances()') IS NOT NULL
+       AND to_regclass('public.tenant_dashboard_snapshots') IS NOT NULL
        AND to_regclass('public.finance_invoices') IS NOT NULL
        AND to_regclass('public.finance_payments') IS NOT NULL
        AND to_regclass('public.finance_payment_allocations') IS NOT NULL

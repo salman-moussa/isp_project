@@ -152,11 +152,15 @@ export async function readBillingWorkspace(
       transaction.execute<DunningCaseRow>(sql`
         SELECT dunning_case.id,invoice.document_number,service.service_number,
           subscriber.display_name AS subscriber_name,dunning_case.current_stage,
-          dunning_case.status,dunning_case.due_on,dunning_case.outstanding_minor::text,
+          dunning_case.status,dunning_case.due_on,
+          CASE WHEN balance.reversed_at IS NOT NULL THEN 0 ELSE
+            greatest(invoice.amount_minor-balance.allocated_minor-balance.credited_minor,0) END::text AS outstanding_minor,
           dunning_case.currency,dunning_case.version
         FROM operations_dunning_cases dunning_case
         JOIN finance_invoices invoice ON invoice.tenant_id=dunning_case.tenant_id
           AND invoice.id=dunning_case.finance_invoice_id
+        JOIN operations_finance_balances() balance ON balance.tenant_id=invoice.tenant_id
+          AND balance.document_type='invoice' AND balance.document_id=invoice.id
         JOIN operations_services service ON service.tenant_id=dunning_case.tenant_id
           AND service.id=dunning_case.service_id
         JOIN operations_subscribers subscriber ON subscriber.tenant_id=dunning_case.tenant_id
@@ -415,7 +419,7 @@ export async function evaluateDunning(
           SELECT 1 FROM finance_invoices reversal
           WHERE reversal.tenant_id=invoice.tenant_id
             AND reversal.reverses_invoice_id=invoice.id AND reversal.entry_kind='reversal'
-        ) THEN 0 ELSE greatest(invoice.amount_minor-balance.allocated_minor,0) END::text
+        ) THEN 0 ELSE greatest(invoice.amount_minor-balance.allocated_minor-balance.credited_minor,0) END::text
           AS outstanding_minor,
         dunning_case.id AS dunning_case_id,dunning_case.current_stage,dunning_case.status,
         dunning_case.version AS case_version,
@@ -428,13 +432,8 @@ export async function evaluateDunning(
       FROM operations_invoice_preparations preparation
       JOIN finance_invoices invoice ON invoice.tenant_id=preparation.tenant_id
         AND invoice.id=preparation.finance_invoice_id AND invoice.entry_kind='posted'
-      LEFT JOIN LATERAL(
-        SELECT coalesce(sum(CASE allocation.entry_kind
-          WHEN 'allocation' THEN allocation.amount_minor ELSE -allocation.amount_minor END),0)::bigint
-          AS allocated_minor
-        FROM finance_payment_allocations allocation
-        WHERE allocation.tenant_id=invoice.tenant_id AND allocation.invoice_id=invoice.id
-      ) balance ON true
+      JOIN operations_finance_balances() balance ON balance.tenant_id=invoice.tenant_id
+        AND balance.document_type='invoice' AND balance.document_id=invoice.id
       JOIN operations_services service ON service.tenant_id=preparation.tenant_id
         AND service.id=preparation.service_id
       LEFT JOIN operations_dunning_cases dunning_case ON dunning_case.tenant_id=invoice.tenant_id
@@ -460,7 +459,7 @@ export async function evaluateDunning(
             WHERE reversal.tenant_id=invoice.tenant_id
               AND reversal.reverses_invoice_id=invoice.id AND reversal.entry_kind='reversal'
           )
-          AND invoice.amount_minor>balance.allocated_minor
+          AND invoice.amount_minor>balance.allocated_minor+balance.credited_minor
           AND ${input.asOfDate}::date>=(invoice.posted_at::date+policy.payment_terms_days
             +policy.reminder_after_days)
         ))
