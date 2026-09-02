@@ -1,4 +1,10 @@
-import type { CustomerAccountsWorkspace } from '@isp/contracts';
+import type {
+  CustomerAccountsWorkspace,
+  ChartOfAccountRecord,
+  JournalEntryRecord,
+  TrialBalanceResponse,
+  AccountingPeriodRecord,
+} from '@isp/contracts';
 import type { ApiSession } from '@isp/ui';
 
 export interface TenantSummary {
@@ -852,4 +858,55 @@ export async function readCustomerAccounts(
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Customer accounts');
   return (await response.json()) as CustomerAccountsWorkspace;
+}
+
+export async function readChartOfAccounts(
+  session: ApiSession,
+): Promise<readonly ChartOfAccountRecord[]> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/accounting/chart-of-accounts`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Chart of accounts');
+  return (await response.json()) as readonly ChartOfAccountRecord[];
+}
+
+export async function readJournalEntries(
+  session: ApiSession,
+): Promise<readonly JournalEntryRecord[]> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/accounting/journal-entries`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Journal entries');
+  return (await response.json()) as readonly JournalEntryRecord[];
+}
+
+export async function readTrialBalance(
+  session: ApiSession,
+  asOfDate?: string,
+): Promise<TrialBalanceResponse> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const url = `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/accounting/trial-balance${asOfDate ? `?asOfDate=${encodeURIComponent(asOfDate)}` : ''}`;
+  const response = await fetch(url, { headers: authorizationHeaders(session) });
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Trial balance');
+  return (await response.json()) as TrialBalanceResponse;
+}
+
+export async function readAccountingPeriods(
+  session: ApiSession,
+): Promise<readonly AccountingPeriodRecord[]> {
+  if (!session.tenantId) throw new Error('The authenticated tenant workspace is missing.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/accounting/periods`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Accounting periods');
+  return (await response.json()) as readonly AccountingPeriodRecord[];
 }

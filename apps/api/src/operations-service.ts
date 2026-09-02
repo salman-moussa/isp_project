@@ -681,7 +681,10 @@ export class PostgresOperationsService implements OperationsWriter {
     });
   }
 
-  public readChartOfAccounts(tenantId: VerifiedTenantId, input: WriterInput<'readChartOfAccounts'>) {
+  public readChartOfAccounts(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readChartOfAccounts'>,
+  ) {
     return this.repository.readChartOfAccounts(this.database, tenantId, this.sign(tenantId, input));
   }
 
@@ -696,19 +699,42 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.readJournalEntries(this.database, tenantId, this.sign(tenantId, input));
   }
 
-  public readCustomerStatement(tenantId: VerifiedTenantId, input: WriterInput<'readCustomerStatement'>) {
-    return this.repository.readCustomerStatement(this.database, tenantId, this.sign(tenantId, input), input.query);
+  public readCustomerStatement(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCustomerStatement'>,
+  ) {
+    return this.repository.readCustomerStatement(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+      input.query,
+    );
   }
 
   public readTrialBalance(tenantId: VerifiedTenantId, input: WriterInput<'readTrialBalance'>) {
-    return this.repository.readTrialBalance(this.database, tenantId, this.sign(tenantId, input), input.asOfDate);
+    return this.repository.readTrialBalance(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+      input.asOfDate,
+    );
   }
 
-  public readAccountingPeriods(tenantId: VerifiedTenantId, input: WriterInput<'readAccountingPeriods'>) {
-    return this.repository.readAccountingPeriods(this.database, tenantId, this.sign(tenantId, input));
+  public readAccountingPeriods(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readAccountingPeriods'>,
+  ) {
+    return this.repository.readAccountingPeriods(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
   }
 
-  public closeAccountingPeriod(tenantId: VerifiedTenantId, input: WriterInput<'closeAccountingPeriod'>) {
+  public closeAccountingPeriod(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'closeAccountingPeriod'>,
+  ) {
     return this.repository.closeAccountingPeriod(this.database, tenantId, {
       request: input.request,
       authorization: this.sign(tenantId, input),
@@ -719,7 +745,10 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.readDealers(this.database, tenantId, this.sign(tenantId, input));
   }
 
-  public generateVoucherBatch(tenantId: VerifiedTenantId, input: WriterInput<'generateVoucherBatch'>) {
+  public generateVoucherBatch(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'generateVoucherBatch'>,
+  ) {
     return this.repository.generateVoucherBatch(this.database, tenantId, {
       command: input.command,
       authorization: this.sign(tenantId, input),
@@ -741,8 +770,15 @@ export class PostgresOperationsService implements OperationsWriter {
     return this.repository.readInventoryItems(this.database, tenantId, this.sign(tenantId, input));
   }
 
-  public readSerializedAssets(tenantId: VerifiedTenantId, input: WriterInput<'readSerializedAssets'>) {
-    return this.repository.readSerializedAssets(this.database, tenantId, this.sign(tenantId, input));
+  public readSerializedAssets(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readSerializedAssets'>,
+  ) {
+    return this.repository.readSerializedAssets(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
   }
 
   public readNasClients(tenantId: VerifiedTenantId, input: WriterInput<'readNasClients'>) {

@@ -16,8 +16,9 @@ Orvex ISP is **not** a subscriber self-service portal. Subscribers do not receiv
 or access to the internal applications.
 
 Customer finance: the Billing workspace includes received deposits, invoice allocation and linked
-unpaid-invoice credit adjustments. See the [customer account guide](docs/operations/customer-accounts.md)
-for permissions, corrections, deployment requirements and current limits.
+unpaid-invoice credit adjustments. See the
+[customer account guide](docs/operations/customer-accounts.md) for permissions, corrections,
+deployment requirements and current limits.
 
 ## Live environment
 

@@ -25,10 +25,10 @@ apps/collect/android files remain untouched.
   duplicate receipt reference, used/reversed receipt rejection, append-only access, updated
   subscriber balances, dunning read and exactly 12 successful account audit entries. Successful test
   corrections restore the invoice's starting balance; synthetic history remains.
-- Focused ESLint passed after correcting type-import and explicit-string handling findings.
-  Database schema safety passed. The staged Git whitespace check found one harmless trailing blank
-  line in applied migration 1201; it is retained to preserve the applied checksum. No other whitespace
-  error was reported.
+- Focused ESLint passed after correcting type-import and explicit-string handling findings. Database
+  schema safety passed. The staged Git whitespace check found one harmless trailing blank line in
+  applied migration 1201; it is retained to preserve the applied checksum. No other whitespace error
+  was reported.
 
 ## Reproduction
 

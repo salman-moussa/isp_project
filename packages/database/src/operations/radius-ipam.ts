@@ -74,7 +74,11 @@ export async function readRadiusSessions(
       framedIpAddress: r.framed_ip_address,
       callingStationId: r.calling_station_id,
       startedAt: typeof r.started_at === 'string' ? r.started_at : r.started_at.toISOString(),
-      stoppedAt: r.stopped_at ? (typeof r.stopped_at === 'string' ? r.stopped_at : r.stopped_at.toISOString()) : null,
+      stoppedAt: r.stopped_at
+        ? typeof r.stopped_at === 'string'
+          ? r.stopped_at
+          : r.stopped_at.toISOString()
+        : null,
       inputOctets: parseInt(r.input_octets, 10),
       outputOctets: parseInt(r.output_octets, 10),
       terminateCause: r.terminate_cause,
@@ -145,8 +149,32 @@ export async function readCpeDevices(
       tr069DeviceId: r.tr069_device_id,
       firmwareVersion: r.firmware_version,
       connectionRequestUrl: r.connection_request_url,
-      lastInformAt: r.last_inform_at ? (typeof r.last_inform_at === 'string' ? r.last_inform_at : r.last_inform_at.toISOString()) : null,
+      lastInformAt: r.last_inform_at
+        ? typeof r.last_inform_at === 'string'
+          ? r.last_inform_at
+          : r.last_inform_at.toISOString()
+        : null,
       status: r.status,
     }));
+  });
+}
+
+export async function disconnectRadiusSession(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly sessionId: string;
+    readonly reason: string;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly status: string }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    await transaction.execute(sql`
+      UPDATE operations_radius_sessions
+      SET stopped_at = clock_timestamp(), terminate_cause = ${input.reason}
+      WHERE tenant_id = ${tenantId} AND id = ${input.sessionId}
+    `);
+
+    return { id: input.sessionId, status: 'disconnected' };
   });
 }

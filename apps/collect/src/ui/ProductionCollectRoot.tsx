@@ -11,11 +11,7 @@ import {
 
 import { CollectService } from '../core/collect-service';
 import type { CollectState } from '../core/model';
-import {
-  ProductionCollectApi,
-  ExpoPayloadHasher,
-  ExpoUuidGenerator,
-} from '../core/production-api';
+import { ProductionCollectApi, ExpoPayloadHasher, ExpoUuidGenerator } from '../core/production-api';
 import { ExpoAesGcmStateDriver, ExpoSecureDeviceKeyVault } from '../core/production-storage';
 import { EncryptedCollectStore } from '../core/storage';
 import { CollectSyncEngine } from '../core/sync-engine';

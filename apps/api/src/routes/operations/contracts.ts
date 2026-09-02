@@ -3,6 +3,11 @@ import type {
   Permission,
   SupportedCurrency,
   VerifiedTenantId,
+  JournalEntryInput,
+  CustomerStatementQuery,
+  PeriodCloseRequest,
+  VoucherBatchInput,
+  VoucherRedeemInput,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -483,7 +488,9 @@ export interface OperationsWriter {
   ): Promise<unknown>;
   postJournalEntry(
     tenantId: VerifiedTenantId,
-    input: OperationsMutationContext & { readonly command: import('@isp/contracts').JournalEntryInput },
+    input: OperationsMutationContext & {
+      readonly command: JournalEntryInput;
+    },
   ): Promise<unknown>;
   readJournalEntries(
     tenantId: VerifiedTenantId,
@@ -491,7 +498,9 @@ export interface OperationsWriter {
   ): Promise<unknown>;
   readCustomerStatement(
     tenantId: VerifiedTenantId,
-    input: OperationsMutationContext & { readonly query: import('@isp/contracts').CustomerStatementQuery },
+    input: OperationsMutationContext & {
+      readonly query: CustomerStatementQuery;
+    },
   ): Promise<unknown>;
   readTrialBalance(
     tenantId: VerifiedTenantId,
@@ -503,24 +512,24 @@ export interface OperationsWriter {
   ): Promise<unknown>;
   closeAccountingPeriod(
     tenantId: VerifiedTenantId,
-    input: OperationsMutationContext & { readonly request: import('@isp/contracts').PeriodCloseRequest },
+    input: OperationsMutationContext & {
+      readonly request: PeriodCloseRequest;
+    },
   ): Promise<unknown>;
-  readDealers(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
+  readDealers(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   generateVoucherBatch(
     tenantId: VerifiedTenantId,
-    input: OperationsMutationContext & { readonly command: import('@isp/contracts').VoucherBatchInput },
+    input: OperationsMutationContext & {
+      readonly command: VoucherBatchInput;
+    },
   ): Promise<unknown>;
   redeemVoucher(
     tenantId: VerifiedTenantId,
-    input: OperationsMutationContext & { readonly command: import('@isp/contracts').VoucherRedeemInput },
+    input: OperationsMutationContext & {
+      readonly command: VoucherRedeemInput;
+    },
   ): Promise<unknown>;
-  readWarehouses(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
+  readWarehouses(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readInventoryItems(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
@@ -529,34 +538,16 @@ export interface OperationsWriter {
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
   ): Promise<unknown>;
-  readNasClients(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
+  readNasClients(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readRadiusSessions(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
   ): Promise<unknown>;
-  readIpPools(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
-  readCpeDevices(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
-  readNetworkAlarms(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
-  readOutages(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
-  readQosReports(
-    tenantId: VerifiedTenantId,
-    input: OperationsMutationContext,
-  ): Promise<unknown>;
+  readIpPools(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readCpeDevices(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readNetworkAlarms(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readOutages(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readQosReports(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
 }
 
 export interface OperationsDefinition {

@@ -14,10 +14,14 @@ describe('accounting system migration', () => {
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS operations_journal_entries');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS operations_journal_lines');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS operations_accounting_periods');
-    expect(migration).toContain('ALTER TABLE operations_chart_of_accounts FORCE ROW LEVEL SECURITY');
+    expect(migration).toContain(
+      'ALTER TABLE operations_chart_of_accounts FORCE ROW LEVEL SECURITY',
+    );
     expect(migration).toContain('ALTER TABLE operations_journal_entries FORCE ROW LEVEL SECURITY');
     expect(migration).toContain('ALTER TABLE operations_journal_lines FORCE ROW LEVEL SECURITY');
-    expect(migration).toContain('ALTER TABLE operations_accounting_periods FORCE ROW LEVEL SECURITY');
+    expect(migration).toContain(
+      'ALTER TABLE operations_accounting_periods FORCE ROW LEVEL SECURITY',
+    );
     expect(migration).toContain('seed_tenant_default_chart_of_accounts');
   });
 });

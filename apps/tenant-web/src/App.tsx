@@ -33,6 +33,7 @@ import { StaffWorkspace } from './staff/StaffWorkspace';
 import { SalesWorkspace } from './sales/SalesWorkspace';
 import { SubscriberWorkspace } from './subscribers/SubscriberWorkspace';
 import { BillingWorkspace } from './billing/BillingWorkspace';
+import { AccountingWorkspace } from './billing/AccountingWorkspace';
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -397,6 +398,8 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <SubscriberWorkspace locale={locale} session={session} onNavigate={navigate} />
       ) : activeNavigationId === 'billing' && session ? (
         <BillingWorkspace locale={locale} session={session} />
+      ) : activeNavigationId === 'accounting' ? (
+        <AccountingWorkspace locale={locale} session={session} />
       ) : activeNavigationId === 'sales' ? (
         <StatePanel
           variant="empty"
