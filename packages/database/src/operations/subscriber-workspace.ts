@@ -58,6 +58,8 @@ export interface SubscriberWorkspaceInvoice {
   readonly documentNumber: string;
   readonly amountMinor: number;
   readonly allocatedMinor: number;
+  readonly creditedMinor: number;
+  readonly reversed: boolean;
   readonly outstandingMinor: number;
   readonly currency: SupportedCurrency;
   readonly postedAt: string;
@@ -250,23 +252,16 @@ export async function readSubscriberWorkspace(
           preparation.subtotal_minor::text AS taxable_amount_minor,
           preparation.vat_rate_basis_points,preparation.vat_minor::text,
           preparation.stamp_duty_minor::text,preparation.legal_invoice_snapshot,
-          coalesce(sum(CASE allocation.entry_kind
-            WHEN 'allocation' THEN allocation.amount_minor ELSE -allocation.amount_minor END),0)::text
-            AS allocated_minor
+          balance.allocated_minor::text,balance.credited_minor::text,
+          balance.reversed_at IS NOT NULL AS reversed
         FROM operations_invoice_preparations preparation
         JOIN operations_services service ON service.tenant_id=preparation.tenant_id
           AND service.id=preparation.service_id
         JOIN finance_invoices invoice ON invoice.tenant_id=preparation.tenant_id
           AND invoice.id=preparation.finance_invoice_id AND invoice.entry_kind='posted'
-        LEFT JOIN finance_payment_allocations allocation ON allocation.tenant_id=invoice.tenant_id
-          AND allocation.invoice_id=invoice.id
+        JOIN operations_finance_balances() balance ON balance.tenant_id=invoice.tenant_id
+          AND balance.document_type='invoice' AND balance.document_id=invoice.id
         WHERE preparation.tenant_id=${tenantId} AND preparation.posting_status='posted'
-        GROUP BY invoice.id,service.subscriber_id,preparation.service_id,
-          preparation.base_amount_minor,preparation.addon_amount_minor,
-          preparation.overage_amount_minor,preparation.gross_amount_minor,
-          preparation.discount_basis_points,preparation.discount_amount_minor,
-          preparation.subtotal_minor,preparation.vat_rate_basis_points,preparation.vat_minor,
-          preparation.stamp_duty_minor,preparation.legal_invoice_snapshot
         ORDER BY invoice.posted_at DESC LIMIT 1000
       `),
       transaction.execute<IssueRow>(sql`
@@ -419,6 +414,7 @@ export async function readSubscriberWorkspace(
       invoices: invoices.map((row) => {
         const amountMinor = safeMinor(row.amount_minor);
         const allocatedMinor = safeNonnegativeMinor(row.allocated_minor);
+        const creditedMinor = safeNonnegativeMinor(row.credited_minor);
         return {
           id: row.id,
           subscriberId: row.subscriber_id,
@@ -426,7 +422,11 @@ export async function readSubscriberWorkspace(
           documentNumber: row.document_number,
           amountMinor,
           allocatedMinor,
-          outstandingMinor: Math.max(0, amountMinor - allocatedMinor),
+          creditedMinor,
+          reversed: row.reversed,
+          outstandingMinor: row.reversed
+            ? 0
+            : Math.max(0, amountMinor - allocatedMinor - creditedMinor),
           currency: row.currency,
           postedAt: timestamp(row.posted_at),
           baseAmountMinor: safeMinor(row.base_amount_minor),
@@ -576,6 +576,8 @@ interface InvoiceRow extends Record<string, unknown> {
   readonly document_number: string;
   readonly amount_minor: string;
   readonly allocated_minor: string;
+  readonly credited_minor: string;
+  readonly reversed: boolean;
   readonly currency: SupportedCurrency;
   readonly posted_at: Date | string;
   readonly base_amount_minor: string;

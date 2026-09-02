@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@isp/contracts": "0.1.0",
     "@isp/ui": "0.1.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"

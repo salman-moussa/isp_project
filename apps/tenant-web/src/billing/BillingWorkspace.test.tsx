@@ -84,6 +84,12 @@ afterEach(() => vi.unstubAllGlobals());
 describe('BillingWorkspace', () => {
   it('shows failed-only recovery and makes suspension review explicitly manual', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof _input === 'string' && _input.includes('/customer-accounts/workspace'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ subscribers: [], invoices: [], entries: [] }),
+        };
       if (init?.method === 'POST') return { ok: true, status: 201, json: async () => ({}) };
       return { ok: true, status: 200, json: async () => workspace };
     });
@@ -102,7 +108,7 @@ describe('BillingWorkspace', () => {
       screen.getByText('No effective legal billing policy covers the service billing date.'),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Retry failed services' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     const request = fetchMock.mock.calls.find(
       (call) => typeof call[0] === 'string' && call[0].endsWith('/billing-runs'),
     );

@@ -1,6 +1,8 @@
 import type { VerifiedTenantId } from '@isp/contracts';
 import { createHash } from 'node:crypto';
 import {
+  postCustomerAccountEntry,
+  readCustomerAccounts,
   assignCollectorInvoice,
   applyServiceChangeOrder,
   acceptSalesQuote,
@@ -59,6 +61,8 @@ export interface OperationsContextAuthorityConfig {
 }
 
 export interface OperationsRepositoryAdapter {
+  readonly postCustomerAccountEntry: typeof postCustomerAccountEntry;
+  readonly readCustomerAccounts: typeof readCustomerAccounts;
   readonly prepareInvoiceDocument: typeof prepareInvoiceDocument;
   readonly completeInvoiceDocument: typeof completeInvoiceDocument;
   readonly readInvoiceDocument: typeof readInvoiceDocument;
@@ -103,6 +107,8 @@ export interface OperationsRepositoryAdapter {
 }
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
+  postCustomerAccountEntry,
+  readCustomerAccounts,
   prepareInvoiceDocument,
   completeInvoiceDocument,
   readInvoiceDocument,
@@ -171,6 +177,25 @@ export class PostgresOperationsService implements OperationsWriter {
     private readonly repository: OperationsRepositoryAdapter = postgresOperationsRepository,
     private readonly documentStore?: InvoiceDocumentStore,
   ) {}
+
+  public postCustomerAccountEntry(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'postCustomerAccountEntry'>,
+  ) {
+    return this.repository.postCustomerAccountEntry(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readCustomerAccounts(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCustomerAccounts'>,
+  ) {
+    return this.repository.readCustomerAccounts(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
 
   public async generateInvoiceDocument(
     tenantId: VerifiedTenantId,

@@ -39,6 +39,8 @@ const claims: SessionClaims = {
 
 function writerMocks() {
   return {
+    postCustomerAccountEntry: vi.fn(async () => ({ id: serviceId })),
+    readCustomerAccounts: vi.fn(async () => ({ subscribers: [], invoices: [], entries: [] })),
     generateInvoiceDocument: vi.fn(async () => ({ id: serviceId, status: 'ready' })),
     downloadInvoiceDocument: vi.fn(async () => ({
       bytes: Buffer.from('%PDF-test'),
@@ -814,5 +816,82 @@ describe('invoice document authorization and download evidence', () => {
     expect(response.statusCode).toBe(403);
     expect(writer.downloadInvoiceDocument).not.toHaveBeenCalled();
     await app.close();
+  });
+});
+describe('customer account authority', () => {
+  const payload = {
+    subscriberId: serviceId,
+    currency: 'USD',
+    amountMinor: 1000,
+    documentNumber: 'DEP-100',
+    sourceReference: 'BANK-100',
+    reasonEn: 'Verified deposit receipt',
+    reasonAr: 'دفعة مقدمة مثبتة بالإيصال',
+  };
+  it('requires payment permission and recent MFA, and signs context separately from the command', async () => {
+    const writer = writerMocks();
+    const url = '/v1/tenants/' + tenantId + '/operations/customer-accounts/deposit_received';
+    const request = {
+      method: 'POST' as const,
+      url,
+      headers: { 'idempotency-key': 'account-deposit-001' },
+      payload,
+    };
+    const denied = await makeApp(claims, writer);
+    expect((await denied.app.inject(request)).statusCode).toBe(403);
+    await denied.app.close();
+    const noMfa = await makeApp({ ...claims, permissions: ['tenant.payment.post'] }, writer);
+    expect((await noMfa.app.inject(request)).statusCode).toBe(403);
+    await noMfa.app.close();
+    const allowed = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.payment.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect((await allowed.app.inject(request)).statusCode).toBe(201);
+    expect(writer.postCustomerAccountEntry).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command: { ...payload, kind: 'deposit_received' },
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.customer_account.deposit_received',
+        branchIds: [branchId],
+        actorId: claims.sub,
+        idempotencyKey: 'account-deposit-001',
+      }),
+    );
+    expect(writer.postCustomerAccountEntry).toHaveBeenCalledTimes(1);
+    // Unknown body fields cannot replace the server-chosen operation or authority.
+    expect(
+      (await allowed.app.inject({ ...request, payload: { ...payload, kind: 'credit_note' } }))
+        .statusCode,
+    ).not.toBe(201);
+    expect(writer.postCustomerAccountEntry).toHaveBeenCalledTimes(1);
+    expect(
+      (await allowed.app.inject({ ...request, url: url.replace(tenantId, otherTenantId) }))
+        .statusCode,
+    ).toBe(403);
+    await allowed.app.close();
+  });
+  it('requires billing view for the scoped account workspace', async () => {
+    const writer = writerMocks();
+    const url = '/v1/tenants/' + tenantId + '/operations/customer-accounts/workspace';
+    const denied = await makeApp(claims, writer);
+    expect((await denied.app.inject({ method: 'GET', url })).statusCode).toBe(403);
+    await denied.app.close();
+    const allowed = await makeApp({ ...claims, permissions: ['tenant.billing.view'] }, writer);
+    expect((await allowed.app.inject({ method: 'GET', url })).statusCode).toBe(200);
+    expect(writer.readCustomerAccounts).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.billing.view',
+        auditAction: 'tenant.customer_account.read',
+        branchIds: [branchId],
+      }),
+    );
+    await allowed.app.close();
   });
 });
