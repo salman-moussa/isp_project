@@ -140,6 +140,145 @@ describe('tenant operations API route plugin', () => {
     writer = writerMocks();
   });
 
+  it('serializes real accounting arrays and registers periods', async () => {
+    const { app } = await makeApp({ ...claims, permissions: ['tenant.accounting.view'] }, writer);
+    for (const name of ['chart-of-accounts', 'journal-entries', 'periods']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/v1/tenants/${tenantId}/accounting/${name}`,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([]);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+    }
+    await app.close();
+    const nonempty = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.view'] },
+      { ...writer, readChartOfAccounts: async () => [{ id: serviceId, accountCode: '1010' }] },
+    );
+    expect(
+      (
+        await nonempty.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/accounting/chart-of-accounts`,
+        })
+      ).json(),
+    ).toEqual([{ id: serviceId, accountCode: '1010' }]);
+    await nonempty.app.close();
+  });
+
+  it('forwards accounting dates and statement pagination from validated queries', async () => {
+    const { app } = await makeApp({ ...claims, permissions: ['tenant.accounting.view'] }, writer);
+    const balance = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/accounting/trial-balance?asOfDate=2026-08-01`,
+    });
+    expect(balance.statusCode).toBe(200);
+    expect(writer.readTrialBalance).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ asOfDate: '2026-08-01' }),
+    );
+    const statement = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/accounting/customer-statement?subscriberId=${serviceId}&currency=LBP&startDate=2026-01-01&endDate=2026-08-01&page=2&pageSize=10`,
+    });
+    expect(statement.statusCode).toBe(200);
+    expect(writer.readCustomerStatement).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.view',
+        auditAction: 'tenant.accounting.statement.read',
+        query: {
+          subscriberId: serviceId,
+          currency: 'LBP',
+          startDate: '2026-01-01',
+          endDate: '2026-08-01',
+          page: 2,
+          pageSize: 10,
+        },
+      }),
+    );
+    await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/accounting/trial-balance?asOfDate=2026-02-30`,
+    });
+    expect(writer.readTrialBalance).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it('denies accounting reads without permission and across tenants', async () => {
+    const denied = await makeApp(claims, writer);
+    expect(
+      (
+        await denied.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/accounting/periods`,
+        })
+      ).statusCode,
+    ).toBe(403);
+    await denied.app.close();
+    const { app } = await makeApp({ ...claims, permissions: ['tenant.accounting.view'] }, writer);
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${otherTenantId}/accounting/chart-of-accounts`,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(writer.readChartOfAccounts).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('requires recent MFA and the correct permission for manual journals', async () => {
+    const command = {
+      entryNumber: 'MAN-001',
+      entryDate: '2026-08-11',
+      descriptionEn: 'Manual accounting entry',
+      descriptionAr: 'قيد محاسبة يدوي موثق',
+      sourceType: 'manual',
+      lines: [
+        { accountId: serviceId, debitMinor: 100, creditMinor: 0, currency: 'USD' },
+        { accountId: branchId, debitMinor: 0, creditMinor: 100, currency: 'USD' },
+      ],
+    };
+    const payload = { command };
+    const url = `/v1/tenants/${tenantId}/operations/accounting/journals`;
+    const headers = { 'idempotency-key': 'accounting-manual-001' };
+    const denied = await makeApp({ ...claims, permissions: ['tenant.accounting.post'] }, writer);
+    expect((await denied.app.inject({ method: 'POST', url, headers, payload })).statusCode).toBe(
+      403,
+    );
+    expect(writer.postJournalEntry).not.toHaveBeenCalled();
+    await denied.app.close();
+    const { app } = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    const response = await app.inject({ method: 'POST', url, headers, payload });
+    expect(response.statusCode).toBe(201);
+    expect(writer.postJournalEntry).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command,
+        idempotencyKey: 'accounting-manual-001',
+        auditAction: 'tenant.accounting.journal.post',
+      }),
+    );
+    await app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { command: { ...command, sourceType: 'invoice' } },
+    });
+    expect(writer.postJournalEntry).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
   it('forwards the verified tenant, actor, and idempotency key for subscriber creation', async () => {
     const { app, audit } = await makeApp(claims, writer);
     const response = await app.inject({

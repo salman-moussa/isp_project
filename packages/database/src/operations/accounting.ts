@@ -1,5 +1,6 @@
 import {
   journalEntryInputSchema,
+  periodCloseRequestSchema,
   customerStatementQuerySchema,
   type JournalEntryInput,
   type JournalEntryRecord,
@@ -11,10 +12,30 @@ import {
   type PeriodCloseRequest,
   type VerifiedTenantId,
 } from '@isp/contracts';
+import { z } from 'zod';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { inOperationsTransaction, OperationsAuthorizationError } from './context.js';
 import type { SignedOperationsDatabaseContext } from './types.js';
+
+type AccountingTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+async function requireAccountingScope(
+  transaction: AccountingTransaction,
+  tenantId: VerifiedTenantId,
+) {
+  const [access] = await transaction.execute<{ allowed: boolean }>(
+    sql`SELECT accounting_scope_allows(${tenantId}) AS allowed`,
+  );
+  if (!access?.allowed)
+    throw new OperationsAuthorizationError('Tenant-wide accounting permission is required.');
+}
+
+function safeMinor(value: string | number): number {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number))
+    throw new Error('Accounting amount exceeds safe integer range.');
+  return number;
+}
 
 export async function readChartOfAccounts(
   database: Database,
@@ -22,10 +43,7 @@ export async function readChartOfAccounts(
   authorization: SignedOperationsDatabaseContext,
 ): Promise<readonly ChartOfAccountRecord[]> {
   return inOperationsTransaction(database, tenantId, authorization, async (transaction) => {
-    // Seed default accounts if empty
-    await transaction.execute(sql`
-      SELECT seed_tenant_default_chart_of_accounts(${tenantId})
-    `);
+    await requireAccountingScope(transaction, tenantId);
 
     const rows = await transaction.execute<{
       id: string;
@@ -67,41 +85,10 @@ export async function postJournalEntry(
   const validated = journalEntryInputSchema.parse(input.command);
 
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
-    const [actor] = await transaction.execute<{ actor_id: string }>(sql`
-      SELECT actor_id FROM operations_current_context()
-    `);
-
-    if (!actor?.actor_id) {
-      throw new OperationsAuthorizationError('Valid actor session context required.');
-    }
-
     const [entry] = await transaction.execute<{ id: string }>(sql`
-      INSERT INTO operations_journal_entries (
-        tenant_id, entry_number, entry_date, description_en, description_ar,
-        source_type, source_id, status, posted_by
-      ) VALUES (
-        ${tenantId}, ${validated.entryNumber}, ${validated.entryDate}::date,
-        ${validated.descriptionEn}, ${validated.descriptionAr},
-        ${validated.sourceType}, ${validated.sourceId ?? null}, 'posted', ${actor.actor_id}
-      )
-      RETURNING id
+      SELECT post_manual_accounting_journal(${JSON.stringify(validated)}::jsonb) AS id
     `);
-
-    if (!entry) {
-      throw new Error('Failed to insert journal entry.');
-    }
-
-    for (const line of validated.lines) {
-      await transaction.execute(sql`
-        INSERT INTO operations_journal_lines (
-          journal_entry_id, tenant_id, account_id, debit_minor, credit_minor, currency, memo_en, memo_ar
-        ) VALUES (
-          ${entry.id}, ${tenantId}, ${line.accountId}, ${line.debitMinor}, ${line.creditMinor},
-          ${line.currency}, ${line.memoEn ?? null}, ${line.memoAr ?? null}
-        )
-      `);
-    }
-
+    if (!entry?.id) throw new Error('Journal was not posted.');
     return { id: entry.id, entryNumber: validated.entryNumber };
   });
 }
@@ -112,6 +99,7 @@ export async function readJournalEntries(
   authorization: SignedOperationsDatabaseContext,
 ): Promise<readonly JournalEntryRecord[]> {
   return inOperationsTransaction(database, tenantId, authorization, async (transaction) => {
+    await requireAccountingScope(transaction, tenantId);
     const entries = await transaction.execute<{
       id: string;
       entry_number: string;
@@ -150,8 +138,8 @@ export async function readJournalEntries(
         SELECT l.id, l.account_id, a.account_code, a.account_name_en, a.account_name_ar,
                l.debit_minor::text, l.credit_minor::text, l.currency, l.memo_en, l.memo_ar
         FROM operations_journal_lines l
-        JOIN operations_chart_of_accounts a ON a.id = l.account_id
-        WHERE l.journal_entry_id = ${e.id}
+        JOIN operations_chart_of_accounts a ON a.id = l.account_id AND a.tenant_id = l.tenant_id
+        WHERE l.journal_entry_id = ${e.id} AND l.tenant_id = ${tenantId}
       `);
 
       result.push({
@@ -171,8 +159,8 @@ export async function readJournalEntries(
           accountCode: l.account_code,
           accountNameEn: l.account_name_en,
           accountNameAr: l.account_name_ar,
-          debitMinor: parseInt(l.debit_minor, 10),
-          creditMinor: parseInt(l.credit_minor, 10),
+          debitMinor: safeMinor(l.debit_minor),
+          creditMinor: safeMinor(l.credit_minor),
           currency: l.currency,
           memoEn: l.memo_en,
           memoAr: l.memo_ar,
@@ -191,158 +179,125 @@ export async function readCustomerStatement(
   query: CustomerStatementQuery,
 ): Promise<CustomerStatementResponse> {
   const params = customerStatementQuerySchema.parse(query);
-
+  const startDate = params.startDate ?? '0001-01-01';
+  const endDate = params.endDate ?? new Date().toISOString().slice(0, 10);
+  if (startDate > endDate) throw new Error('Statement start must not follow end.');
+  const currency = params.currency ?? 'USD';
   return inOperationsTransaction(database, tenantId, authorization, async (transaction) => {
+    const [access] = await transaction.execute<{ allowed: boolean }>(sql`
+      SELECT EXISTS(SELECT 1 FROM operations_current_context()
+        WHERE tenant_id=${tenantId} AND permission='tenant.accounting.view'
+          AND action='tenant.accounting.statement.read' AND support_grant_id IS NULL) AS allowed
+    `);
+    if (!access?.allowed)
+      throw new OperationsAuthorizationError('Signed accounting statement permission is required.');
     const [sub] = await transaction.execute<{ display_name: string }>(sql`
-      SELECT display_name FROM operations_subscribers
-      WHERE tenant_id = ${tenantId} AND id = ${params.subscriberId}
+      SELECT display_name FROM operations_subscribers WHERE tenant_id=${tenantId}
+        AND id=${params.subscriberId} AND operations_scope_allows_subscriber(${tenantId},id)
     `);
-
-    if (!sub) {
-      throw new Error(`Subscriber ${params.subscriberId} not found.`);
-    }
-
-    const currency = params.currency ?? 'USD';
-    const offset = (params.page - 1) * params.pageSize;
-
-    // 1. Invoices
-    const invoices = await transaction.execute<{
-      id: string;
+    if (!sub) throw new OperationsAuthorizationError('Subscriber is not available in this scope.');
+    // One net-customer-balance ledger. Deposit receipts are counted once, not again on allocation.
+    // All sources are immutable; linked invoice/allocation/account reversals retain their own date.
+    const ledger = sql`
+      WITH subscriber_invoices AS (
+        SELECT i.id,i.document_number,i.posted_at,i.amount_minor,i.currency
+        FROM operations_invoice_preparations p
+        JOIN operations_services s ON s.tenant_id=p.tenant_id AND s.id=p.service_id
+        JOIN finance_invoices i ON i.tenant_id=p.tenant_id AND i.id=p.finance_invoice_id
+        WHERE p.tenant_id=${tenantId} AND s.subscriber_id=${params.subscriberId}
+          AND p.posting_status='posted' AND i.entry_kind='posted' AND i.currency=${currency}
+      ), ledger AS (
+        SELECT id,posted_at,'invoice'::text AS kind,document_number,
+          'Invoice posted'::text AS reason_en,'فاتورة مرحلة'::text AS reason_ar,
+          amount_minor::numeric AS debit,0::numeric AS credit FROM subscriber_invoices
+        UNION ALL
+        SELECT r.id,r.posted_at,'reversal',r.document_number,'Invoice reversed','عكس الفاتورة',0,r.amount_minor
+          FROM finance_invoices r JOIN subscriber_invoices i ON r.reverses_invoice_id=i.id
+          WHERE r.tenant_id=${tenantId} AND r.entry_kind='reversal' AND r.currency=${currency}
+        UNION ALL
+        SELECT a.id,a.posted_at,CASE a.entry_kind WHEN 'reversal' THEN 'reversal' ELSE 'payment' END,
+          p.receipt_number,'Payment allocation / reversal','تخصيص دفعة / عكس تخصيص',
+          CASE a.entry_kind WHEN 'reversal' THEN a.amount_minor ELSE 0 END,
+          CASE a.entry_kind WHEN 'allocation' THEN a.amount_minor ELSE 0 END
+        FROM finance_payment_allocations a
+        JOIN subscriber_invoices i ON i.id=a.invoice_id
+        JOIN finance_payments p ON p.tenant_id=a.tenant_id AND p.id=a.payment_id
+        WHERE a.tenant_id=${tenantId} AND a.currency=${currency}
+          AND NOT EXISTS(SELECT 1 FROM operations_customer_account_entries d
+            WHERE d.tenant_id=a.tenant_id AND d.payment_id=a.payment_id AND d.kind='deposit_received')
+        UNION ALL
+        SELECT id,posted_at,
+          CASE WHEN kind='credit_note' THEN 'credit_note'
+            WHEN kind IN ('deposit_received','deposit_applied') THEN 'deposit' ELSE 'reversal' END,
+          document_number,reason_en,reason_ar,
+          CASE WHEN kind IN ('credit_reversal','deposit_reversal') THEN amount_minor ELSE 0 END,
+          CASE WHEN kind IN ('credit_note','deposit_received') THEN amount_minor ELSE 0 END
+        FROM operations_customer_account_entries
+        WHERE tenant_id=${tenantId} AND subscriber_id=${params.subscriberId} AND currency=${currency}
+      ), bounded AS (
+        SELECT *,sum(debit-credit) OVER(ORDER BY posted_at,id ROWS UNBOUNDED PRECEDING) AS running
+        FROM ledger WHERE posted_at < ((${endDate}::date+1)::timestamp AT TIME ZONE 'UTC')
+      ), period AS (
+        SELECT * FROM bounded WHERE posted_at >= (${startDate}::date::timestamp AT TIME ZONE 'UTC')
+      ), totals AS (
+        SELECT
+          coalesce((SELECT sum(debit-credit) FROM bounded
+            WHERE posted_at < (${startDate}::date::timestamp AT TIME ZONE 'UTC')),0)::text AS opening,
+          coalesce((SELECT sum(debit-credit) FROM bounded),0)::text AS closing,
+          coalesce(sum(debit),0)::text AS debits,coalesce(sum(credit),0)::text AS credits,
+          count(*)::text AS count FROM period
+      ), page AS (
+        SELECT * FROM period ORDER BY posted_at,id LIMIT ${params.pageSize}
+          OFFSET ${(params.page - 1) * params.pageSize}
+      )
+      SELECT totals.*,page.id,page.posted_at,page.kind,page.document_number,page.reason_en,page.reason_ar,
+        page.debit::text,page.credit::text,page.running::text
+      FROM totals LEFT JOIN page ON true ORDER BY page.posted_at,page.id
+    `;
+    const rows = await transaction.execute<{
+      opening: string;
+      closing: string;
+      debits: string;
+      credits: string;
+      count: string;
+      id: string | null;
       posted_at: Date | string;
-      kind: string;
+      kind: CustomerStatementResponse['entries'][number]['type'];
       document_number: string;
-      amount_minor: string;
       reason_en: string;
       reason_ar: string;
-    }>(sql`
-      SELECT i.id, i.posted_at, 'invoice' AS kind, i.document_number, i.amount_minor::text,
-             'Invoice posted' AS reason_en, 'فاتورة مرحلة' AS reason_ar
-      FROM operations_invoice_preparations p
-      JOIN operations_services s ON s.tenant_id = p.tenant_id AND s.id = p.service_id
-      JOIN finance_invoices i ON i.tenant_id = p.tenant_id AND i.id = p.finance_invoice_id
-      WHERE p.tenant_id = ${tenantId} AND s.subscriber_id = ${params.subscriberId}
-        AND i.currency = ${currency} AND p.posting_status = 'posted' AND i.entry_kind = 'posted'
-    `);
-
-    // 2. Payments allocated
-    const payments = await transaction.execute<{
-      id: string;
-      posted_at: Date | string;
-      kind: string;
-      document_number: string;
-      amount_minor: string;
-      reason_en: string;
-      reason_ar: string;
-    }>(sql`
-      SELECT a.id, a.allocated_at AS posted_at, 'payment' AS kind, p.receipt_number AS document_number,
-             a.amount_minor::text,
-             ('Payment for invoice ' || i.document_number) AS reason_en,
-             ('دفعة للفاتورة ' || i.document_number) AS reason_ar
-      FROM operations_payment_allocations a
-      JOIN finance_payments p ON p.tenant_id = a.tenant_id AND p.id = a.payment_id
-      JOIN finance_invoices i ON i.tenant_id = a.tenant_id AND i.id = a.invoice_id
-      JOIN operations_invoice_preparations prep ON prep.tenant_id = i.tenant_id AND prep.finance_invoice_id = i.id
-      JOIN operations_services s ON s.tenant_id = prep.tenant_id AND s.id = prep.service_id
-      WHERE a.tenant_id = ${tenantId} AND s.subscriber_id = ${params.subscriberId}
-        AND p.currency = ${currency} AND a.status = 'active'
-    `);
-
-    // 3. Customer account adjustments & deposits
-    const accountEntries = await transaction.execute<{
-      id: string;
-      posted_at: Date | string;
-      kind: string;
-      document_number: string;
-      amount_minor: string;
-      reason_en: string;
-      reason_ar: string;
-    }>(sql`
-      SELECT id, posted_at, kind, document_number, amount_minor::text, reason_en, reason_ar
-      FROM operations_customer_account_entries
-      WHERE tenant_id = ${tenantId} AND subscriber_id = ${params.subscriberId} AND currency = ${currency}
-    `);
-
-    // Combine all and sort chronologically
-    const allDbEntries = [...invoices, ...payments, ...accountEntries].sort((a, b) => {
-      const timeA = new Date(a.posted_at).getTime();
-      const timeB = new Date(b.posted_at).getTime();
-      if (timeA !== timeB) return timeA - timeB;
-      return a.id.localeCompare(b.id);
-    });
-
-    let runningBalance = 0;
-    let totalDebits = 0;
-    let totalCredits = 0;
-
-    const allFormattedEntries = allDbEntries.map((e) => {
-      const amt = parseInt(e.amount_minor, 10);
-      let debit = 0;
-      let credit = 0;
-      let entryType: 'invoice' | 'payment' | 'credit_note' | 'deposit' | 'reversal' = 'invoice';
-
-      if (e.kind === 'invoice') {
-        debit = amt;
-        entryType = 'invoice';
-      } else if (e.kind === 'payment') {
-        credit = amt;
-        entryType = 'payment';
-      } else if (e.kind === 'credit_note') {
-        credit = amt;
-        entryType = 'credit_note';
-      } else if (e.kind === 'credit_reversal' || e.kind === 'deposit_reversal') {
-        // Reversal UNDOES credit/deposit -> restoring customer receivable balance (Debit)
-        debit = amt;
-        entryType = 'reversal';
-      } else if (e.kind === 'deposit_received') {
-        credit = amt;
-        entryType = 'deposit';
-      } else if (e.kind === 'deposit_applied' || e.kind === 'deposit_application_reversal') {
-        // Internal settlement allocation transfer -> 0 net change to total customer balance
-        debit = 0;
-        credit = 0;
-        entryType = 'reversal';
-      } else {
-        debit = amt;
-        entryType = 'invoice';
-      }
-
-      totalDebits += debit;
-      totalCredits += credit;
-      runningBalance += debit - credit;
-
-      return {
-        id: e.id,
-        date: typeof e.posted_at === 'string' ? e.posted_at : e.posted_at.toISOString(),
-        type: entryType,
-        documentNumber: e.document_number,
-        descriptionEn: e.reason_en,
-        descriptionAr: e.reason_ar,
-        debitMinor: debit,
-        creditMinor: credit,
-        runningBalanceMinor: runningBalance,
-        currency,
-      };
-    });
-
-    const paginated = allFormattedEntries.slice(offset, offset + params.pageSize);
-
-    const startDate = params.startDate ?? '2026-01-01';
-    const endDate = params.endDate ?? (new Date().toISOString().split('T')[0] as string);
-
+      debit: string;
+      credit: string;
+      running: string;
+    }>(ledger);
+    const totals = rows[0]!;
     return {
       subscriberId: params.subscriberId,
       subscriberName: sub.display_name,
       currency,
       startDate,
       endDate,
-      openingBalanceMinor: 0,
-      closingBalanceMinor: runningBalance,
-      totalDebitsMinor: totalDebits,
-      totalCreditsMinor: totalCredits,
-      entries: paginated,
-      totalCount: allFormattedEntries.length,
+      openingBalanceMinor: safeMinor(totals.opening),
+      closingBalanceMinor: safeMinor(totals.closing),
+      totalDebitsMinor: safeMinor(totals.debits),
+      totalCreditsMinor: safeMinor(totals.credits),
+      totalCount: safeMinor(totals.count),
       page: params.page,
       pageSize: params.pageSize,
+      entries: rows
+        .filter((r) => r.id !== null)
+        .map((r) => ({
+          id: r.id!,
+          date: typeof r.posted_at === 'string' ? r.posted_at : r.posted_at.toISOString(),
+          type: r.kind,
+          documentNumber: r.document_number,
+          descriptionEn: r.reason_en,
+          descriptionAr: r.reason_ar,
+          debitMinor: safeMinor(r.debit),
+          creditMinor: safeMinor(r.credit),
+          runningBalanceMinor: safeMinor(r.running),
+          currency,
+        })),
     };
   });
 }
@@ -354,12 +309,9 @@ export async function readTrialBalance(
   asOfDate?: string,
 ): Promise<TrialBalanceResponse> {
   return inOperationsTransaction(database, tenantId, authorization, async (transaction) => {
-    // Seed default COA first
-    await transaction.execute(sql`
-      SELECT seed_tenant_default_chart_of_accounts(${tenantId})
-    `);
+    await requireAccountingScope(transaction, tenantId);
 
-    const date: string = asOfDate ?? (new Date().toISOString().split('T')[0] as string);
+    const date: string = z.iso.date().parse(asOfDate ?? new Date().toISOString().slice(0, 10));
 
     const rows = await transaction.execute<{
       account_id: string;
@@ -373,13 +325,13 @@ export async function readTrialBalance(
       credit_lbp: string;
     }>(sql`
       SELECT a.id AS account_id, a.account_code, a.account_name_en, a.account_name_ar, a.account_type,
-             COALESCE(SUM(CASE WHEN l.currency = 'USD' THEN l.debit_minor ELSE 0 END), 0)::text AS debit_usd,
-             COALESCE(SUM(CASE WHEN l.currency = 'USD' THEN l.credit_minor ELSE 0 END), 0)::text AS credit_usd,
-             COALESCE(SUM(CASE WHEN l.currency = 'LBP' THEN l.debit_minor ELSE 0 END), 0)::text AS debit_lbp,
-             COALESCE(SUM(CASE WHEN l.currency = 'LBP' THEN l.credit_minor ELSE 0 END), 0)::text AS credit_lbp
+             COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND l.currency = 'USD' THEN l.debit_minor ELSE 0 END), 0)::text AS debit_usd,
+             COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND l.currency = 'USD' THEN l.credit_minor ELSE 0 END), 0)::text AS credit_usd,
+             COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND l.currency = 'LBP' THEN l.debit_minor ELSE 0 END), 0)::text AS debit_lbp,
+             COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND l.currency = 'LBP' THEN l.credit_minor ELSE 0 END), 0)::text AS credit_lbp
       FROM operations_chart_of_accounts a
-      LEFT JOIN operations_journal_lines l ON l.account_id = a.id
-      LEFT JOIN operations_journal_entries e ON e.id = l.journal_entry_id AND e.status = 'posted' AND e.entry_date <= ${date}::date
+      LEFT JOIN operations_journal_lines l ON l.account_id = a.id AND l.tenant_id = a.tenant_id
+      LEFT JOIN operations_journal_entries e ON e.id = l.journal_entry_id AND e.tenant_id = l.tenant_id AND e.status = 'posted' AND e.entry_date <= ${date}::date
       WHERE a.tenant_id = ${tenantId}
       GROUP BY a.id, a.account_code, a.account_name_en, a.account_name_ar, a.account_type
       ORDER BY a.account_code ASC
@@ -391,10 +343,10 @@ export async function readTrialBalance(
     let totalCreditLbp = 0;
 
     const accounts = rows.map((r) => {
-      const dUsd = parseInt(r.debit_usd, 10);
-      const cUsd = parseInt(r.credit_usd, 10);
-      const dLbp = parseInt(r.debit_lbp, 10);
-      const cLbp = parseInt(r.credit_lbp, 10);
+      const dUsd = safeMinor(r.debit_usd);
+      const cUsd = safeMinor(r.credit_usd);
+      const dLbp = safeMinor(r.debit_lbp);
+      const cLbp = safeMinor(r.credit_lbp);
 
       totalDebitUsd += dUsd;
       totalCreditUsd += cUsd;
@@ -416,8 +368,24 @@ export async function readTrialBalance(
       };
     });
 
+    [totalDebitUsd, totalCreditUsd, totalDebitLbp, totalCreditLbp].forEach(safeMinor);
+    const [coverage] = await transaction.execute<{
+      has_legacy: boolean;
+      has_unjournaled: boolean;
+      has_unjournaled_sources: boolean;
+    }>(sql`
+      SELECT EXISTS(SELECT 1 FROM operations_journal_entries WHERE tenant_id=${tenantId}
+        AND entry_date<=${date}::date AND posting_version='legacy') AS has_legacy,
+        accounting_has_unjournaled_invoices(${tenantId},${date}::date) AS has_unjournaled,
+        accounting_has_unjournaled_sources(${tenantId},${date}::date) AS has_unjournaled_sources
+    `);
     return {
       asOfDate: date,
+      coverage: {
+        hasLegacyEntries: coverage!.has_legacy,
+        hasUnjournaledSources: coverage!.has_unjournaled_sources,
+        hasUnjournaledInvoices: coverage!.has_unjournaled,
+      },
       accounts,
       totalDebitUsd,
       totalCreditUsd,
@@ -433,6 +401,7 @@ export async function readAccountingPeriods(
   authorization: SignedOperationsDatabaseContext,
 ): Promise<readonly AccountingPeriodRecord[]> {
   return inOperationsTransaction(database, tenantId, authorization, async (transaction) => {
+    await requireAccountingScope(transaction, tenantId);
     const rows = await transaction.execute<{
       id: string;
       period_name: string;
@@ -472,35 +441,15 @@ export async function closeAccountingPeriod(
     readonly authorization: SignedOperationsDatabaseContext;
   },
 ): Promise<{ readonly id: string; readonly status: string }> {
+  const validated = periodCloseRequestSchema.parse(input.request);
   return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
-    const [actor] = await transaction.execute<{ actor_id: string }>(sql`
-      SELECT actor_id FROM operations_current_context()
-    `);
-
-    if (!actor?.actor_id) {
-      throw new OperationsAuthorizationError('Valid actor session context required.');
-    }
-
-    const status = input.request.closeType === 'hard' ? 'hard_closed' : 'soft_closed';
-
     const [period] = await transaction.execute<{ id: string }>(sql`
-      INSERT INTO operations_accounting_periods (
-        tenant_id, period_name, start_date, end_date, status, closed_at, closed_by
-      ) VALUES (
-        ${tenantId}, ${input.request.periodName}, ${input.request.startDate}::date,
-        ${input.request.endDate}::date, ${status}, clock_timestamp(), ${actor.actor_id}
-      )
-      ON CONFLICT (tenant_id, period_name) DO UPDATE SET
-        status = EXCLUDED.status,
-        closed_at = clock_timestamp(),
-        closed_by = EXCLUDED.closed_by
-      RETURNING id
+      SELECT close_accounting_period(${JSON.stringify(validated)}::jsonb) AS id
     `);
-
-    if (!period) {
-      throw new Error('Failed to update period.');
-    }
-
-    return { id: period.id, status };
+    if (!period?.id) throw new Error('Period was not closed.');
+    return {
+      id: period.id,
+      status: validated.closeType === 'hard' ? 'hard_closed' : 'soft_closed',
+    };
   });
 }

@@ -4,6 +4,14 @@ Status: controlling expansion baseline, 2026-08-28
 Owner: Product, Architecture, Security, Finance, Network Operations  
 Market focus: Lebanese fixed, wireless, fiber, reseller, and mixed-access ISPs
 
+## Latest accounting implementation boundary — 2026-09-02
+
+The [accounting integrity checkpoint](../testing/accounting-integrity-2026-09-02.md) repairs
+customer-entry auto-journals, statement/trial reads and misleading UI samples. It is local,
+**partial** evidence, not full-product or production acceptance. Invoice/payment posting coverage,
+legacy reconciliation and all-writer close coordination remain implementation gates. Operational
+warehouse/NOC/RADIUS execution and mobile hardware acceptance remain separate unfinished work.
+
 ## Objective
 
 Orvex ISP is the primary operating system for an ISP. Authorized ISP employees should be able to run

@@ -25,3 +25,44 @@ describe('accounting system migration', () => {
     expect(migration).toContain('seed_tenant_default_chart_of_accounts');
   });
 });
+describe('accounting forward integrity', () => {
+  it('enforces tenant links, immutable postings, per-currency balance, replay and closed periods', async () => {
+    const migration = await readFile(
+      resolve(import.meta.dirname, '../../migrations/202609021800_tenant_accounting_integrity.sql'),
+      'utf8',
+    );
+    for (const invariant of [
+      'FOREIGN KEY(tenant_id,account_id)',
+      'journal_line_one_side',
+      'DEFERRABLE INITIALLY DEFERRED',
+      'operations_reject_append_only_mutation()',
+      'accounting period is closed',
+      'request_payload IS DISTINCT FROM payload',
+      'credit_minor,debit_minor,currency',
+      'NEW.net_minor',
+      'NEW.vat_minor',
+      'NEW.stamp_minor',
+      'journal_customer_once',
+      'REVOKE INSERT,UPDATE,DELETE,TRUNCATE',
+      'period close blocked: invoice/legacy accounting coverage needs reconciliation',
+    ]) {
+      expect(migration).toContain(invariant);
+    }
+    const owner = await readFile(
+      resolve(
+        import.meta.dirname,
+        '../../migrations/202609021801_tenant_accounting_owner_scope.sql',
+      ),
+      'utf8',
+    );
+    for (const table of [
+      'operations_chart_of_accounts',
+      'operations_journal_entries',
+      'operations_journal_lines',
+      'operations_accounting_periods',
+    ]) {
+      expect(owner).toContain('c.tenant_id=' + table + '.tenant_id');
+    }
+    expect(owner).not.toContain('TO orvex_runtime');
+  });
+});

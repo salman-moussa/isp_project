@@ -1,4 +1,10 @@
-import { customerAccountSchemas, type CustomerAccountKind } from '@isp/contracts';
+import {
+  journalEntryInputSchema,
+  periodCloseRequestSchema,
+  customerStatementQuerySchema,
+  customerAccountSchemas,
+  type CustomerAccountKind,
+} from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
 import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -631,6 +637,8 @@ export const operationsRequestSchemas = {
 
 interface RouteSpec extends OperationsDefinition {
   readonly download?: boolean;
+  readonly arrayResponse?: boolean;
+  readonly querySchema?: z.ZodType;
   readonly schema: z.ZodType;
   readonly requiresRecentMfa?: boolean;
   readonly additionalPermissions?: readonly Permission[];
@@ -660,6 +668,26 @@ export function registerTenantOperationsRoutes(
     deposit_reversal: 'tenant.payment.reverse',
   } as const;
   const routes: readonly RouteSpec[] = [
+    operation(
+      '/accounting/journals',
+      'postJournalEntry',
+      'tenant.accounting.post',
+      'tenant.accounting.journal.post',
+      'accounting_journal',
+      z.object({ command: journalEntryInputSchema }).strict(),
+      (writer, tenantId, input) => writer.postJournalEntry(tenantId, input as never),
+      true,
+    ),
+    operation(
+      '/accounting/periods/close',
+      'closeAccountingPeriod',
+      'tenant.accounting.close',
+      'tenant.accounting.period.close',
+      'accounting_period',
+      z.object({ request: periodCloseRequestSchema }).strict(),
+      (writer, tenantId, input) => writer.closeAccountingPeriod(tenantId, input as never),
+      true,
+    ),
     ...Object.entries(customerAccountSchemas).map(([key, schema]) => {
       const kind = key as CustomerAccountKind;
       return operation(
@@ -1040,6 +1068,7 @@ export function registerTenantOperationsRoutes(
     {
       path: '/v1/tenants/:tenantId/accounting/chart-of-accounts',
       operationId: 'readChartOfAccounts',
+      arrayResponse: true,
       permission: 'tenant.accounting.view',
       action: 'tenant.accounting.coa.read',
       resourceType: 'chart_of_accounts',
@@ -1056,6 +1085,7 @@ export function registerTenantOperationsRoutes(
     {
       path: '/v1/tenants/:tenantId/accounting/journal-entries',
       operationId: 'readJournalEntries',
+      arrayResponse: true,
       permission: 'tenant.accounting.view',
       action: 'tenant.accounting.journal.read',
       resourceType: 'journal_entries',
@@ -1072,11 +1102,13 @@ export function registerTenantOperationsRoutes(
     {
       path: '/v1/tenants/:tenantId/accounting/trial-balance',
       operationId: 'readTrialBalance',
+      querySchema: z.object({ asOfDate: z.iso.date().optional() }).strict(),
       permission: 'tenant.accounting.view',
       action: 'tenant.accounting.trial_balance.read',
       resourceType: 'trial_balance',
       schema: z.object({}).strict(),
-      execute: (writer, tenantId, input) => writer.readTrialBalance(tenantId, input as never),
+      execute: (writer, tenantId, input) =>
+        writer.readTrialBalance(tenantId, { ...input, ...(input.query as object) } as never),
     },
     'Tenant accounting',
     'trial-balance-read',
@@ -1130,6 +1162,40 @@ export function registerTenantOperationsRoutes(
     'Tenant subscribers',
     'subscriber-read',
     'Authorized subscriber workspace read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/periods',
+      operationId: 'readAccountingPeriods',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.periods.read',
+      resourceType: 'accounting_period',
+      schema: z.object({}),
+      arrayResponse: true,
+      execute: (writer, tenantId, input) => writer.readAccountingPeriods(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'accounting-periods',
+    'Read accounting periods',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/customer-statement',
+      operationId: 'readCustomerStatement',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.statement.read',
+      resourceType: 'customer_statement',
+      schema: z.object({}),
+      querySchema: customerStatementQuerySchema,
+      execute: (writer, tenantId, input) => writer.readCustomerStatement(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'customer-statement',
+    'Read scoped customer statement',
   );
   for (const spec of routes) registerMutation(app, options, spec);
   registerWorkspaceRead(
@@ -1194,7 +1260,13 @@ function registerWorkspaceRead(
         tags: [tag],
         security: [{ bearerAuth: [] }],
         response: {
-          ...(!spec.download ? { 200: { type: 'object', additionalProperties: true } } : {}),
+          ...(!spec.download
+            ? {
+                200: spec.arrayResponse
+                  ? { type: 'array', items: { type: 'object', additionalProperties: true } }
+                  : { type: 'object', additionalProperties: true },
+              }
+            : {}),
           400: errorResponseJsonSchema,
           401: errorResponseJsonSchema,
           403: errorResponseJsonSchema,
@@ -1223,6 +1295,7 @@ function registerWorkspaceRead(
       try {
         result = await spec.execute(options.writer, context.tenantId, {
           ...(artifactId ? { artifactId } : {}),
+          ...(spec.querySchema ? { query: spec.querySchema.parse(request.query) } : {}),
           actorId: request.auth.sub,
           sessionId: request.auth.sessionId,
           idempotencyKey,
