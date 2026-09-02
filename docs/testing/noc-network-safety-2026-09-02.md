@@ -36,6 +36,12 @@ The RouterOS behavior above follows MikroTik's
 only to the local PostgreSQL test database. It must not be edited or renumbered. It adds incident
 impacts/events and guarded functions, and strengthens the existing outage table and RLS.
 
+`202609021809_tenant_network_result_scope.sql` is a separate tenant-scoped forward fix. It limits
+accepted-order synchronization to `tenant-service-lifecycle` `pppoe.create` jobs so ordinary
+suspend, restore, disconnect and other network jobs can persist terminal results without being
+mistaken for sales-order activation. The activation path retains its strict request and evidence
+validation.
+
 Application rollback before any incident write can use the prior image. After incident writes,
 rolling back the binary hides new workflows but must not remove the new tables, events, policies or
 audit evidence. Database rollback is therefore forward-fix only.
@@ -56,6 +62,24 @@ audit evidence. Database rollback is therefore forward-fix only.
 - Contracts, database, API and tenant-web typechecks/builds passed for this checkpoint.
 - English desktop and Arabic 390×844 RTL layouts were inspected with an explicitly local visual
   fixture. This was visual QA, not production API E2E.
+
+## Integrated release-gate follow-up
+
+The broader local release gate was then executed against isolated control and tenant PostgreSQL
+planes. Formatting, monorepo lint, typecheck, production builds, brand checks, compiled API smoke,
+schema safety, performance/runbook checks and security audit completed. The test workspaces passed
+after replacing an obsolete signed-out NOC shell assertion. The Vite build still reports a
+non-blocking 526.30 kB JavaScript chunk warning, and the security audit retains the documented
+Expo/Metro build-graph exceptions through 2026-09-15.
+
+Live local PostgreSQL evidence passed for RLS/schema policy, finance journals and conflicts, tenant
+staff, operations, sales, Collect sync, financial-source journals, customer accounts, NOC, network
+worker persistence, finance audit upgrade, separated finance audit relay and separated Operations
+state/audit relay. The fixtures now use the same signed request context as production. Support
+grants are explicitly denied tenant financial mutations before the writer is called; tenant money
+continues to require a signed tenant actor and creates immutable audit/outbox evidence.
+
+This evidence is local acceptance, not an authorization to activate production integrations.
 
 ## Explicit exclusions and production gates
 

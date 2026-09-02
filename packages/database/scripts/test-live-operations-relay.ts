@@ -89,16 +89,28 @@ function controlRequest(
 
 try {
   await Promise.all([
-    controlAdmin`INSERT INTO tenants(id,code,brand_name,legal_name,status)
-      VALUES(${tenantId},${`CONTROL-${tenantId}`},'Relay test','Relay test','active')`,
-    tenantAdmin`INSERT INTO tenants(id,code,brand_name,legal_name,status)
-      VALUES(${tenantId},${`TENANT-${tenantId}`},'Relay test','Relay test','active')`,
+    controlAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`INSERT INTO tenants(id,code,brand_name,legal_name,status)
+        VALUES(${tenantId},${`CONTROL-${tenantId}`},'Relay test','Relay test','active')`;
+    }),
+    tenantAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`INSERT INTO tenants(id,code,brand_name,legal_name,status)
+        VALUES(${tenantId},${`TENANT-${tenantId}`},'Relay test','Relay test','active')`;
+    }),
   ]);
   await Promise.all([
-    controlAdmin`INSERT INTO control_center_context_keys(key_id,secret,active_from)
-      VALUES(${controlKeyId},${controlSecret},clock_timestamp())`,
-    tenantAdmin`INSERT INTO operations_context_keys(key_id,secret,active_from)
-      VALUES(${operationsKeyId},${operationsSecret},clock_timestamp())`,
+    controlAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`INSERT INTO control_center_context_keys(key_id,secret,active_from)
+        VALUES(${controlKeyId},${controlSecret},clock_timestamp())`;
+    }),
+    tenantAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`INSERT INTO operations_context_keys(key_id,secret,active_from)
+        VALUES(${operationsKeyId},${operationsSecret},clock_timestamp())`;
+    }),
   ]);
 
   await createControlClient(controlApi.db, {
@@ -213,27 +225,40 @@ try {
     1,
   );
 
-  const [subscriptionState] = await tenantAdmin`
-    SELECT status,revision FROM operations_platform_subscription_events
-    WHERE tenant_id=${tenantId} ORDER BY revision DESC LIMIT 1
-  `;
+  const [subscriptionState] = await tenantAdmin.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+    return transaction`
+      SELECT status,revision FROM operations_platform_subscription_events
+      WHERE tenant_id=${tenantId} ORDER BY revision DESC LIMIT 1
+    `;
+  });
   assert.equal(subscriptionState?.status, 'restricted');
   assert.equal(Number(subscriptionState?.revision), 2);
-  const [latestSource] = await tenantAdmin`
-    SELECT source_event_id,recorded_at FROM operations_platform_subscription_events
-    WHERE tenant_id=${tenantId} ORDER BY revision DESC LIMIT 1
-  `;
+  const [latestSource] = await tenantAdmin.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+    return transaction`
+      SELECT source_event_id,recorded_at FROM operations_platform_subscription_events
+      WHERE tenant_id=${tenantId} ORDER BY revision DESC LIMIT 1
+    `;
+  });
   await assert.rejects(
-    tenantAdmin`SELECT record_operations_platform_subscription_state(
-      ${latestSource.source_event_id}::uuid,${tenantId}::uuid,'active',2,
-      ${new Date(latestSource.recorded_at as Date | string).toISOString()}::timestamptz
-    )`,
+    tenantAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      return transaction`SELECT record_operations_platform_subscription_state(
+        ${latestSource.source_event_id}::uuid,${tenantId}::uuid,'active',2,
+        ${new Date(latestSource.recorded_at as Date | string).toISOString()}::timestamptz
+      )`;
+    }),
     /event identity conflicts/u,
   );
-  const [audit] = await controlAdmin`
-    SELECT result,actor_reference,request_reference,permission,metadata
-    FROM audit_events WHERE tenant_id=${tenantId} AND action='tenant.operations.configure'
-  `;
+  const [audit] = await controlAdmin.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+    await transaction`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    return transaction`
+      SELECT result,actor_reference,request_reference,permission,metadata
+      FROM audit_events WHERE tenant_id=${tenantId} AND action='tenant.operations.configure'
+    `;
+  });
   assert.equal(audit?.result, 'allowed');
   assert.equal(audit?.actor_reference, actorId);
   assert.equal(audit?.permission, 'tenant.user.administer');
@@ -246,6 +271,22 @@ try {
 
   console.log('Operations relay integration passed: state and audit crossed separate planes.');
 } finally {
+  await Promise.allSettled([
+    controlAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`
+        UPDATE control_center_context_keys SET active_until=clock_timestamp()
+        WHERE key_id=${controlKeyId}
+      `;
+    }),
+    tenantAdmin.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction`
+        UPDATE operations_context_keys SET active_until=clock_timestamp()
+        WHERE key_id=${operationsKeyId}
+      `;
+    }),
+  ]);
   await Promise.allSettled([
     controlAdmin.end(),
     tenantAdmin.end(),
