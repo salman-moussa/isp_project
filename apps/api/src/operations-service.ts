@@ -19,6 +19,8 @@ import {
   readWarehouses,
   readInventoryItems,
   readSerializedAssets,
+  readWarehouseWorkspace,
+  transitionInventoryCustody,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -102,6 +104,8 @@ export interface OperationsRepositoryAdapter {
   readonly readWarehouses: typeof readWarehouses;
   readonly readInventoryItems: typeof readInventoryItems;
   readonly readSerializedAssets: typeof readSerializedAssets;
+  readonly readWarehouseWorkspace: typeof readWarehouseWorkspace;
+  readonly transitionInventoryCustody: typeof transitionInventoryCustody;
   readonly readNasClients: typeof readNasClients;
   readonly readRadiusSessions: typeof readRadiusSessions;
   readonly readIpPools: typeof readIpPools;
@@ -171,6 +175,8 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readWarehouses,
   readInventoryItems,
   readSerializedAssets,
+  readWarehouseWorkspace,
+  transitionInventoryCustody,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -788,6 +794,27 @@ export class PostgresOperationsService implements OperationsWriter {
       tenantId,
       this.sign(tenantId, input),
     );
+  }
+
+  public readWarehouseWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readWarehouseWorkspace'>,
+  ) {
+    return this.repository.readWarehouseWorkspace(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
+  }
+
+  public transitionInventoryCustody(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'transitionInventoryCustody'>,
+  ) {
+    return this.repository.transitionInventoryCustody(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
   }
 
   public readNasClients(tenantId: VerifiedTenantId, input: WriterInput<'readNasClients'>) {

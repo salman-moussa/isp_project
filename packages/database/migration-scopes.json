@@ -55,5 +55,6 @@
   "202609021806_tenant_classified_source_reversals.sql": "tenant",
   "202609021807_tenant_collect_payment_lock.sql": "tenant",
   "202609021808_tenant_noc_incident_workflow.sql": "tenant",
-  "202609021809_tenant_network_result_scope.sql": "tenant"
+  "202609021809_tenant_network_result_scope.sql": "tenant",
+  "202609021810_tenant_inventory_custody.sql": "tenant"
 }

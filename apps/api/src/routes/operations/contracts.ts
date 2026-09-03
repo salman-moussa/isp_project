@@ -11,6 +11,7 @@ import type {
   PeriodCloseRequest,
   VoucherBatchInput,
   VoucherRedeemInput,
+  InventoryCustodyCommand,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -552,6 +553,14 @@ export interface OperationsWriter {
   readSerializedAssets(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readWarehouseWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  transitionInventoryCustody(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: InventoryCustodyCommand },
   ): Promise<unknown>;
   readNasClients(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readRadiusSessions(

@@ -116,6 +116,17 @@ function writerMocks() {
     readWarehouses: vi.fn(async () => []),
     readInventoryItems: vi.fn(async () => []),
     readSerializedAssets: vi.fn(async () => []),
+    readWarehouseWorkspace: vi.fn(async () => ({
+      warehouses: [],
+      items: [],
+      assets: [],
+      installations: [],
+    })),
+    transitionInventoryCustody: vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'issued',
+      version: 2,
+    })),
     readNasClients: vi.fn(async () => []),
     readRadiusSessions: vi.fn(async () => []),
     readIpPools: vi.fn(async () => []),
@@ -1201,6 +1212,71 @@ describe('NOC incident routes', () => {
     });
     expect(good.statusCode).toBe(201);
     expect(writer.transitionOutageIncident).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+});
+
+describe('Warehouse custody routes', () => {
+  it('requires scoped installation view authority for the workspace', async () => {
+    const writer = writerMocks();
+    const url = `/v1/tenants/${tenantId}/operations/warehouse/workspace`;
+    const denied = await makeApp({ ...claims, permissions: [] }, writer);
+    expect((await denied.app.inject({ method: 'GET', url })).statusCode).toBe(403);
+    expect(writer.readWarehouseWorkspace).not.toHaveBeenCalled();
+    await denied.app.close();
+    const allowed = await makeApp({ ...claims, permissions: ['tenant.installation.view'] }, writer);
+    expect((await allowed.app.inject({ method: 'GET', url })).statusCode).toBe(200);
+    expect(writer.readWarehouseWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.view',
+        auditAction: 'tenant.warehouse.workspace.read',
+        branchIds: [branchId],
+      }),
+    );
+    await allowed.app.close();
+  });
+
+  it('validates and forwards versioned bilingual custody evidence', async () => {
+    const writer = writerMocks();
+    const { app } = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    const command = {
+      assetId: serviceId,
+      expectedVersion: 1,
+      action: 'issue' as const,
+      installationId: '50000000-0000-4000-8000-000000000001',
+      custodianUserId: '60000000-0000-4000-8000-000000000001',
+      reasonEn: 'Assigned to customer installation',
+      reasonAr: 'تم التسليم لتركيب خدمة العميل',
+      evidence: 'Serial and equipment seal were verified.',
+    };
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/custody`,
+      headers: { 'idempotency-key': 'warehouse-custody-001' },
+      payload: { command },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(writer.transitionInventoryCustody).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command,
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.custody.transition',
+        idempotencyKey: 'warehouse-custody-001',
+      }),
+    );
+    const invalid = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/custody`,
+      headers: { 'idempotency-key': 'warehouse-custody-002' },
+      payload: { command: { ...command, custodianUserId: undefined } },
+    });
+    expect(invalid.statusCode).not.toBe(201);
+    expect(writer.transitionInventoryCustody).toHaveBeenCalledTimes(1);
     await app.close();
   });
 });
