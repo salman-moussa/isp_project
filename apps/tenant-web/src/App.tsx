@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityList,
   AppShell,
@@ -29,12 +29,29 @@ import {
 } from './operations/OperationsWorkspace';
 import { tenantRoutes } from './routes';
 import { readTenantSummary, submitTenantOperation, type TenantSummary } from './api';
-import { StaffWorkspace } from './staff/StaffWorkspace';
-import { SalesWorkspace } from './sales/SalesWorkspace';
-import { SubscriberWorkspace } from './subscribers/SubscriberWorkspace';
-import { BillingWorkspace } from './billing/BillingWorkspace';
-import { NocWorkspace } from './noc/NocWorkspace';
-import { AccountingWorkspace } from './billing/AccountingWorkspace';
+
+const StaffWorkspace = lazy(() =>
+  import('./staff/StaffWorkspace').then((module) => ({ default: module.StaffWorkspace })),
+);
+const SalesWorkspace = lazy(() =>
+  import('./sales/SalesWorkspace').then((module) => ({ default: module.SalesWorkspace })),
+);
+const SubscriberWorkspace = lazy(() =>
+  import('./subscribers/SubscriberWorkspace').then((module) => ({
+    default: module.SubscriberWorkspace,
+  })),
+);
+const BillingWorkspace = lazy(() =>
+  import('./billing/BillingWorkspace').then((module) => ({ default: module.BillingWorkspace })),
+);
+const NocWorkspace = lazy(() =>
+  import('./noc/NocWorkspace').then((module) => ({ default: module.NocWorkspace })),
+);
+const AccountingWorkspace = lazy(() =>
+  import('./billing/AccountingWorkspace').then((module) => ({
+    default: module.AccountingWorkspace,
+  })),
+);
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -392,17 +409,29 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           ) : null}
         </>
       ) : activeNavigationId === 'staff' && session ? (
-        <StaffWorkspace locale={locale} session={session} />
+        <WorkspaceBoundary locale={locale}>
+          <StaffWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'sales' && session ? (
-        <SalesWorkspace locale={locale} session={session} />
+        <WorkspaceBoundary locale={locale}>
+          <SalesWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'subscribers' && session ? (
-        <SubscriberWorkspace locale={locale} session={session} onNavigate={navigate} />
+        <WorkspaceBoundary locale={locale}>
+          <SubscriberWorkspace locale={locale} session={session} onNavigate={navigate} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'billing' && session ? (
-        <BillingWorkspace locale={locale} session={session} />
+        <WorkspaceBoundary locale={locale}>
+          <BillingWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'noc' ? (
-        <NocWorkspace locale={locale} session={session} key={session?.tenantId ?? 'signed-out'} />
+        <WorkspaceBoundary locale={locale}>
+          <NocWorkspace locale={locale} session={session} key={session?.tenantId ?? 'signed-out'} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'accounting' ? (
-        <AccountingWorkspace locale={locale} session={session} />
+        <WorkspaceBoundary locale={locale}>
+          <AccountingWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'sales' ? (
         <StatePanel
           variant="empty"
@@ -433,6 +462,32 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         />
       )}
     </AppShell>
+  );
+}
+
+function WorkspaceBoundary({
+  locale,
+  children,
+}: {
+  readonly locale: Locale;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Suspense
+      fallback={
+        <StatePanel
+          variant="loading"
+          title={locale === 'en' ? 'Opening workspace' : 'جارٍ فتح مساحة العمل'}
+          description={
+            locale === 'en'
+              ? 'Loading the selected operations tools.'
+              : 'جارٍ تحميل أدوات العمليات المحددة.'
+          }
+        />
+      }
+    >
+      {children}
+    </Suspense>
   );
 }
 

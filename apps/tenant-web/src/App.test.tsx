@@ -112,14 +112,14 @@ describe('Orvex ISP Operations shell', () => {
         ).toBeInTheDocument();
       } else if (item.id === 'accounting') {
         expect(
-          screen.getByRole('heading', {
+          await screen.findByRole('heading', {
             level: 1,
             name: 'Double-entry accounting and trial balance',
           }),
         ).toBeInTheDocument();
       } else if (item.id === 'noc') {
         expect(
-          screen.getByRole('heading', { level: 1, name: 'NOC incidents' }),
+          await screen.findByRole('heading', { level: 1, name: 'NOC incidents' }),
         ).toBeInTheDocument();
         expect(
           screen.getByText('Sign in to view your permitted incident workspace.'),

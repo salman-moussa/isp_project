@@ -68,9 +68,10 @@ audit evidence. Database rollback is therefore forward-fix only.
 The broader local release gate was then executed against isolated control and tenant PostgreSQL
 planes. Formatting, monorepo lint, typecheck, production builds, brand checks, compiled API smoke,
 schema safety, performance/runbook checks and security audit completed. The test workspaces passed
-after replacing an obsolete signed-out NOC shell assertion. The Vite build still reports a
-non-blocking 526.30 kB JavaScript chunk warning, and the security audit retains the documented
-Expo/Metro build-graph exceptions through 2026-09-15.
+after replacing an obsolete signed-out NOC shell assertion. Route-level lazy loading reduced the
+largest tenant-web production JavaScript asset from 526.30 kB to 296.49 kB and removed the Vite
+oversized-chunk warning. The security audit retains the documented Expo/Metro build-graph exceptions
+through 2026-09-15.
 
 Live local PostgreSQL evidence passed for RLS/schema policy, finance journals and conflicts, tenant
 staff, operations, sales, Collect sync, financial-source journals, customer accounts, NOC, network
