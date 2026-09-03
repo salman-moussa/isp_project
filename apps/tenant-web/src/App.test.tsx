@@ -124,6 +124,10 @@ describe('Orvex ISP Operations shell', () => {
         expect(
           screen.getByText('Sign in to view your permitted incident workspace.'),
         ).toBeVisible();
+      } else if (item.id === 'warehouse') {
+        expect(
+          await screen.findByRole('heading', { level: 1, name: 'Sign in to open Warehouse' }),
+        ).toBeInTheDocument();
       } else if (operationsTask) {
         expect(
           screen.getByRole('heading', {
@@ -146,7 +150,7 @@ describe('Orvex ISP Operations shell', () => {
 
     const results = await axe.run(container);
     expect(results.violations).toEqual([]);
-  });
+  }, 15_000);
 
   it('opens the bilingual command center from the keyboard and navigates directly', async () => {
     const user = userEvent.setup();

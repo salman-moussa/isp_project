@@ -6,6 +6,7 @@ import {
   periodCloseRequestSchema,
   customerStatementQuerySchema,
   customerAccountSchemas,
+  inventoryCustodyCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -542,6 +543,7 @@ const exportBody = z
     format: z.enum(['csv', 'xlsx', 'pdf']),
   })
   .strict();
+const inventoryCustodyBody = z.object({ command: inventoryCustodyCommandSchema }).strict();
 const configurationBody = z
   .object({
     key: z
@@ -633,6 +635,7 @@ export const operationsRequestSchemas = {
   issueBody,
   issueTransitionBody,
   exportBody,
+  inventoryCustodyBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1029,6 +1032,15 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.transitionIssue(id, v as never),
     ),
     operation(
+      '/warehouse/custody',
+      'transitionInventoryCustody',
+      'tenant.installation.manage',
+      'tenant.warehouse.custody.transition',
+      'serialized_asset',
+      inventoryCustodyBody,
+      (w, id, v) => w.transitionInventoryCustody(id, v as never),
+    ),
+    operation(
       '/exports',
       'requestOperationsExport',
       'tenant.report.export',
@@ -1067,6 +1079,22 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueNetworkAction(id, v as never),
     ),
   ];
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/warehouse/workspace',
+      operationId: 'readWarehouseWorkspace',
+      permission: 'tenant.installation.view',
+      action: 'tenant.warehouse.workspace.read',
+      resourceType: 'warehouse_workspace',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readWarehouseWorkspace(tenantId, input as never),
+    },
+    'Tenant warehouse',
+    'warehouse-read',
+    'Read scoped serialized equipment custody',
+  );
   registerWorkspaceRead(
     app,
     options,

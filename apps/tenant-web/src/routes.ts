@@ -97,6 +97,16 @@ const english = buildRoutes(
       [],
       [],
     ],
+    warehouse: [
+      'Field equipment control',
+      'Warehouse & serialized custody',
+      'Track each serialized device from branch stock through technician handoff, installation, return, and RMA.',
+      [],
+      'Asset custody',
+      'Authenticated records are filtered by installation and branch authority.',
+      [],
+      [],
+    ],
     accounting: [
       'General ledger & accounting',
       'Double-entry accounting and trial balance',
@@ -367,6 +377,16 @@ const arabic = buildRoutes(
         ['فتح الفوترة', 'مراجعة فواتير المشتركين', 'billing'],
         ['فتح التقارير', 'مراجعة القوائم المالية', 'reports'],
       ],
+    ],
+    warehouse: [
+      'ضبط معدات الخدمة الميدانية',
+      'المستودع وعهدة الأجهزة',
+      'تتبّع كل جهاز متسلسل من مخزون الفرع إلى عهدة الفني والتركيب والإرجاع وصيانة المورد.',
+      [],
+      'عهدة الأصول',
+      'تُرشّح السجلات الموثقة حسب صلاحية الفرع والتركيب.',
+      [],
+      [],
     ],
     payments: [
       'مساحة الصندوق',

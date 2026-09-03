@@ -1,4 +1,4 @@
-import type { NocWorkspace, NocQuery } from '@isp/contracts';
+import type { NocWorkspace, NocQuery, WarehouseWorkspace } from '@isp/contracts';
 import type { CustomerStatementQuery, CustomerStatementResponse } from '@isp/contracts';
 import type {
   CustomerAccountsWorkspace,
@@ -943,4 +943,14 @@ export async function readNocWorkspace(
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'NOC workspace');
   return (await response.json()) as NocWorkspace;
+}
+export async function readWarehouseWorkspace(session: ApiSession): Promise<WarehouseWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/warehouse/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Warehouse workspace');
+  return (await response.json()) as WarehouseWorkspace;
 }
