@@ -74,6 +74,115 @@ export const inventoryCustodyCommandSchema = z
   });
 export type InventoryCustodyCommand = z.infer<typeof inventoryCustodyCommandSchema>;
 
+export const procurementVendorSchema = z.object({
+  id: z.string().uuid(),
+  vendorCode: z.string().trim().min(2).max(50),
+  nameEn: z.string().trim().min(2).max(180),
+  nameAr: z.string().trim().min(2).max(180),
+  contactName: z.string().trim().max(180).nullable(),
+  contactPhone: z.string().trim().max(50).nullable(),
+  active: z.boolean(),
+});
+export type ProcurementVendor = z.infer<typeof procurementVendorSchema>;
+
+const procurementEvidence = {
+  reasonEn: z.string().trim().min(8).max(1000),
+  reasonAr: z.string().trim().min(8).max(1000),
+  evidence: z.string().trim().min(8).max(2000),
+} as const;
+
+export const procurementCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('create_vendor'),
+      vendorCode: z.string().trim().min(2).max(50),
+      nameEn: z.string().trim().min(2).max(180),
+      nameAr: z.string().trim().min(2).max(180),
+      contactName: z.string().trim().min(2).max(180).optional(),
+      contactPhone: z.string().trim().min(3).max(50).optional(),
+      ...procurementEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('create_purchase_order'),
+      poNumber: z.string().trim().min(2).max(80),
+      vendorId: z.string().uuid(),
+      warehouseId: z.string().uuid(),
+      currency: z.enum(['USD', 'LBP']),
+      lines: z
+        .array(
+          z
+            .object({
+              itemId: z.string().uuid(),
+              quantity: z.number().int().positive().max(10000),
+              unitCostMinor: z.number().int().positive().safe(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(100),
+      ...procurementEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('approve_purchase_order'),
+      purchaseOrderId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...procurementEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('receive_purchase_order'),
+      purchaseOrderId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      assets: z
+        .array(
+          z
+            .object({
+              lineId: z.string().uuid(),
+              serialNumber: z.string().trim().min(2).max(100),
+              macAddress: z.string().trim().min(2).max(50).optional(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(500),
+      ...procurementEvidence,
+    })
+    .strict(),
+]);
+export type ProcurementCommand = z.infer<typeof procurementCommandSchema>;
+
+export interface ProcurementPurchaseOrder {
+  readonly id: string;
+  readonly poNumber: string;
+  readonly vendorId: string;
+  readonly vendorNameEn: string;
+  readonly vendorNameAr: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly status: 'draft' | 'approved' | 'received' | 'cancelled';
+  readonly currency: 'USD' | 'LBP';
+  readonly totalAmountMinor: number;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly approvedAt: string | null;
+  readonly receivedAt: string | null;
+  readonly lines: readonly {
+    readonly id: string;
+    readonly itemId: string;
+    readonly sku: string;
+    readonly itemNameEn: string;
+    readonly itemNameAr: string;
+    readonly quantity: number;
+    readonly receivedQuantity: number;
+    readonly unitCostMinor: number;
+  }[];
+}
+
 export interface InventoryCustodyEvent {
   readonly id: string;
   readonly assetId: string;
@@ -111,4 +220,6 @@ export interface WarehouseWorkspace {
     readonly installerUserId: string | null;
     readonly installerName: string | null;
   }[];
+  readonly vendors: readonly ProcurementVendor[];
+  readonly purchaseOrders: readonly ProcurementPurchaseOrder[];
 }

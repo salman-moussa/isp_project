@@ -2,13 +2,19 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { sql } from 'drizzle-orm';
-import type { InventoryCustodyCommand, Permission, VerifiedTenantId } from '@isp/contracts';
+import type {
+  InventoryCustodyCommand,
+  Permission,
+  ProcurementCommand,
+  VerifiedTenantId,
+} from '@isp/contracts';
 import {
   createDatabase,
   inOperationsTransaction,
   readWarehouseWorkspace,
   signOperationsAttestation,
   transitionInventoryCustody,
+  executeProcurementCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -52,7 +58,7 @@ try {
       [actorId, `${actorId}@inventory.invalid`],
     );
     await transaction.unsafe(
-      "INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope) VALUES($1,$2,'installer',ARRAY['tenant.installation.view','tenant.installation.manage'],$3::jsonb)",
+      "INSERT INTO tenant_memberships(tenant_id,user_id,role_key,permissions,scope) VALUES($1,$2,'owner',ARRAY['tenant.installation.view','tenant.installation.manage','tenant.catalog.manage','tenant.accounting.post'],$3::jsonb)",
       [
         tenantId,
         actorId,
@@ -157,6 +163,24 @@ try {
       command,
       authorization: sign('tenant.warehouse.custody.transition', 'tenant.installation.manage', key),
     });
+  const procure = (
+    command: ProcurementCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeProcurementCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign(
+        command.action === 'approve_purchase_order'
+          ? 'tenant.warehouse.procurement.approve'
+          : 'tenant.warehouse.procurement.manage',
+        command.action === 'approve_purchase_order'
+          ? 'tenant.accounting.post'
+          : 'tenant.catalog.manage',
+        key,
+        overrides,
+      ),
+    });
 
   const initial = await read();
   assert(initial.assets.some((asset) => asset.id === assetId && asset.version === 1));
@@ -222,8 +246,83 @@ try {
     [tenantId, assetId],
   );
   assert.equal(audit.count, 4);
+
+  const procurementEvidence = {
+    reasonEn: 'Approved for controlled stock replenishment',
+    reasonAr: 'تم الاعتماد لتجديد المخزون بشكل مضبوط',
+    evidence: 'Supplier quotation and serialized packing list verified.',
+  };
+  const vendor = await procure({
+    action: 'create_vendor',
+    vendorCode: `V-${tenantId.slice(0, 8)}`,
+    nameEn: 'Acceptance supplier',
+    nameAr: 'مورد اختبار القبول',
+    ...procurementEvidence,
+  });
+  const draft = await procure({
+    action: 'create_purchase_order',
+    poNumber: `PO-${tenantId.slice(0, 8)}`,
+    vendorId: vendor.id,
+    warehouseId,
+    currency: 'USD',
+    lines: [{ itemId, quantity: 2, unitCostMinor: 7500 }],
+    ...procurementEvidence,
+  });
+  assert.equal(draft.status, 'draft');
+  const approvalCommand: ProcurementCommand = {
+    action: 'approve_purchase_order',
+    purchaseOrderId: draft.id,
+    expectedVersion: 1,
+    ...procurementEvidence,
+  };
+  await assert.rejects(procure(approvalCommand, randomUUID(), { branchIds: [randomUUID()] }));
+  const approved = await procure({
+    ...approvalCommand,
+  });
+  assert.equal(approved.status, 'approved');
+  const [line] = await admin.unsafe(
+    'SELECT id FROM operations_purchase_order_lines WHERE tenant_id=$1 AND purchase_order_id=$2',
+    [tenantId, draft.id],
+  );
+  const receiptCommand: ProcurementCommand = {
+    action: 'receive_purchase_order',
+    purchaseOrderId: draft.id,
+    expectedVersion: 2,
+    assets: [
+      { lineId: line.id, serialNumber: `RX-${randomUUID()}` },
+      { lineId: line.id, serialNumber: `RX-${randomUUID()}` },
+    ],
+    ...procurementEvidence,
+  };
+  const receiptKey = randomUUID();
+  const received = await procure(receiptCommand, receiptKey);
+  assert.equal(received.status, 'received');
+  assert.deepEqual(await procure(receiptCommand, receiptKey), received);
+  await assert.rejects(
+    procure(
+      { ...receiptCommand, evidence: 'A conflicting receipt retry is rejected.' },
+      receiptKey,
+    ),
+  );
+  const [journalEvidence] = await admin.unsafe(
+    `SELECT count(DISTINCT j.id)::int AS journals,coalesce(sum(l.debit_minor),0)::int AS debits,
+      coalesce(sum(l.credit_minor),0)::int AS credits
+     FROM operations_journal_entries j JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+     WHERE j.tenant_id=$1 AND j.source_type='inventory_receipt' AND j.source_id=$2`,
+    [tenantId, draft.id],
+  );
+  assert.equal(journalEvidence.journals, 1);
+  assert.equal(journalEvidence.debits, 15000);
+  assert.equal(journalEvidence.credits, 15000);
+  const withProcurement = await read();
+  assert(withProcurement.vendors.some((candidate) => candidate.id === vendor.id));
+  assert(
+    withProcurement.purchaseOrders.some(
+      (candidate) => candidate.id === draft.id && candidate.status === 'received',
+    ),
+  );
   console.log(
-    'Serialized inventory live proof passed: scoped reads, issue/install/return/RMA, exact replay/conflict, stale-version denial, immutable history and atomic audit.',
+    'Inventory live proof passed: governed custody plus vendor, approval, serialized receipt, exact replay/conflict, and balanced inventory/AP posting.',
   );
 } finally {
   await admin

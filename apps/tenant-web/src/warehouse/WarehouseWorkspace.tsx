@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type {
   InventoryCustodyCommand,
+  ProcurementCommand,
   SerializedAssetRecord,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
-import { inventoryCustodyCommandSchema } from '@isp/contracts';
+import { inventoryCustodyCommandSchema, procurementCommandSchema } from '@isp/contracts';
 import type { ApiSession, Locale } from '@isp/ui';
 import { readWarehouseWorkspace, submitTenantOperation } from '../api';
 import './warehouse.css';
@@ -28,6 +29,7 @@ export function WarehouseWorkspace({
   const [message, setMessage] = useState('');
   const [refresh, setRefresh] = useState(0);
   const retry = useRef<{ fingerprint: string; key: string } | undefined>(undefined);
+  const [procurementMessage, setProcurementMessage] = useState('');
 
   useEffect(() => {
     if (!session) {
@@ -131,6 +133,47 @@ export function WarehouseWorkspace({
       setBusy(false);
     }
   }
+
+  async function runProcurement(command: ProcurementCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setProcurementMessage('');
+    try {
+      await submitTenantOperation(
+        session,
+        command.action === 'approve_purchase_order'
+          ? 'warehouse/procurement/approve'
+          : 'warehouse/procurement',
+        { command },
+        retry.current.key,
+      );
+      retry.current = undefined;
+      setProcurementMessage(t('Procurement record saved.', 'تم حفظ سجل المشتريات.'));
+      setRefresh((value) => value + 1);
+    } catch {
+      setProcurementMessage(
+        t(
+          'The command was not confirmed. Check permission, MFA, or refreshed order state, then retry.',
+          'لم يتأكد الأمر. تحقق من الصلاحية والمصادقة وحالة الطلب المحدّثة ثم أعد المحاولة.',
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const formText = (form: FormData, name: string) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value.trim() : '';
+  };
+  const evidenceFrom = (form: FormData) => ({
+    reasonEn: formText(form, 'reasonEn'),
+    reasonAr: formText(form, 'reasonAr'),
+    evidence: formText(form, 'evidence'),
+  });
 
   if (!session)
     return (
@@ -404,6 +447,316 @@ export function WarehouseWorkspace({
           )}
         </aside>
       </div>
+
+      <section className="warehouse-procurement" aria-labelledby="procurement-title">
+        <div className="warehouse-panel__head">
+          <div>
+            <span>{t('Controlled procurement', 'مشتريات مضبوطة')}</span>
+            <h2 id="procurement-title">
+              {t('From supplier approval to valued stock', 'من اعتماد المورد إلى مخزون مقيّم')}
+            </h2>
+            <p>
+              {t(
+                'Draft orders require finance approval before serialized receiving. Receipt posts Inventory versus Accounts Payable automatically.',
+                'تتطلب الطلبات موافقة المالية قبل الاستلام المتسلسل، ويُرحّل المخزون مقابل ذمم الموردين تلقائياً.',
+              )}
+            </p>
+          </div>
+          <div className="warehouse-score">
+            <strong>{data?.purchaseOrders.length ?? 0}</strong>
+            <small>{t('purchase orders', 'طلب شراء')}</small>
+          </div>
+        </div>
+
+        <div className="warehouse-procurement__forms">
+          <form
+            className="warehouse-form warehouse-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              void runProcurement(
+                procurementCommandSchema.parse({
+                  action: 'create_vendor',
+                  vendorCode: form.get('vendorCode'),
+                  nameEn: form.get('nameEn'),
+                  nameAr: form.get('nameAr'),
+                  contactPhone: form.get('contactPhone') || undefined,
+                  ...evidenceFrom(form),
+                }),
+              );
+            }}
+          >
+            <h3>{t('1. Register supplier', '١. تسجيل المورد')}</h3>
+            <label>
+              {t('Vendor code', 'رمز المورد')}
+              <input name="vendorCode" required minLength={2} />
+            </label>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('English name', 'الاسم بالإنجليزية')}
+                <input name="nameEn" required />
+              </label>
+              <label>
+                {t('Arabic name', 'الاسم بالعربية')}
+                <input name="nameAr" required dir="rtl" />
+              </label>
+            </div>
+            <label>
+              {t('Phone (optional)', 'الهاتف (اختياري)')}
+              <input name="contactPhone" />
+            </label>
+            <EvidenceFields t={t} />
+            <button className="warehouse-primary" disabled={busy}>
+              {t('Save supplier', 'حفظ المورد')}
+            </button>
+          </form>
+
+          <form
+            className="warehouse-form warehouse-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              void runProcurement(
+                procurementCommandSchema.parse({
+                  action: 'create_purchase_order',
+                  poNumber: form.get('poNumber'),
+                  vendorId: form.get('vendorId'),
+                  warehouseId: form.get('warehouseId'),
+                  currency: form.get('currency'),
+                  lines: [
+                    {
+                      itemId: form.get('itemId'),
+                      quantity: Number(form.get('quantity')),
+                      unitCostMinor: Number(form.get('unitCostMinor')),
+                    },
+                  ],
+                  ...evidenceFrom(form),
+                }),
+              );
+            }}
+          >
+            <h3>{t('2. Create purchase order', '٢. إنشاء طلب شراء')}</h3>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('PO number', 'رقم الطلب')}
+                <input name="poNumber" required />
+              </label>
+              <label>
+                {t('Supplier', 'المورد')}
+                <select name="vendorId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data?.vendors
+                    .filter((v) => v.active)
+                    .map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {locale === 'ar' ? v.nameAr : v.nameEn}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Receiving warehouse', 'مستودع الاستلام')}
+                <select name="warehouseId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data?.warehouses
+                    .filter((w) => w.active)
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.warehouseCode}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                {t('Serialized item', 'الصنف المتسلسل')}
+                <select name="itemId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data?.items
+                    .filter((i) => i.serializedFlag)
+                    .map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.sku} · {locale === 'ar' ? i.nameAr : i.nameEn}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <div className="warehouse-form__pair warehouse-form__triple">
+              <label>
+                {t('Quantity', 'الكمية')}
+                <input name="quantity" type="number" min="1" max="500" required />
+              </label>
+              <label>
+                {t('Unit cost (minor)', 'كلفة الوحدة (صغرى)')}
+                <input name="unitCostMinor" type="number" min="1" required />
+              </label>
+              <label>
+                {t('Currency', 'العملة')}
+                <select name="currency">
+                  <option>USD</option>
+                  <option>LBP</option>
+                </select>
+              </label>
+            </div>
+            <EvidenceFields t={t} />
+            <button className="warehouse-primary" disabled={busy || !data?.vendors.length}>
+              {t('Create draft', 'إنشاء مسودة')}
+            </button>
+          </form>
+        </div>
+
+        <div className="warehouse-orders">
+          {data?.purchaseOrders.map((order) => (
+            <article className="warehouse-card" key={order.id}>
+              <header>
+                <div>
+                  <small>{order.poNumber}</small>
+                  <h3>{locale === 'ar' ? order.vendorNameAr : order.vendorNameEn}</h3>
+                </div>
+                <span className={`warehouse-status warehouse-status--${order.status}`}>
+                  {order.status}
+                </span>
+              </header>
+              <p>{order.lines.map((line) => `${line.sku} × ${line.quantity}`).join(' · ')}</p>
+              <strong>
+                {new Intl.NumberFormat(locale === 'ar' ? 'ar-LB' : 'en-LB').format(
+                  order.totalAmountMinor / (order.currency === 'USD' ? 100 : 1),
+                )}{' '}
+                {order.currency}
+              </strong>
+              {order.status === 'draft' && (
+                <ProcurementActionForm
+                  label={t('Approve with MFA', 'اعتماد بمصادقة قوية')}
+                  busy={busy}
+                  onSubmit={(form) => {
+                    void runProcurement(
+                      procurementCommandSchema.parse({
+                        action: 'approve_purchase_order',
+                        purchaseOrderId: order.id,
+                        expectedVersion: order.version,
+                        ...evidenceFrom(form),
+                      }),
+                    );
+                  }}
+                  t={t}
+                />
+              )}
+              {order.status === 'approved' && (
+                <form
+                  className="warehouse-form warehouse-receipt"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const form = new FormData(event.currentTarget);
+                    const rows = formText(form, 'assets')
+                      .split(/\r?\n/)
+                      .map((row) => row.trim())
+                      .filter(Boolean);
+                    const assets = rows.map((row) => {
+                      const [sku, serialNumber, macAddress] = row
+                        .split('|')
+                        .map((value) => value.trim());
+                      const line = order.lines.find((value) => value.sku === sku);
+                      return {
+                        lineId: line?.id ?? '',
+                        serialNumber,
+                        ...(macAddress ? { macAddress } : {}),
+                      };
+                    });
+                    void runProcurement(
+                      procurementCommandSchema.parse({
+                        action: 'receive_purchase_order',
+                        purchaseOrderId: order.id,
+                        expectedVersion: order.version,
+                        assets,
+                        ...evidenceFrom(form),
+                      }),
+                    );
+                  }}
+                >
+                  <label>
+                    {t(
+                      'One unit per line: SKU | serial | MAC',
+                      'وحدة في كل سطر: SKU | التسلسل | MAC',
+                    )}
+                    <textarea
+                      name="assets"
+                      required
+                      placeholder="CPE-AX | ORX-0002 | AA:BB:CC:DD:EE:01"
+                    />
+                  </label>
+                  <EvidenceFields t={t} />
+                  <button className="warehouse-primary" disabled={busy}>
+                    {t('Receive and post value', 'استلام وترحيل القيمة')}
+                  </button>
+                </form>
+              )}
+            </article>
+          ))}
+          {!data?.purchaseOrders.length && (
+            <p className="warehouse-empty">
+              {t(
+                'No purchase orders yet. Register a supplier and create the first draft.',
+                'لا توجد طلبات شراء بعد. سجّل مورداً وأنشئ أول مسودة.',
+              )}
+            </p>
+          )}
+        </div>
+        {procurementMessage && (
+          <p className="warehouse-message" role="status">
+            {procurementMessage}
+          </p>
+        )}
+      </section>
     </main>
+  );
+}
+
+function EvidenceFields({ t }: { readonly t: (en: string, ar: string) => string }) {
+  return (
+    <>
+      <div className="warehouse-form__pair">
+        <label>
+          {t('Procurement reason in English', 'سبب المشتريات بالإنجليزية')}
+          <textarea name="reasonEn" minLength={8} required />
+        </label>
+        <label>
+          {t('Procurement reason in Arabic', 'سبب المشتريات بالعربية')}
+          <textarea name="reasonAr" minLength={8} required dir="rtl" />
+        </label>
+      </div>
+      <label>
+        {t('Procurement evidence / reference', 'دليل / مرجع المشتريات')}
+        <textarea name="evidence" minLength={8} required />
+      </label>
+    </>
+  );
+}
+
+function ProcurementActionForm({
+  label,
+  busy,
+  onSubmit,
+  t,
+}: {
+  readonly label: string;
+  readonly busy: boolean;
+  readonly onSubmit: (form: FormData) => void;
+  readonly t: (en: string, ar: string) => string;
+}) {
+  return (
+    <form
+      className="warehouse-form warehouse-action-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit(new FormData(event.currentTarget));
+      }}
+    >
+      <EvidenceFields t={t} />
+      <button className="warehouse-primary" disabled={busy}>
+        {label}
+      </button>
+    </form>
   );
 }

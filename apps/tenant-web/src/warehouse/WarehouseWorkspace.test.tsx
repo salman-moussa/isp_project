@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InventoryCustodyCommand, WarehouseWorkspace as Workspace } from '@isp/contracts';
@@ -79,6 +79,18 @@ const fixture: Workspace = {
       installerName: 'Ali Installer',
     },
   ],
+  vendors: [
+    {
+      id: '80000000-0000-4000-8000-000000000001',
+      vendorCode: 'V-001',
+      nameEn: 'Fiber supplier',
+      nameAr: 'مورد الألياف',
+      contactName: null,
+      contactPhone: null,
+      active: true,
+    },
+  ],
+  purchaseOrders: [],
 };
 
 beforeEach(() => {
@@ -130,5 +142,47 @@ describe('Warehouse custody workspace', () => {
       installationId,
       custodianUserId: installerId,
     });
+  });
+
+  it('creates a valued serialized purchase-order draft from the guided form', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    const form = (await screen.findByRole('heading', { name: '2. Create purchase order' })).closest(
+      'form',
+    );
+    expect(form).not.toBeNull();
+    const controls = within(form!);
+    await user.type(controls.getByLabelText('PO number'), 'PO-2026-001');
+    await user.selectOptions(
+      controls.getByLabelText('Supplier'),
+      '80000000-0000-4000-8000-000000000001',
+    );
+    await user.selectOptions(controls.getByLabelText('Receiving warehouse'), warehouseId);
+    await user.selectOptions(controls.getByLabelText('Serialized item'), itemId);
+    await user.type(controls.getByLabelText('Quantity'), '2');
+    await user.type(controls.getByLabelText('Unit cost (minor)'), '7500');
+    await user.type(
+      controls.getByLabelText('Procurement reason in English'),
+      'Controlled stock replenishment',
+    );
+    await user.type(
+      controls.getByLabelText('Procurement reason in Arabic'),
+      'تجديد المخزون بشكل مضبوط',
+    );
+    await user.type(
+      controls.getByLabelText('Procurement evidence / reference'),
+      'Approved supplier quotation Q-001',
+    );
+    await user.click(controls.getByRole('button', { name: 'Create draft' }));
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[0]).toBe(session);
+    expect(call?.[1]).toBe('warehouse/procurement');
+    expect(call?.[2].command).toMatchObject({
+      action: 'create_purchase_order',
+      poNumber: 'PO-2026-001',
+      lines: [{ itemId, quantity: 2, unitCostMinor: 7500 }],
+    });
+    expect(call?.[3]).toEqual(expect.any(String));
   });
 });

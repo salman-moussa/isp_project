@@ -121,11 +121,18 @@ function writerMocks() {
       items: [],
       assets: [],
       installations: [],
+      vendors: [],
+      purchaseOrders: [],
     })),
     transitionInventoryCustody: vi.fn(async () => ({
       id: '11111111-1111-4111-8111-111111111111',
       status: 'issued',
       version: 2,
+    })),
+    executeProcurementCommand: vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'draft',
+      version: 1,
     })),
     readNasClients: vi.fn(async () => []),
     readRadiusSessions: vi.fn(async () => []),
@@ -1278,5 +1285,86 @@ describe('Warehouse custody routes', () => {
     expect(invalid.statusCode).not.toBe(201);
     expect(writer.transitionInventoryCustody).toHaveBeenCalledTimes(1);
     await app.close();
+  });
+
+  it('separates catalog procurement from MFA-protected finance approval', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Approved for controlled warehouse replenishment',
+      reasonAr: 'تم الاعتماد لتجديد المخزون بشكل مضبوط',
+      evidence: 'Supplier quotation and approval record verified.',
+    };
+    const catalog = await makeApp({ ...claims, permissions: ['tenant.catalog.manage'] }, writer);
+    const create = await catalog.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/procurement`,
+      headers: { 'idempotency-key': 'procurement-vendor-001' },
+      payload: {
+        command: {
+          action: 'create_vendor',
+          vendorCode: 'V-001',
+          nameEn: 'Fiber supplier',
+          nameAr: 'مورد الألياف',
+          ...evidence,
+        },
+      },
+    });
+    expect(create.statusCode).toBe(201);
+    expect(writer.executeProcurementCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.catalog.manage',
+        auditAction: 'tenant.warehouse.procurement.manage',
+      }),
+    );
+    await catalog.app.close();
+
+    const approvalCommand = {
+      action: 'approve_purchase_order' as const,
+      purchaseOrderId: serviceId,
+      expectedVersion: 1,
+      ...evidence,
+    };
+    const withoutMfa = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.post'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/procurement/approve`,
+          headers: { 'idempotency-key': 'procurement-approve-001' },
+          payload: { command: approvalCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutMfa.app.close();
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/procurement/approve`,
+          headers: { 'idempotency-key': 'procurement-approve-002' },
+          payload: { command: approvalCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeProcurementCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.procurement.approve',
+      }),
+    );
+    await withMfa.app.close();
   });
 });

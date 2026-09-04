@@ -3,6 +3,7 @@ import {
   type InventoryItemRecord,
   type SerializedAssetRecord,
   type InventoryCustodyCommand,
+  type ProcurementCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -149,7 +150,7 @@ export async function readWarehouseWorkspace(
       FROM operations_warehouses WHERE tenant_id=${tenantId} ORDER BY is_primary DESC,warehouse_code,id`);
     const items = await transaction.execute<InventoryItemRecord>(sql`SELECT id,sku,
       name_en AS "nameEn",name_ar AS "nameAr",category,
-      unit_cost_minor_usd::int AS "unitCostMinorUsd",unit_cost_minor_lbp::int AS "unitCostMinorLbp",
+      unit_cost_minor_usd::float8 AS "unitCostMinorUsd",unit_cost_minor_lbp::float8 AS "unitCostMinorLbp",
       serialized_flag AS "serializedFlag",reorder_threshold AS "reorderThreshold"
       FROM operations_inventory_items WHERE tenant_id=${tenantId} ORDER BY sku,id`);
     const assets = await transaction.execute<WarehouseWorkspace['assets'][number]>(sql`
@@ -186,7 +187,48 @@ export async function readWarehouseWorkspace(
       WHERE n.tenant_id=${tenantId} AND n.status IN('scheduled','in_progress','ready_for_activation')
       ORDER BY n.updated_at DESC,n.id LIMIT 250
     `);
-    return { warehouses, items, assets, installations };
+    const vendors = await transaction.execute<WarehouseWorkspace['vendors'][number]>(sql`
+      SELECT id,vendor_code AS "vendorCode",name_en AS "nameEn",name_ar AS "nameAr",
+        contact_name AS "contactName",contact_phone AS "contactPhone",active
+      FROM operations_procurement_vendors WHERE tenant_id=${tenantId}
+      ORDER BY active DESC,vendor_code,id
+    `);
+    const purchaseOrders = await transaction.execute<
+      WarehouseWorkspace['purchaseOrders'][number] & Record<string, unknown>
+    >(sql`
+      SELECT p.id,p.po_number AS "poNumber",p.vendor_id AS "vendorId",v.name_en AS "vendorNameEn",
+        v.name_ar AS "vendorNameAr",p.warehouse_id AS "warehouseId",w.warehouse_code AS "warehouseCode",
+        p.status,p.currency,p.total_amount_minor::float8 AS "totalAmountMinor",p.version,
+        p.created_at AS "createdAt",p.approved_at AS "approvedAt",p.received_at AS "receivedAt",
+        coalesce((SELECT jsonb_agg(jsonb_build_object('id',l.id,'itemId',l.item_id,'sku',i.sku,
+          'itemNameEn',i.name_en,'itemNameAr',i.name_ar,'quantity',l.quantity,
+          'receivedQuantity',l.received_quantity,'unitCostMinor',l.unit_cost_minor::float8)
+          ORDER BY l.line_number) FROM operations_purchase_order_lines l
+          JOIN operations_inventory_items i ON i.tenant_id=l.tenant_id AND i.id=l.item_id
+          WHERE l.tenant_id=p.tenant_id AND l.purchase_order_id=p.id),'[]'::jsonb) AS lines
+      FROM operations_purchase_orders p
+      JOIN operations_procurement_vendors v ON v.tenant_id=p.tenant_id AND v.id=p.vendor_id
+      JOIN operations_warehouses w ON w.tenant_id=p.tenant_id AND w.id=p.warehouse_id
+      WHERE p.tenant_id=${tenantId} ORDER BY p.created_at DESC,p.id LIMIT 250
+    `);
+    return { warehouses, items, assets, installations, vendors, purchaseOrders };
+  });
+}
+
+export async function executeProcurementCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: ProcurementCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly status: string; readonly version: number }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{
+      result: { id: string; status: string; version: number };
+    }>(sql`SELECT execute_procurement_command(${JSON.stringify(input.command)}::jsonb) AS result`);
+    if (!row) throw new Error('Procurement command returned no result.');
+    return row.result;
   });
 }
 
