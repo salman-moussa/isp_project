@@ -3,6 +3,7 @@ WORKDIR /workspace
 RUN npm install --global npm@11.17.0 --audit=false
 COPY . .
 RUN npm ci --ignore-scripts --audit=false \
+  && npm run build --workspace=@isp/contracts \
   && cd apps/tenant-web \
   && ../../node_modules/.bin/tsc --noEmit \
   && ../../node_modules/.bin/vite build \
