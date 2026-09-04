@@ -7,6 +7,7 @@ import {
   customerStatementQuerySchema,
   customerAccountSchemas,
   inventoryCustodyCommandSchema,
+  procurementCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -22,6 +23,22 @@ const headers = z.object({ 'idempotency-key': z.string().trim().min(8).max(200) 
 const uuid = z.uuid();
 const scopedLocation = { branchId: uuid, areaId: uuid, routeId: uuid } as const;
 const businessReason = z.string().trim().min(8).max(1000);
+const procurementManageBody = z
+  .object({
+    command: procurementCommandSchema.refine(
+      (command) => command.action !== 'approve_purchase_order',
+      'Approval uses the MFA-protected approval route.',
+    ),
+  })
+  .strict();
+const procurementApprovalBody = z
+  .object({
+    command: procurementCommandSchema.refine(
+      (command) => command.action === 'approve_purchase_order',
+      'Only approval commands are accepted here.',
+    ),
+  })
+  .strict();
 
 const salesLeadBody = z
   .object({
@@ -636,6 +653,8 @@ export const operationsRequestSchemas = {
   issueTransitionBody,
   exportBody,
   inventoryCustodyBody,
+  procurementManageBody,
+  procurementApprovalBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1039,6 +1058,25 @@ export function registerTenantOperationsRoutes(
       'serialized_asset',
       inventoryCustodyBody,
       (w, id, v) => w.transitionInventoryCustody(id, v as never),
+    ),
+    operation(
+      '/warehouse/procurement',
+      'executeProcurementCommand',
+      'tenant.catalog.manage',
+      'tenant.warehouse.procurement.manage',
+      'purchase_order',
+      procurementManageBody,
+      (w, id, v) => w.executeProcurementCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/procurement/approve',
+      'approveProcurementPurchaseOrder',
+      'tenant.accounting.post',
+      'tenant.warehouse.procurement.approve',
+      'purchase_order',
+      procurementApprovalBody,
+      (w, id, v) => w.executeProcurementCommand(id, v as never),
+      true,
     ),
     operation(
       '/exports',
