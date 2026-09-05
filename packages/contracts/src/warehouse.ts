@@ -335,14 +335,83 @@ export const stockBalanceRecordSchema = z.object({
 });
 export type StockBalanceRecord = z.infer<typeof stockBalanceRecordSchema>;
 
+const stockEvidence = {
+  reasonEn: z.string().trim().min(8).max(1000),
+  reasonAr: z.string().trim().min(8).max(1000),
+  evidence: z.string().trim().min(8).max(2000),
+} as const;
+
 export const stockMovementKindSchema = z.enum([
   'receipt',
   'transfer_out',
   'transfer_in',
   'adjustment_increase',
   'adjustment_decrease',
+  'reservation_hold',
+  'reservation_release',
+  'consumption',
 ]);
 export type StockMovementKind = z.infer<typeof stockMovementKindSchema>;
+
+export const stockReservationRecordSchema = z.object({
+  id: z.string().uuid(),
+  itemId: z.string().uuid(),
+  sku: z.string(),
+  itemNameEn: z.string(),
+  itemNameAr: z.string(),
+  warehouseId: z.string().uuid(),
+  warehouseCode: z.string(),
+  binId: z.string().uuid().nullable(),
+  binCode: z.string().nullable(),
+  quantity: z.number().int().positive(),
+  status: z.enum(['held', 'released', 'consumed']),
+  installationId: z.string().uuid().nullable(),
+  serviceNumber: z.string().nullable(),
+  reference: z.string(),
+  version: z.number().int().positive(),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable(),
+});
+export type StockReservationRecord = z.infer<typeof stockReservationRecordSchema>;
+
+/**
+ * Reservations hold bulk quantity for field work. A release returns it to free stock and posts
+ * nothing; consuming it removes the used quantity and posts its value from Inventory to Network
+ * Operating Expense, because that is the point at which inventory becomes cost.
+ */
+export const stockReservationCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('reserve_stock'),
+      itemId: z.string().uuid(),
+      quantity: z.number().int().positive().max(1_000_000),
+      warehouseId: z.string().uuid(),
+      binId: z.string().uuid().optional(),
+      installationId: z.string().uuid().optional(),
+      reference: z.string().trim().min(2).max(200),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('release_reservation'),
+      reservationId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('consume_reservation'),
+      reservationId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      /** Defaults to the whole reservation; any unused remainder returns to free stock. */
+      quantity: z.number().int().positive().max(1_000_000).optional(),
+      ...stockEvidence,
+    })
+    .strict(),
+]);
+export type StockReservationCommand = z.infer<typeof stockReservationCommandSchema>;
 
 export interface StockMovementRecord {
   readonly id: string;
@@ -361,12 +430,6 @@ export interface StockMovementRecord {
   readonly occurredAt: string;
   readonly actorName: string | null;
 }
-
-const stockEvidence = {
-  reasonEn: z.string().trim().min(8).max(1000),
-  reasonAr: z.string().trim().min(8).max(1000),
-  evidence: z.string().trim().min(8).max(2000),
-} as const;
 
 export const stockCommandSchema = z.discriminatedUnion('action', [
   z
@@ -497,4 +560,5 @@ export interface WarehouseWorkspace {
   readonly administrationEvents: readonly WarehouseAdminEvent[];
   readonly stockBalances: readonly StockBalanceRecord[];
   readonly stockMovements: readonly StockMovementRecord[];
+  readonly stockReservations: readonly StockReservationRecord[];
 }
