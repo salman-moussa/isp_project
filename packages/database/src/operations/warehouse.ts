@@ -7,6 +7,7 @@ import {
   type WarehouseAdminCommand,
   type StockCommand,
   type StockReservationCommand,
+  type StockCountCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -299,6 +300,26 @@ export async function readWarehouseWorkspace(
       WHERE r.tenant_id=${tenantId}
       ORDER BY (r.status='held') DESC,r.created_at DESC,r.id LIMIT 300
     `);
+    const stockCounts = await transaction.execute<
+      WarehouseWorkspace['stockCounts'][number] & Record<string, unknown>
+    >(sql`
+      SELECT k.id,k.count_number AS "countNumber",k.warehouse_id AS "warehouseId",
+        w.warehouse_code AS "warehouseCode",k.bin_id AS "binId",n.bin_code AS "binCode",
+        k.currency,k.status,k.version,k.opened_at AS "openedAt",k.closed_at AS "closedAt",
+        k.journal_entry_id AS "journalEntryId",
+        coalesce((SELECT jsonb_agg(jsonb_build_object(
+          'id',l.id,'itemId',l.item_id,'sku',i.sku,'itemNameEn',i.name_en,'itemNameAr',i.name_ar,
+          'systemQuantity',l.system_quantity,'countedQuantity',l.counted_quantity,
+          'unitCostMinor',l.unit_cost_minor::float8,'variance',l.variance
+        ) ORDER BY i.sku) FROM operations_stock_count_lines l
+          JOIN operations_inventory_items i ON i.tenant_id=l.tenant_id AND i.id=l.item_id
+          WHERE l.tenant_id=k.tenant_id AND l.count_id=k.id),'[]'::jsonb) AS lines
+      FROM operations_stock_counts k
+      JOIN operations_warehouses w ON w.tenant_id=k.tenant_id AND w.id=k.warehouse_id
+      LEFT JOIN operations_warehouse_bins n ON n.tenant_id=k.tenant_id AND n.id=k.bin_id
+      WHERE k.tenant_id=${tenantId}
+      ORDER BY (k.status='open') DESC,k.opened_at DESC,k.id LIMIT 100
+    `);
     return {
       warehouses,
       items,
@@ -312,7 +333,25 @@ export async function readWarehouseWorkspace(
       stockBalances,
       stockMovements,
       stockReservations,
+      stockCounts,
     };
+  });
+}
+
+export async function executeStockCountCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: StockCountCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<Record<string, unknown>> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{ result: Record<string, unknown> }>(
+      sql`SELECT execute_stock_count_command(${JSON.stringify(input.command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('Stock count command returned no result.');
+    return row.result;
   });
 }
 

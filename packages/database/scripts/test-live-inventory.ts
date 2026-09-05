@@ -9,6 +9,7 @@ import type {
   WarehouseAdminCommand,
   StockCommand,
   StockReservationCommand,
+  StockCountCommand,
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
@@ -21,6 +22,7 @@ import {
   executeWarehouseAdminCommand,
   executeStockCommand,
   executeStockReservationCommand,
+  executeStockCountCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -956,8 +958,131 @@ try {
   assert(withReservations.stockMovements.some((m) => m.kind === 'reservation_hold'));
   assert(withReservations.stockMovements.some((m) => m.kind === 'reservation_release'));
 
+  // --- Stock counts -------------------------------------------------------------------
+  const countCommand = (
+    command: StockCountCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeStockCountCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign(
+        command.action === 'close_count'
+          ? 'tenant.warehouse.stock.count.close'
+          : 'tenant.warehouse.stock.count',
+        command.action === 'close_count' ? 'tenant.accounting.post' : 'tenant.installation.manage',
+        key,
+        overrides,
+      ),
+    });
+  const countEvidence = {
+    reasonEn: 'Quarterly physical count of the receiving bay',
+    reasonAr: 'الجرد الفعلي الربعي لساحة الاستلام',
+    evidence: 'Count sheet CS-2026-042 signed by the warehouse supervisor.',
+  };
+
+  const opened = await countCommand({
+    action: 'open_count',
+    countNumber: `CS-${tenantId.slice(0, 8)}`,
+    warehouseId,
+    binId: receivingBin.id,
+    currency: 'USD',
+    ...countEvidence,
+  });
+  const countId = (opened as { countId: string }).countId;
+  // The bin holds one bulk line (3 units of drop wire remain after consumption).
+  assert.equal((opened as { lines: number }).lines, 1);
+  assert.equal((opened as { status: string }).status, 'open');
+
+  // Two open counts of the same location would fight over the same balances at close.
+  await assert.rejects(
+    countCommand({
+      action: 'open_count',
+      countNumber: `CS2-${tenantId.slice(0, 8)}`,
+      warehouseId,
+      binId: receivingBin.id,
+      currency: 'USD',
+      ...countEvidence,
+    }),
+  );
+  // Closing is finance work; the warehouse signature must not reach it.
+  await assert.rejects(
+    executeStockCountCommand(runtime.db, tenantId, {
+      command: { action: 'close_count', countId, expectedVersion: 1, ...countEvidence },
+      authorization: sign('tenant.warehouse.stock.count', 'tenant.installation.manage'),
+    }),
+  );
+  // An uncounted line means the count is not ready to post.
+  await assert.rejects(
+    countCommand({ action: 'close_count', countId, expectedVersion: 1, ...countEvidence }),
+  );
+
+  const [countLine] = await admin.unsafe(
+    'SELECT id,system_quantity FROM operations_stock_count_lines WHERE tenant_id=$1 AND count_id=$2',
+    [tenantId, countId],
+  );
+  assert.equal(countLine.system_quantity, 3);
+  // One unit is physically missing.
+  const recorded = await countCommand({
+    action: 'record_count',
+    countId,
+    expectedVersion: 1,
+    lines: [{ lineId: countLine.id as string, countedQuantity: 2 }],
+    ...countEvidence,
+  });
+  assert.equal((recorded as { countedLines: number }).countedLines, 1);
+  assert.equal((recorded as { version: number }).version, 2);
+  // A stale version is a conflict, not a silent overwrite.
+  await assert.rejects(
+    countCommand({
+      action: 'record_count',
+      countId,
+      expectedVersion: 1,
+      lines: [{ lineId: countLine.id as string, countedQuantity: 1 }],
+      ...countEvidence,
+    }),
+  );
+
+  const closed = await countCommand({
+    action: 'close_count',
+    countId,
+    expectedVersion: 2,
+    ...countEvidence,
+  });
+  assert.equal((closed as { status: string }).status, 'closed');
+  assert.equal((closed as { adjustedLines: number }).adjustedLines, 1);
+  // One unit short at the 1500 standard cost is a 1500 write-down.
+  assert.equal((closed as { netVarianceMinor: number }).netVarianceMinor, -1500);
+  await assert.rejects(
+    countCommand({ action: 'close_count', countId, expectedVersion: 3, ...countEvidence }),
+  );
+
+  const [countJournal] = await admin.unsafe(
+    `SELECT coalesce(sum(l.debit_minor),0)::int AS debits,coalesce(sum(l.credit_minor),0)::int AS credits,
+       count(DISTINCT j.id)::int AS journals
+     FROM operations_journal_entries j JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+     WHERE j.tenant_id=$1 AND j.source_type='inventory_count'`,
+    [tenantId],
+  );
+  assert.equal(countJournal.journals, 1);
+  assert.equal(countJournal.debits, 1500);
+  assert.equal(countJournal.credits, 1500);
+
+  const afterCount = await read();
+  const countedBalance = afterCount.stockBalances.find(
+    (b) => b.itemId === bulkItem.id && b.binId === receivingBin.id,
+  );
+  // The balance now matches what was physically found.
+  assert.equal(countedBalance?.quantityOnHand, 2);
+  assert(
+    afterCount.stockCounts.some(
+      (k) => k.id === countId && k.status === 'closed' && k.lines.length === 1,
+    ),
+  );
+  assert(afterCount.stockMovements.some((m) => m.kind === 'count_decrease'));
+
   console.log(
-    'Inventory live proof passed: custody, procurement, serialized receipt, scoped administration, partial mixed receiving, bulk transfers, valued adjustments, reservations and expensed consumption.',
+    'Inventory live proof passed: custody, procurement, administration, partial mixed receiving, transfers, adjustments, reservations, expensed consumption and posted stock counts.',
   );
 } finally {
   await admin

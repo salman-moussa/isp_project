@@ -4,6 +4,7 @@ import type {
   ProcurementCommand,
   SerializedAssetRecord,
   StockCommand,
+  StockCountCommand,
   StockReservationCommand,
   WarehouseAdminCommand,
   WarehouseWorkspace as Workspace,
@@ -198,6 +199,40 @@ export function WarehouseWorkspace({
           : t(
               'The change was not saved. Refresh to see the current record, then reapply.',
               'لم يُحفظ التغيير. حدّث الصفحة لعرض السجل الحالي ثم أعد التطبيق.',
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCount(command: StockCountCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setStockMessage('');
+    try {
+      // Closing posts variance and is finance work, so it has its own MFA-protected route.
+      await submitTenantOperation(
+        session,
+        command.action === 'close_count'
+          ? 'warehouse/stock/counts/close'
+          : 'warehouse/stock/counts',
+        { command },
+        retry.current.key,
+      );
+      retry.current = undefined;
+      setStockMessage(t('Stock count updated.', 'تم تحديث الجرد.'));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setStockMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t(
+              'The count was not updated. Refresh and try again.',
+              'لم يتم تحديث الجرد. حدّث الصفحة وأعد المحاولة.',
             ),
       );
     } finally {
@@ -825,6 +860,7 @@ export function WarehouseWorkspace({
           message={stockMessage}
           onSubmit={(command) => void runStock(command)}
           onReserve={(command) => void runReservation(command)}
+          onCount={(command) => void runCount(command)}
         />
       )}
 

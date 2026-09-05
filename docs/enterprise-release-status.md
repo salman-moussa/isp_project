@@ -16,6 +16,35 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Controlled stock counts — 2026-09-05
+
+Adjustments existed, but a real count is not a series of ad-hoc adjustments: it is a session that
+freezes what the system believed, records what was physically found, and posts the difference once.
+Migration `202609051200_tenant_stock_counts.sql` adds `operations_stock_counts` and
+`operations_stock_count_lines` (with `variance` as a generated column) plus
+`execute_stock_count_command`.
+
+Authority splits the same way as adjustments. Opening, recording and cancelling are warehouse work
+at `POST …/warehouse/stock/counts` (`tenant.installation.manage` + `tenant.warehouse.stock.count`).
+**Closing posts the variance**, so it is finance work with step-up at
+`POST …/warehouse/stock/counts/close` (`tenant.accounting.post` +
+`tenant.warehouse.stock.count.close`). The valuation currency is declared when the count is opened,
+so a count never mixes USD and LBP, and one netted journal is posted per close.
+
+A partial unique index allows only one open count per location: two concurrent counts of the same
+shelf could not both be trusted, and their closes would fight over the same balances.
+
+Live acceptance on PostgreSQL 18 proves: opening seeds one line from the live balance with
+`system_quantity` 3; a second open count for the same location refused; the warehouse signature
+refused for closing; closing with an uncounted line refused; recording moving the version 1 → 2; a
+stale `expectedVersion` refused; closing adjusting 1 line with net variance −1500; a second close
+refused; one balanced 1500/1500 `inventory_count` journal; and the balance ending at the counted
+quantity of 2.
+
+Focused suites: contracts 23/23, database 75/75, api 102/102, tenant-web 73/73 (23 warehouse tests,
+including opening with a declared currency, recording seeded from system quantity, closing through
+the finance route, and no recording form once closed). Build and all static gates pass.
+
 ## Stock reservations and material consumption — 2026-09-05
 
 Bulk stock could be received, moved and adjusted, but nothing could hold quantity for a job or

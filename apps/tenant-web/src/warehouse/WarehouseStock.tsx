@@ -2,14 +2,19 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type {
   StockCommand,
   StockMovementRecord,
+  StockCountCommand,
   StockReservationCommand,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
-import { stockCommandSchema, stockReservationCommandSchema } from '@isp/contracts';
+import {
+  stockCommandSchema,
+  stockCountCommandSchema,
+  stockReservationCommandSchema,
+} from '@isp/contracts';
 import type { Locale } from '@isp/ui';
 
 type Translate = (en: string, ar: string) => string;
-type Tab = 'balances' | 'reservations' | 'transfer' | 'adjust' | 'movements';
+type Tab = 'balances' | 'reservations' | 'counts' | 'transfer' | 'adjust' | 'movements';
 
 /**
  * Bulk (non-serialized) stock: quantity per item, warehouse and bin.
@@ -25,6 +30,7 @@ export function WarehouseStock({
   message,
   onSubmit,
   onReserve,
+  onCount,
 }: {
   readonly locale: Locale;
   readonly data: Workspace;
@@ -32,6 +38,7 @@ export function WarehouseStock({
   readonly message: string;
   readonly onSubmit: (command: StockCommand) => void;
   readonly onReserve: (command: StockReservationCommand) => void;
+  readonly onCount: (command: StockCountCommand) => void;
 }) {
   const t: Translate = (en, ar) => (locale === 'ar' ? ar : en);
   const [tab, setTab] = useState<Tab>('balances');
@@ -67,7 +74,28 @@ export function WarehouseStock({
       reservation_hold: t('Reserved', 'حجز'),
       reservation_release: t('Reservation released', 'إلغاء حجز'),
       consumption: t('Consumed', 'استهلاك'),
+      count_increase: t('Count surplus', 'زيادة جرد'),
+      count_decrease: t('Count shortfall', 'نقص جرد'),
     })[kind];
+
+  const dispatchCount = (event: FormEvent<HTMLFormElement>, build: (form: FormData) => unknown) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const parsed = stockCountCommandSchema.safeParse(build(new FormData(form)));
+    if (!parsed.success) {
+      setValidation(
+        parsed.error.issues[0]?.message ??
+          t(
+            'Complete every field, including bilingual reason and evidence, before saving.',
+            'أكمل جميع الحقول، بما فيها السبب ثنائي اللغة والدليل، قبل الحفظ.',
+          ),
+      );
+      return;
+    }
+    setValidation('');
+    onCount(parsed.data);
+    form.reset();
+  };
 
   const dispatchReservation = (
     event: FormEvent<HTMLFormElement>,
@@ -135,6 +163,7 @@ export function WarehouseStock({
   const tabs: readonly { readonly id: Tab; readonly label: string }[] = [
     { id: 'balances', label: t('On hand', 'المتوفر') },
     { id: 'reservations', label: t('Reservations', 'الحجوزات') },
+    { id: 'counts', label: t('Counts', 'الجرد') },
     { id: 'transfer', label: t('Transfer', 'تحويل') },
     { id: 'adjust', label: t('Adjust', 'تسوية') },
     { id: 'movements', label: t('Movements', 'الحركات') },
@@ -457,6 +486,220 @@ export function WarehouseStock({
             <StockEvidenceFields t={t} />
             <button className="warehouse-primary" disabled={busy || bulkItems.length === 0}>
               {t('Hold stock', 'حجز المخزون')}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {tab === 'counts' && (
+        <div
+          role="tabpanel"
+          id="warehouse-stock-panel-counts"
+          aria-labelledby="warehouse-stock-tab-counts"
+          className="warehouse-admin-grid"
+        >
+          <div className="warehouse-card">
+            <h3>{t('Stock counts', 'عمليات الجرد')}</h3>
+            <p className="warehouse-hint">
+              {t(
+                'A count freezes what the system believed, records what was found, and posts the difference once when closed. Closing requires finance authority.',
+                'الجرد يثبّت ما يعتقده النظام، ويسجّل ما وُجد فعلاً، ويرحّل الفرق مرة واحدة عند الإغلاق. الإغلاق يتطلب صلاحية مالية.',
+              )}
+            </p>
+            {data.stockCounts.length === 0 ? (
+              <p className="warehouse-empty">
+                {t('No count has been opened yet.', 'لم يُفتح أي جرد بعد.')}
+              </p>
+            ) : (
+              data.stockCounts.map((count) => (
+                <article key={count.id} className="warehouse-count">
+                  <header>
+                    <div>
+                      <strong>{count.countNumber}</strong>
+                      <small>
+                        {count.warehouseCode}
+                        {count.binCode ? ` · ${count.binCode}` : ''} · {count.currency}
+                      </small>
+                    </div>
+                    <span className={`warehouse-status warehouse-status--${count.status}`}>
+                      {
+                        {
+                          open: t('Open', 'مفتوح'),
+                          closed: t('Closed', 'مغلق'),
+                          cancelled: t('Cancelled', 'ملغى'),
+                        }[count.status]
+                      }
+                    </span>
+                  </header>
+                  <div className="warehouse-table-scroll">
+                    <table className="warehouse-table">
+                      <caption className="warehouse-visually-hidden">
+                        {t('Count lines', 'بنود الجرد')} {count.countNumber}
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">{t('SKU', 'الرمز')}</th>
+                          <th scope="col">{t('System', 'النظام')}</th>
+                          <th scope="col">{t('Counted', 'المجرود')}</th>
+                          <th scope="col">{t('Variance', 'الفرق')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {count.lines.map((line) => (
+                          <tr key={line.id}>
+                            <td>{line.sku}</td>
+                            <td>{line.systemQuantity}</td>
+                            <td>{line.countedQuantity ?? t('Not counted', 'لم يُجرد')}</td>
+                            <td>
+                              {line.variance === null
+                                ? '—'
+                                : line.variance > 0
+                                  ? `+${line.variance}`
+                                  : line.variance}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {count.status === 'open' && (
+                    <form
+                      className="warehouse-form"
+                      onSubmit={(event) =>
+                        dispatchCount(event, (form) => ({
+                          action: 'record_count',
+                          countId: count.id,
+                          expectedVersion: count.version,
+                          lines: count.lines.map((line) => ({
+                            lineId: line.id,
+                            countedQuantity: readNumber(form, `counted-${line.id}`),
+                          })),
+                          ...evidenceFrom(form),
+                        }))
+                      }
+                    >
+                      <h4>{t('Record counted quantities', 'تسجيل الكميات المجرودة')}</h4>
+                      <div className="warehouse-form__pair">
+                        {count.lines.map((line) => (
+                          <label key={line.id}>
+                            {line.sku}
+                            <input
+                              name={`counted-${line.id}`}
+                              type="number"
+                              min={0}
+                              required
+                              defaultValue={line.countedQuantity ?? line.systemQuantity}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <StockEvidenceFields t={t} />
+                      <div className="warehouse-form__actions">
+                        <button className="warehouse-primary" disabled={busy}>
+                          {t('Save counted quantities', 'حفظ الكميات')}
+                        </button>
+                        <button
+                          type="button"
+                          className="warehouse-link"
+                          disabled={busy}
+                          onClick={() =>
+                            onCount({
+                              action: 'close_count',
+                              countId: count.id,
+                              expectedVersion: count.version,
+                              reasonEn: `Closing stock count ${count.countNumber}`,
+                              reasonAr: `إغلاق جرد المخزون ${count.countNumber}`,
+                              evidence: `Count sheet ${count.countNumber} approved for posting.`,
+                            })
+                          }
+                        >
+                          {t('Close and post variance', 'إغلاق وترحيل الفرق')}
+                        </button>
+                        <button
+                          type="button"
+                          className="warehouse-link"
+                          disabled={busy}
+                          onClick={() =>
+                            onCount({
+                              action: 'cancel_count',
+                              countId: count.id,
+                              expectedVersion: count.version,
+                              reasonEn: `Cancelling stock count ${count.countNumber}`,
+                              reasonAr: `إلغاء جرد المخزون ${count.countNumber}`,
+                              evidence: `Count sheet ${count.countNumber} abandoned without posting.`,
+                            })
+                          }
+                        >
+                          {t('Cancel count', 'إلغاء الجرد')}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+
+          <form
+            className="warehouse-form warehouse-card"
+            onSubmit={(event) =>
+              dispatchCount(event, (form) => ({
+                action: 'open_count',
+                countNumber: readText(form, 'countNumber'),
+                warehouseId: readText(form, 'warehouseId'),
+                binId: optionalId(form, 'binId'),
+                currency: readText(form, 'currency'),
+                ...evidenceFrom(form),
+              }))
+            }
+          >
+            <h3>{t('Open a count', 'فتح جرد')}</h3>
+            <label>
+              {t('Count number', 'رقم الجرد')}
+              <input name="countNumber" required minLength={2} maxLength={80} />
+            </label>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Warehouse', 'المستودع')}
+                <select name="warehouseId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data.warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.warehouseCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('Bin (optional)', 'الرف (اختياري)')}
+                <select name="binId" defaultValue="">
+                  <option value="">{t('Whole warehouse', 'المستودع بالكامل')}</option>
+                  {data.bins
+                    .filter((bin) => bin.active)
+                    .map((bin) => (
+                      <option key={bin.id} value={bin.id}>
+                        {bin.warehouseCode} · {bin.binCode}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <label>
+              {t('Valuation currency', 'عملة التقييم')}
+              <select name="currency" defaultValue="USD">
+                <option value="USD">USD</option>
+                <option value="LBP">LBP</option>
+              </select>
+            </label>
+            <p className="warehouse-hint">
+              {t(
+                'Every line is valued in this one currency, so a count never mixes USD and LBP.',
+                'تُقيَّم كل البنود بهذه العملة وحدها، لذا لا يخلط الجرد الدولار والليرة أبداً.',
+              )}
+            </p>
+            <StockEvidenceFields t={t} />
+            <button className="warehouse-primary" disabled={busy}>
+              {t('Open count', 'فتح الجرد')}
             </button>
           </form>
         </div>

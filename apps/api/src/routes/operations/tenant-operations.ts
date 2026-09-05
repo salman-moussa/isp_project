@@ -11,6 +11,7 @@ import {
   warehouseAdminCommandSchema,
   stockCommandSchema,
   stockReservationCommandSchema,
+  stockCountCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -53,6 +54,23 @@ const stockTransferBody = z
   })
   .strict();
 const stockReservationBody = z.object({ command: stockReservationCommandSchema }).strict();
+// Opening and recording a count is warehouse work; closing it posts variance and is finance work.
+const stockCountBody = z
+  .object({
+    command: stockCountCommandSchema.refine(
+      (command) => command.action !== 'close_count',
+      'Closing a count uses the MFA-protected finance route.',
+    ),
+  })
+  .strict();
+const stockCountCloseBody = z
+  .object({
+    command: stockCountCommandSchema.refine(
+      (command) => command.action === 'close_count',
+      'Only close commands are accepted here.',
+    ),
+  })
+  .strict();
 const stockAdjustBody = z
   .object({
     command: stockCommandSchema.refine(
@@ -681,6 +699,8 @@ export const operationsRequestSchemas = {
   stockTransferBody,
   stockAdjustBody,
   stockReservationBody,
+  stockCountBody,
+  stockCountCloseBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1120,6 +1140,25 @@ export function registerTenantOperationsRoutes(
       'stock_reservation',
       stockReservationBody,
       (w, id, v) => w.executeStockReservationCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/counts',
+      'commandOperationsStockCount',
+      'tenant.installation.manage',
+      'tenant.warehouse.stock.count',
+      'stock_count',
+      stockCountBody,
+      (w, id, v) => w.executeStockCountCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/counts/close',
+      'closeOperationsStockCount',
+      'tenant.accounting.post',
+      'tenant.warehouse.stock.count.close',
+      'stock_count',
+      stockCountCloseBody,
+      (w, id, v) => w.executeStockCountCommand(id, v as never),
+      true,
     ),
     operation(
       '/warehouse/stock/adjust',
