@@ -11,6 +11,7 @@ import type {
   StockReservationCommand,
   StockCountCommand,
   RmaCommand,
+  VendorQuoteCommand,
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
@@ -25,6 +26,7 @@ import {
   executeStockReservationCommand,
   executeStockCountCommand,
   executeRmaCommand,
+  executeVendorQuoteCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -1254,8 +1256,159 @@ try {
   assert.equal(suggestion.reorderThreshold, 10);
   assert.equal(suggestion.suggestedQuantity, 8);
 
+  // --- Vendor quote requests and comparison -------------------------------------------
+  const quoteCommand = (
+    command: VendorQuoteCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeVendorQuoteCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign('tenant.warehouse.quote.manage', 'tenant.catalog.manage', key, overrides),
+    });
+  const quoteEvidence = {
+    reasonEn: 'Sourcing drop wire for the northern branch rollout',
+    reasonAr: 'تأمين أسلاك التوصيل لإطلاق فرع الشمال',
+    evidence: 'Sourcing file SRC-2026-020 approved by procurement.',
+  };
+
+  const requestKey = randomUUID();
+  const createRequest: VendorQuoteCommand = {
+    action: 'create_quote_request',
+    requestNumber: `RFQ-${tenantId.slice(0, 8)}`,
+    warehouseId,
+    lines: [{ itemId: bulkItem.id, quantity: 100 }],
+    ...quoteEvidence,
+  };
+  const request = await quoteCommand(createRequest, requestKey);
+  const requestId = (request as { requestId: string }).requestId;
+  assert.equal((request as { status: string }).status, 'open');
+  assert.deepEqual(await quoteCommand(createRequest, requestKey), request);
+  await assert.rejects(
+    quoteCommand({ ...createRequest, evidence: 'A conflicting quote request retry.' }, requestKey),
+  );
+  // Quote handling has its own signed action; a procurement signature must not reach it.
+  await assert.rejects(
+    executeVendorQuoteCommand(runtime.db, tenantId, {
+      command: createRequest,
+      authorization: sign('tenant.warehouse.procurement.manage', 'tenant.catalog.manage'),
+    }),
+  );
+
+  const [requestLine] = await admin.unsafe(
+    'SELECT id FROM operations_vendor_quote_request_lines WHERE tenant_id=$1 AND request_id=$2',
+    [tenantId, requestId],
+  );
+  // A quote that does not price every requested line is not comparable.
+  await assert.rejects(
+    quoteCommand({
+      action: 'record_quote',
+      requestId,
+      expectedVersion: 1,
+      vendorId: vendor.id,
+      currency: 'USD',
+      leadTimeDays: 14,
+      lines: [],
+      ...quoteEvidence,
+    } as unknown as VendorQuoteCommand),
+  );
+
+  const firstQuote = await quoteCommand({
+    action: 'record_quote',
+    requestId,
+    expectedVersion: 1,
+    vendorId: vendor.id,
+    currency: 'USD',
+    leadTimeDays: 21,
+    lines: [{ requestLineId: requestLine.id as string, unitCostMinor: 1600 }],
+    ...quoteEvidence,
+  });
+  // 100 units at 1600 minor units.
+  assert.equal((firstQuote as { totalAmountMinor: number }).totalAmountMinor, 160000);
+
+  const secondVendor = await procure({
+    action: 'create_vendor',
+    vendorCode: `V2-${tenantId.slice(0, 8)}`,
+    nameEn: 'Competing supplier',
+    nameAr: 'مورد منافس',
+    ...procurementEvidence,
+  });
+  const cheaperQuote = await quoteCommand({
+    action: 'record_quote',
+    requestId,
+    expectedVersion: 2,
+    vendorId: secondVendor.id,
+    currency: 'USD',
+    leadTimeDays: 30,
+    lines: [{ requestLineId: requestLine.id as string, unitCostMinor: 1450 }],
+    ...quoteEvidence,
+  });
+  assert.equal((cheaperQuote as { totalAmountMinor: number }).totalAmountMinor, 145000);
+  // A second submission from the same vendor is a correction, not a rival bid.
+  await assert.rejects(
+    quoteCommand({
+      action: 'record_quote',
+      requestId,
+      expectedVersion: 3,
+      vendorId: vendor.id,
+      currency: 'USD',
+      leadTimeDays: 10,
+      lines: [{ requestLineId: requestLine.id as string, unitCostMinor: 1500 }],
+      ...quoteEvidence,
+    }),
+  );
+
+  const awarded = await quoteCommand({
+    action: 'award_quote',
+    requestId,
+    expectedVersion: 3,
+    quoteId: (cheaperQuote as { quoteId: string }).quoteId,
+    poNumber: `PO3-${tenantId.slice(0, 8)}`,
+    ...quoteEvidence,
+  });
+  assert.equal((awarded as { status: string }).status, 'awarded');
+  // Awarding creates a draft order at the quoted price, so nobody retypes it.
+  assert.equal((awarded as { totalAmountMinor: number }).totalAmountMinor, 145000);
+  const awardedPoId = (awarded as { purchaseOrderId: string }).purchaseOrderId;
+  const [awardedPo] = await admin.unsafe(
+    'SELECT status,total_amount_minor,vendor_id FROM operations_purchase_orders WHERE tenant_id=$1 AND id=$2',
+    [tenantId, awardedPoId],
+  );
+  assert.equal(awardedPo.status, 'draft');
+  assert.equal(Number(awardedPo.total_amount_minor), 145000);
+  assert.equal(awardedPo.vendor_id, secondVendor.id);
+  const [awardedLine] = await admin.unsafe(
+    'SELECT quantity,unit_cost_minor FROM operations_purchase_order_lines WHERE tenant_id=$1 AND purchase_order_id=$2',
+    [tenantId, awardedPoId],
+  );
+  assert.equal(awardedLine.quantity, 100);
+  assert.equal(Number(awardedLine.unit_cost_minor), 1450);
+
+  // An awarded request is closed to further quotes and cannot be awarded twice.
+  await assert.rejects(
+    quoteCommand({
+      action: 'award_quote',
+      requestId,
+      expectedVersion: 4,
+      quoteId: (firstQuote as { quoteId: string }).quoteId,
+      poNumber: `PO4-${tenantId.slice(0, 8)}`,
+      ...quoteEvidence,
+    }),
+  );
+
+  const withQuotes = await read();
+  const awardedRequest = withQuotes.quoteRequests.find((r) => r.id === requestId);
+  assert(awardedRequest, 'expected the quote request in the workspace');
+  assert.equal(awardedRequest.status, 'awarded');
+  assert.equal(awardedRequest.quotes.length, 2);
+  // Cheapest first, so comparison does not depend on the reader re-sorting.
+  assert.equal(awardedRequest.quotes[0]?.totalAmountMinor, 145000);
+  assert.equal(awardedRequest.quotes[0]?.status, 'awarded');
+  assert.equal(awardedRequest.quotes[1]?.status, 'rejected');
+  assert.equal(awardedRequest.purchaseOrderId, awardedPoId);
+
   console.log(
-    'Inventory live proof passed: custody, procurement, administration, partial receiving, transfers, adjustments, reservations, consumption, stock counts, RMA lifecycle and reorder suggestions.',
+    'Inventory live proof passed: custody, procurement, administration, partial receiving, transfers, adjustments, reservations, consumption, counts, RMA, reorder suggestions and vendor quote comparison.',
   );
 } finally {
   await admin

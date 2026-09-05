@@ -16,6 +16,34 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Vendor quote requests and comparison — 2026-09-05
+
+Purchase orders could be created, but only by someone who already knew the price. Migration
+202609051400_tenant_vendor_quotes.sql adds quote requests, per-vendor quotes with priced lines, and
+execute_vendor_quote_command at POST .../warehouse/quotes (tenant.catalog.manage +
+tenant.warehouse.quote.manage).
+
+Awarding turns the chosen quote into a draft purchase order at the quoted prices, so nobody retypes
+them and the order still goes through the normal approval path. Losing quotes are marked rejected in
+the same transaction. Quotes are read cheapest first, and each carries its own currency: USD and LBP
+quotes are compared side by side, never summed.
+
+A quote must price every requested line or it is not comparable, one quote per vendor per request (a
+second submission is a correction, not a rival bid), and an expired quote cannot be awarded.
+
+Live acceptance on PostgreSQL 18 proves: request creation with exact replay and changed-payload
+conflict; a procurement signature refused for the quote action; an unpriced quote refused; two
+quotes at 160000 and 145000; a duplicate vendor submission refused; awarding the cheaper quote
+creating a draft order at 145000 with the quoted 1450 unit cost and the winning vendor; a second
+award refused; and the workspace showing the awarded quote first with the loser marked rejected.
+
+Also records goods rejected on arrival in operations_purchase_receipt_rejections without letting
+them into stock, leaving the purchase-order line outstanding so the vendor can re-ship — which is
+what a backorder is.
+
+Focused suites: contracts 23/23, database 75/75, api 103/103, tenant-web 82/82 (32 warehouse tests).
+Build and all static gates pass.
+
 ## RMA lifecycle and reorder suggestions — 2026-09-05
 
 A serialized asset could be moved to the `rma` status, but that was a dead end: no case, no vendor,
