@@ -3,6 +3,7 @@ import type {
   InventoryCustodyCommand,
   ProcurementCommand,
   SerializedAssetRecord,
+  StockCommand,
   WarehouseAdminCommand,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
@@ -10,6 +11,7 @@ import { inventoryCustodyCommandSchema, procurementCommandSchema } from '@isp/co
 import type { ApiSession, Locale } from '@isp/ui';
 import { readWarehouseWorkspace, submitTenantOperation } from '../api';
 import { WarehouseAdministration } from './WarehouseAdministration';
+import { WarehouseStock } from './WarehouseStock';
 import './warehouse.css';
 
 type Action = InventoryCustodyCommand['action'];
@@ -33,6 +35,7 @@ export function WarehouseWorkspace({
   const retry = useRef<{ fingerprint: string; key: string } | undefined>(undefined);
   const [procurementMessage, setProcurementMessage] = useState('');
   const [administrationMessage, setAdministrationMessage] = useState('');
+  const [stockMessage, setStockMessage] = useState('');
 
   useEffect(() => {
     if (!session) {
@@ -194,6 +197,42 @@ export function WarehouseWorkspace({
           : t(
               'The change was not saved. Refresh to see the current record, then reapply.',
               'لم يُحفظ التغيير. حدّث الصفحة لعرض السجل الحالي ثم أعد التطبيق.',
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runStock(command: StockCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setStockMessage('');
+    try {
+      // Moving stock and writing its value off are separate authorities, hence separate routes.
+      await submitTenantOperation(
+        session,
+        command.action === 'adjust_stock' ? 'warehouse/stock/adjust' : 'warehouse/stock/transfer',
+        { command },
+        retry.current.key,
+      );
+      retry.current = undefined;
+      setStockMessage(
+        command.action === 'adjust_stock'
+          ? t('Adjustment posted.', 'تم ترحيل التسوية.')
+          : t('Transfer recorded.', 'تم تسجيل التحويل.'),
+      );
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setStockMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t(
+              'The movement was not recorded. Refresh to see current quantities, then retry.',
+              'لم تُسجَّل الحركة. حدّث الصفحة لعرض الكميات الحالية ثم أعد المحاولة.',
             ),
       );
     } finally {
@@ -745,6 +784,16 @@ export function WarehouseWorkspace({
           </p>
         )}
       </section>
+
+      {data && (
+        <WarehouseStock
+          locale={locale}
+          data={data}
+          busy={busy}
+          message={stockMessage}
+          onSubmit={(command) => void runStock(command)}
+        />
+      )}
 
       {data && (
         <WarehouseAdministration

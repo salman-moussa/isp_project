@@ -17,6 +17,7 @@ const serviceId = '60000000-0000-4000-8000-000000000001';
 const installerId = '70000000-0000-4000-8000-000000000001';
 const binId = '90000000-0000-4000-8000-000000000001';
 const branchId = 'b0000000-0000-4000-8000-000000000001';
+const bulkItemId = 'f0000000-0000-4000-8000-000000000001';
 const session: ApiSession = {
   apiBaseUrl: 'https://example.test',
   tenantId,
@@ -49,6 +50,19 @@ const fixture: Workspace = {
       unitCostMinorLbp: 0,
       serializedFlag: true,
       reorderThreshold: 5,
+      active: true,
+      version: 1,
+    },
+    {
+      id: bulkItemId,
+      sku: 'DROP-100',
+      nameEn: 'Drop wire 100m reel',
+      nameAr: 'بكرة سلك توصيل 100 متر',
+      category: 'drop_wire',
+      unitCostMinorUsd: 1500,
+      unitCostMinorLbp: 0,
+      serializedFlag: false,
+      reorderThreshold: 10,
       active: true,
       version: 1,
     },
@@ -121,6 +135,42 @@ const fixture: Workspace = {
       reasonAr: 'تحميل الفهرس الأولي لإطلاق بيروت',
       evidence: 'Change request CR-2026-001.',
       occurredAt: '2026-09-01T09:00:00.000Z',
+      actorName: 'Rana Administrator',
+    },
+  ],
+  stockBalances: [
+    {
+      id: 'c0000000-0000-4000-8000-000000000001',
+      itemId: bulkItemId,
+      sku: 'DROP-100',
+      itemNameEn: 'Drop wire 100m reel',
+      itemNameAr: 'بكرة سلك توصيل 100 متر',
+      warehouseId,
+      warehouseCode: 'BEY-01',
+      binId,
+      binCode: 'A-01',
+      quantityOnHand: 4,
+      quantityReserved: 0,
+      reorderThreshold: 10,
+      version: 2,
+    },
+  ],
+  stockMovements: [
+    {
+      id: 'd0000000-0000-4000-8000-000000000001',
+      itemId: bulkItemId,
+      sku: 'DROP-100',
+      kind: 'receipt',
+      warehouseCode: 'BEY-01',
+      binCode: 'A-01',
+      quantity: 4,
+      unitCostMinor: 1500,
+      currency: 'USD',
+      journalEntryId: 'e0000000-0000-4000-8000-000000000001',
+      reasonEn: 'First instalment of the drop wire order',
+      reasonAr: 'الدفعة الأولى من طلب أسلاك التوصيل',
+      evidence: 'Delivery note DN-2026-004.',
+      occurredAt: '2026-09-03T10:00:00.000Z',
       actorName: 'Rana Administrator',
     },
   ],
@@ -265,7 +315,9 @@ describe('Warehouse master-data administration', () => {
     const user = userEvent.setup();
     render(<WarehouseWorkspace locale="en" session={session} />);
     const table = (await screen.findByRole('table', { name: 'Catalog items' })).closest('table');
-    await user.click(within(table!).getByRole('button', { name: 'Edit' }));
+    // The catalog holds several SKUs, so edit the row for this one rather than the first button.
+    const row = within(table!).getByText('CPE-AX').closest('tr');
+    await user.click(within(row!).getByRole('button', { name: 'Edit' }));
 
     const form = screen.getByRole('heading', { name: 'Edit CPE-AX' }).closest('form');
     const controls = within(form!);
@@ -361,5 +413,110 @@ describe('Warehouse master-data administration', () => {
     await user.click(screen.getByRole('tab', { name: /سجل التغييرات/ }));
     expect(screen.getByText('تم إنشاء صنف')).toBeVisible();
     expect(screen.getByText('تحميل الفهرس الأولي لإطلاق بيروت')).toBeVisible();
+  });
+});
+
+describe('Warehouse bulk stock', () => {
+  const fillStockEvidence = async (user: ReturnType<typeof userEvent.setup>, form: HTMLElement) => {
+    const controls = within(form);
+    await user.type(
+      controls.getByLabelText('Stock reason in English'),
+      'Rebalancing drop wire for the branch rollout',
+    );
+    await user.type(controls.getByLabelText('Stock reason in Arabic'), 'إعادة توزيع أسلاك التوصيل');
+    await user.type(
+      controls.getByLabelText('Stock evidence / reference'),
+      'Stock movement note SM-2026-311',
+    );
+  };
+
+  it('flags a location at or below its reorder point', async () => {
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    const table = await screen.findByRole('table', { name: 'Stock on hand' });
+    const row = within(table).getByText('DROP-100').closest('tr');
+    // 4 on hand against a threshold of 10 must be visible as a reorder signal, not just a number.
+    expect(within(row!).getByText('Reorder')).toBeVisible();
+  });
+
+  it('sends a transfer to the operations route', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Transfer' }));
+    const form = screen
+      .getByRole('heading', { name: 'Move stock between locations' })
+      .closest('form');
+    const controls = within(form!);
+    await user.selectOptions(controls.getByLabelText('Item'), bulkItemId);
+    await user.type(controls.getByLabelText('Quantity'), '3');
+    await user.selectOptions(controls.getByLabelText('From warehouse'), warehouseId);
+    await user.selectOptions(controls.getByLabelText('From bin (optional)'), binId);
+    await user.selectOptions(controls.getByLabelText('To warehouse'), warehouseId);
+    await fillStockEvidence(user, form!);
+    await user.click(controls.getByRole('button', { name: 'Record transfer' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/stock/transfer');
+    expect(call?.[2].command).toMatchObject({
+      action: 'transfer_stock',
+      itemId: bulkItemId,
+      quantity: 3,
+      fromBinId: binId,
+    });
+  });
+
+  it('sends an adjustment to the MFA-protected finance route', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Adjust' }));
+    const form = screen
+      .getByRole('heading', { name: 'Correct a counted difference' })
+      .closest('form');
+    const controls = within(form!);
+    await user.selectOptions(controls.getByLabelText('Item'), bulkItemId);
+    await user.type(controls.getByLabelText('Quantity'), '2');
+    await user.selectOptions(controls.getByLabelText('Warehouse'), warehouseId);
+    await fillStockEvidence(user, form!);
+    await user.click(controls.getByRole('button', { name: 'Post adjustment' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/stock/adjust');
+    expect(call?.[2].command).toMatchObject({
+      action: 'adjust_stock',
+      direction: 'decrease',
+      currency: 'USD',
+      quantity: 2,
+    });
+  });
+
+  it('refuses a transfer whose source and destination are identical', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Transfer' }));
+    const form = screen
+      .getByRole('heading', { name: 'Move stock between locations' })
+      .closest('form');
+    const controls = within(form!);
+    await user.selectOptions(controls.getByLabelText('Item'), bulkItemId);
+    await user.type(controls.getByLabelText('Quantity'), '3');
+    await user.selectOptions(controls.getByLabelText('From warehouse'), warehouseId);
+    await user.selectOptions(controls.getByLabelText('To warehouse'), warehouseId);
+    await fillStockEvidence(user, form!);
+    await user.click(controls.getByRole('button', { name: 'Record transfer' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Source and destination locations must differ.',
+    );
+    expect(api.submitTenantOperation).not.toHaveBeenCalled();
+  });
+
+  it('shows movement history with its posted value in Arabic', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="ar" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'الحركات' }));
+    expect(screen.getByText('استلام')).toBeVisible();
+    // 4 units at 1500 minor units = 60.00 USD posted.
+    expect(screen.getByText('60 USD')).toBeVisible();
   });
 });

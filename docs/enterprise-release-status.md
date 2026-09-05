@@ -16,6 +16,53 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Bulk stock, partial receiving, transfers and adjustments — 2026-09-05
+
+The catalog could already describe a non-serialized SKU, but nothing could hold, receive, move or
+count quantity, so a bulk item was a dead end. Migration `202609051000_tenant_stock_movements.sql`
+adds `operations_stock_balances` (quantity per item, warehouse and bin, with `NULLS NOT DISTINCT` so
+unbinned stock collapses to one row), the append-only `operations_stock_movements` ledger,
+`apply_stock_delta`, `post_inventory_journal` and `execute_stock_command`. It also replaces
+`execute_procurement_command` — migration 1811 is applied and untouched — so a purchase order can
+carry bulk lines and be received in instalments.
+
+Authority is split by financial consequence. A transfer relocates quantity without changing value
+and posts no journal, signed with `tenant.installation.manage` + `tenant.warehouse.stock.transfer`
+at `POST …/warehouse/stock/transfer`. An adjustment changes what the business owns and posts to
+inventory variance (account `5200`), so it needs `tenant.accounting.post` +
+`tenant.warehouse.stock.adjust` and recent MFA at `POST …/warehouse/stock/adjust`. Each route
+refuses the other's command.
+
+Partial receipts post **only the value actually received**, so a part-shipment never overstates
+payables. Purchase orders gain a `partially_received` status, and the previous one-journal-per-order
+index is replaced by one keyed on the receipt's own idempotency key.
+
+Live acceptance on PostgreSQL 18 proves: a mixed serialized/bulk order; a bulk line refused by
+serial number and a serialized line refused by quantity; over-receipt beyond the outstanding
+quantity refused; a first instalment posting 6000 minor units and leaving the order
+`partially_received`; exact idempotent replay; a second instalment posting 17800 and completing the
+order, with two balanced journals summing to the full 23800; transfers moving 4 units and leaving
+balances of 6 and 4; replay and changed-payload conflict; insufficient stock refused; a serialized
+item refused from the bulk plane; the finance signature refused for a transfer; a decrease posting
+3000/3000 to variance at standard cost; and append-only movements rejecting tampering.
+
+Two defects were found by running the SQL rather than reading it. The command first wrote movement
+rows and then `UPDATE`d them to store the result, which the append-only trigger correctly rejected;
+ids are now chosen before insert so the stored result is final. And `inventory_catalog_scope_allows`
+/ `inventory_warehouse_scope_allows` did not recognise the finance adjust action, so the adjusting
+session could not read the item or warehouse it was correcting; both now permit that one action.
+
+Focused suites: `@isp/contracts` 23/23, `@isp/database` 75/75, `@isp/api` 100/100, `@isp/tenant-web`
+65/65 (15 warehouse tests, including reorder flagging, both stock routes, the identical-location
+refusal and Arabic movement history). Build, `brand:check`, `db:check`, `smoke:api`,
+`release:packaging` and Prettier pass. `apps/api/vitest.config.ts` raises the test timeout to 30s:
+several route cases build multiple Fastify instances and were failing as timeouts under load rather
+than on their assertions.
+
+Not done: reservations against balances (the column exists and is enforced but nothing sets it),
+stock counts, RMA/repair lifecycle, reorder suggestions, vendor quote comparison, backorders and
+rejected/damaged quantities, and weighted-average costing — valuation is standard cost today.
+
 ## Production checkpoint deployed — 2026-09-05 (`6f289f9`)
 
 Production was moved from `7ecf011` to `6f289f9`, promoting the Wave 0 release-packaging work and
