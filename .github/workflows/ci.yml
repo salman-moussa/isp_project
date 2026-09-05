@@ -40,6 +40,23 @@ jobs:
           node -e 'const p=require("./package.json"); if (!p.scripts?.["test:integration"]) throw new Error("test:integration is required")'
           echo "integration=true" >> "$GITHUB_OUTPUT"
 
+  # Runs before every other gate: a CRLF blob or a non-executable provisioning script
+  # breaks production deployment while passing lint, typecheck, and tests.
+  packaging:
+    needs: detect
+    if: needs.detect.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Verify release packaging contract
+        run: node scripts/release/verify-release-packaging.mjs
+
   quality:
     needs: detect
     if: needs.detect.outputs.node == 'true'

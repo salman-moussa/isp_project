@@ -1,5 +1,27 @@
 # Release exercise scripts
 
+## Packaging integrity (wired into CI and `npm run validate`)
+
+```sh
+npm run release:packaging              # verify the committed bytes are deployable
+npm run release:artifact -- --ref <sha> --out artifacts/release
+```
+
+`verify-release-packaging.mjs` inspects git **index blobs**, not the working tree, so its result
+does not depend on a contributor's `core.autocrlf`. It fails on CR in a tracked text blob, a `*.sh`
+without mode `100755`, a UTF-8 BOM in a migration, a migration name that is not forward-only under
+the migrator's ordering, or a migration missing its database-plane scope.
+
+`build-release-artifact.mjs` packages a commit with `git archive` — committed bytes, committed
+modes, fixed mtime, dirty trees refused — and writes a manifest recording the archive digest, the
+SHA-256 of every packaged migration, and every shell script's mode.
+
+`packages/database/scripts/preflight-migrations.mjs` (shipped in the `migrate` image) compares those
+migration checksums against the live `_orvex_migrations` ledger before any container is recreated.
+It is read-only and never edits the ledger; a mismatch is a packaging defect to fix in the artifact.
+
+## Backup, restore, and rollback exercises
+
 These scripts are intentionally outside the root npm manifest until the integration owner adds the
 reviewed CI hooks. They require Node 22 and external PostgreSQL client/`age` binaries for recovery
 work. Database access uses a libpq service entry (`PGSERVICE`/`PGSERVICEFILE`) so credentials are

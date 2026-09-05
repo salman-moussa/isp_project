@@ -36,7 +36,7 @@ Risks/decisions: [live register](requirements/assumptions-and-risks.md)
 | Network & Integrations | isolated processes under `workers`, provider adapters/contracts | No Platform Subscription consumer; Security/ISP Network review.                  |
 | Platform Web           | `apps/platform-web`                                             | No direct DB/provider access.                                                    |
 | ISP Web                | `apps/tenant-web`                                               | No direct DB/RouterOS access.                                                    |
-| Mobile                 | `apps/collector-mobile`, mobile sync client/printer adapters    | Server sync/finance contract coordinated with Tenant Backend; Security review.   |
+| Mobile                 | `apps/collect`, mobile sync client/printer adapters             | Server sync/finance contract coordinated with Tenant Backend; Security review.   |
 | QA & Automation        | `docs/testing/**`, cross-surface E2E/performance fixtures       | Does not silently change feature behavior to make tests pass.                    |
 | DevOps & SRE           | `infra/**`, CI/CD, runbooks/operations                          | Security reviews secrets/network/images; owners approve RPO/RTO.                 |
 | Independent Review     | Evidence-only final architecture/security/UX/quality review     | Authors no reviewed critical feature.                                            |

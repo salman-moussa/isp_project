@@ -12,8 +12,9 @@ no subscriber account, portal, or login.
 - `apps/api`: versioned HTTP API and composition root.
 - `apps/platform-web`: Orvex staff-only Orvex ISP Control Center.
 - `apps/tenant-web`: tenant Orvex ISP Operations workspace.
-- `apps/collector-mobile`: internal Orvex ISP Collect application.
-- `apps/document-verifier`: public single-document verification only.
+- `apps/collect`: internal Orvex ISP Collect application (Expo/React Native).
+- `apps/document-verifier`: **not yet created.** Public single-document verification is still
+  unimplemented; the surface stays separate from tenant and platform sessions when it lands.
 - `packages/contracts`: API schemas, permissions, statuses, and shared identifiers.
 - `packages/domain`: framework-free domain rules and state machines.
 - `packages/database`: PostgreSQL schema, migrations, repositories, and isolation policies.
@@ -57,8 +58,14 @@ npm run typecheck
 npm test
 npm run build
 npm run db:check
+npm run release:packaging
 npm run validate
 ```
+
+`release:packaging` asserts the committed bytes are deployable: LF-only text blobs, executable
+`*.sh`, and forward-only scoped migrations. It exists because a CRLF checkout silently changes an
+applied migration's SHA-256 and breaks production deployment mid-flight. Never work around it by
+editing `_orvex_migrations`; fix the artifact.
 
 Use `docker compose up -d` for local dependencies after copying `.env.example` to `.env`. Tests must
 not require live OMT, Whish, MikroTik, mapping, message, or payment credentials; use fakes and the
