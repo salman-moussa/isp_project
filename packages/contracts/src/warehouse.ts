@@ -9,29 +9,51 @@ export const warehouseRecordSchema = z.object({
   locationAddress: z.string().trim().min(2).max(300),
   isPrimary: z.boolean(),
   active: z.boolean(),
+  version: z.number().int().positive(),
 });
 export type WarehouseRecord = z.infer<typeof warehouseRecordSchema>;
+
+export const inventoryItemCategorySchema = z.enum([
+  'router_cpe',
+  'ont_onu',
+  'fiber_cable',
+  'drop_wire',
+  'connector',
+  'accessory',
+  'other',
+]);
+export type InventoryItemCategory = z.infer<typeof inventoryItemCategorySchema>;
 
 export const inventoryItemRecordSchema = z.object({
   id: z.string().uuid(),
   sku: z.string().trim().min(2).max(50),
   nameEn: z.string().trim().min(2).max(150),
   nameAr: z.string().trim().min(2).max(150),
-  category: z.enum([
-    'router_cpe',
-    'ont_onu',
-    'fiber_cable',
-    'drop_wire',
-    'connector',
-    'accessory',
-    'other',
-  ]),
+  category: inventoryItemCategorySchema,
   unitCostMinorUsd: z.number().int().nonnegative(),
   unitCostMinorLbp: z.number().int().nonnegative(),
   serializedFlag: z.boolean(),
   reorderThreshold: z.number().int().nonnegative(),
+  active: z.boolean(),
+  version: z.number().int().positive(),
 });
 export type InventoryItemRecord = z.infer<typeof inventoryItemRecordSchema>;
+
+export const warehouseBinKindSchema = z.enum(['stock', 'staging', 'quarantine', 'rma', 'scrap']);
+export type WarehouseBinKind = z.infer<typeof warehouseBinKindSchema>;
+
+export const warehouseBinRecordSchema = z.object({
+  id: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  warehouseCode: z.string().trim().min(2).max(50),
+  binCode: z.string().trim().min(1).max(40),
+  nameEn: z.string().trim().min(2).max(150),
+  nameAr: z.string().trim().min(2).max(150),
+  binKind: warehouseBinKindSchema,
+  active: z.boolean(),
+  version: z.number().int().positive(),
+});
+export type WarehouseBinRecord = z.infer<typeof warehouseBinRecordSchema>;
 
 export const serializedAssetRecordSchema = z.object({
   id: z.string().uuid(),
@@ -156,6 +178,124 @@ export const procurementCommandSchema = z.discriminatedUnion('action', [
 ]);
 export type ProcurementCommand = z.infer<typeof procurementCommandSchema>;
 
+/**
+ * Warehouse administration commands.
+ *
+ * Update commands carry the complete record, not a patch: the server replaces every field
+ * under an `expectedVersion` check, so two operators editing the same SKU cannot silently
+ * merge into a record neither of them reviewed.
+ */
+const warehouseAdminEvidence = {
+  reasonEn: z.string().trim().min(8).max(1000),
+  reasonAr: z.string().trim().min(8).max(1000),
+  evidence: z.string().trim().min(8).max(2000),
+} as const;
+
+const inventoryItemAttributes = {
+  nameEn: z.string().trim().min(2).max(150),
+  nameAr: z.string().trim().min(2).max(150),
+  category: inventoryItemCategorySchema,
+  unitCostMinorUsd: z.number().int().nonnegative().safe(),
+  unitCostMinorLbp: z.number().int().nonnegative().safe(),
+  serializedFlag: z.boolean(),
+  reorderThreshold: z.number().int().nonnegative().max(100000),
+} as const;
+
+const warehouseAttributes = {
+  nameEn: z.string().trim().min(2).max(150),
+  nameAr: z.string().trim().min(2).max(150),
+  locationAddress: z.string().trim().min(2).max(300),
+  branchId: z.string().uuid(),
+  isPrimary: z.boolean(),
+} as const;
+
+const binAttributes = {
+  nameEn: z.string().trim().min(2).max(150),
+  nameAr: z.string().trim().min(2).max(150),
+  binKind: warehouseBinKindSchema,
+} as const;
+
+export const warehouseAdminCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('create_item'),
+      sku: z.string().trim().min(2).max(50),
+      ...inventoryItemAttributes,
+      ...warehouseAdminEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('update_item'),
+      itemId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...inventoryItemAttributes,
+      active: z.boolean(),
+      ...warehouseAdminEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('create_warehouse'),
+      warehouseCode: z.string().trim().min(2).max(50),
+      ...warehouseAttributes,
+      ...warehouseAdminEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('update_warehouse'),
+      warehouseId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...warehouseAttributes,
+      active: z.boolean(),
+      ...warehouseAdminEvidence,
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (!value.active && value.isPrimary) {
+        context.addIssue({
+          code: 'custom',
+          path: ['isPrimary'],
+          message: 'A closed warehouse cannot be the primary warehouse.',
+        });
+      }
+    }),
+  z
+    .object({
+      action: z.literal('create_bin'),
+      warehouseId: z.string().uuid(),
+      binCode: z.string().trim().min(1).max(40),
+      ...binAttributes,
+      ...warehouseAdminEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('update_bin'),
+      binId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...binAttributes,
+      active: z.boolean(),
+      ...warehouseAdminEvidence,
+    })
+    .strict(),
+]);
+export type WarehouseAdminCommand = z.infer<typeof warehouseAdminCommandSchema>;
+
+export interface WarehouseAdminEvent {
+  readonly id: string;
+  readonly aggregateType: 'item' | 'warehouse' | 'bin';
+  readonly aggregateId: string;
+  readonly aggregateVersion: number;
+  readonly action: WarehouseAdminCommand['action'];
+  readonly reasonEn: string;
+  readonly reasonAr: string;
+  readonly evidence: string;
+  readonly occurredAt: string;
+  readonly actorName: string | null;
+}
+
 export interface ProcurementPurchaseOrder {
   readonly id: string;
   readonly poNumber: string;
@@ -222,4 +362,13 @@ export interface WarehouseWorkspace {
   }[];
   readonly vendors: readonly ProcurementVendor[];
   readonly purchaseOrders: readonly ProcurementPurchaseOrder[];
+  readonly bins: readonly WarehouseBinRecord[];
+  /** Branches the signed session may place a warehouse in; empty means none are in scope. */
+  readonly branches: readonly {
+    readonly id: string;
+    readonly code: string;
+    readonly nameEn: string;
+    readonly nameAr: string;
+  }[];
+  readonly administrationEvents: readonly WarehouseAdminEvent[];
 }

@@ -101,11 +101,18 @@ async function readAppliedLedger(databaseUrl) {
     prepare: false,
   });
   try {
-    const present = await client`
-      SELECT to_regclass('public._orvex_migrations') IS NOT NULL AS present
-    `;
-    if (!present[0].present) return [];
-    return await client`SELECT name, checksum FROM public._orvex_migrations ORDER BY name`;
+    // Read exactly as the migrator does. The migration DSN's login role is not the schema
+    // owner, so without assuming `orvex_owner` the ledger read fails with "permission denied
+    // for schema public" and the preflight would look like an infrastructure fault.
+    return await client.begin(async (transaction) => {
+      await transaction.unsafe('SET LOCAL ROLE orvex_owner');
+      await transaction.unsafe('SET LOCAL search_path TO public, pg_catalog');
+      const present = await transaction`
+        SELECT to_regclass('public._orvex_migrations') IS NOT NULL AS present
+      `;
+      if (!present[0].present) return [];
+      return await transaction`SELECT name, checksum FROM public._orvex_migrations ORDER BY name`;
+    });
   } finally {
     await client.end({ timeout: 5 });
   }

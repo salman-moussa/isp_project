@@ -13,6 +13,7 @@ import type {
   VoucherRedeemInput,
   InventoryCustodyCommand,
   ProcurementCommand,
+  WarehouseAdminCommand,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -566,6 +567,10 @@ export interface OperationsWriter {
   executeProcurementCommand(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly command: ProcurementCommand },
+  ): Promise<unknown>;
+  executeWarehouseAdminCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: WarehouseAdminCommand },
   ): Promise<unknown>;
   readNasClients(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readRadiusSessions(

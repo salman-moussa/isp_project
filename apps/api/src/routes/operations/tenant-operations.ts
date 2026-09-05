@@ -8,6 +8,7 @@ import {
   customerAccountSchemas,
   inventoryCustodyCommandSchema,
   procurementCommandSchema,
+  warehouseAdminCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -39,6 +40,7 @@ const procurementApprovalBody = z
     ),
   })
   .strict();
+const warehouseAdminBody = z.object({ command: warehouseAdminCommandSchema }).strict();
 
 const salesLeadBody = z
   .object({
@@ -655,6 +657,7 @@ export const operationsRequestSchemas = {
   inventoryCustodyBody,
   procurementManageBody,
   procurementApprovalBody,
+  warehouseAdminBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1067,6 +1070,15 @@ export function registerTenantOperationsRoutes(
       'purchase_order',
       procurementManageBody,
       (w, id, v) => w.executeProcurementCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/administration',
+      'executeWarehouseAdminCommand',
+      'tenant.catalog.manage',
+      'tenant.warehouse.administration.manage',
+      'warehouse_administration',
+      warehouseAdminBody,
+      (w, id, v) => w.executeWarehouseAdminCommand(id, v as never),
     ),
     operation(
       '/warehouse/procurement/approve',
