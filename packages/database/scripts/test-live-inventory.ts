@@ -8,6 +8,7 @@ import type {
   ProcurementCommand,
   WarehouseAdminCommand,
   StockCommand,
+  StockReservationCommand,
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
@@ -19,6 +20,7 @@ import {
   executeProcurementCommand,
   executeWarehouseAdminCommand,
   executeStockCommand,
+  executeStockReservationCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -802,8 +804,160 @@ try {
   assert(withStock.stockMovements.some((m) => m.kind === 'adjustment_decrease'));
   assert(withStock.purchaseOrders.some((p) => p.id === mixedOrder.id && p.status === 'received'));
 
+  // --- Reservations and material consumption ------------------------------------------
+  const reserve = (
+    command: StockReservationCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeStockReservationCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign(
+        'tenant.warehouse.stock.reserve',
+        'tenant.installation.manage',
+        key,
+        overrides,
+      ),
+    });
+  const reservationEvidence = {
+    reasonEn: 'Material held for the scheduled customer installation',
+    reasonAr: 'مواد محجوزة للتركيب المجدول للعميل',
+    evidence: 'Job pack JP-2026-778 issued to the field team.',
+  };
+
+  // 6 units remain in the receiving bin after the earlier transfer.
+  const holdCommand: StockReservationCommand = {
+    action: 'reserve_stock',
+    itemId: bulkItem.id,
+    quantity: 4,
+    warehouseId,
+    binId: receivingBin.id,
+    installationId,
+    reference: 'JP-2026-778',
+    ...reservationEvidence,
+  };
+  const holdKey = randomUUID();
+  const held = await reserve(holdCommand, holdKey);
+  assert.equal((held as { status: string }).status, 'held');
+  assert.equal((held as { quantityReserved: number }).quantityReserved, 4);
+  assert.equal((held as { quantityOnHand: number }).quantityOnHand, 6);
+  assert.deepEqual(await reserve(holdCommand, holdKey), held);
+  await assert.rejects(
+    reserve({ ...holdCommand, evidence: 'A conflicting reservation retry.' }, holdKey),
+  );
+
+  // Reserved stock cannot be transferred away from under the job holding it.
+  await assert.rejects(
+    stockMove({
+      action: 'transfer_stock',
+      itemId: bulkItem.id,
+      quantity: 4,
+      fromWarehouseId: warehouseId,
+      fromBinId: receivingBin.id,
+      toWarehouseId: newWarehouse.id,
+      ...stockEvidence,
+    }),
+  );
+  // Only 2 of the 6 are free, so a second hold of 4 must fail.
+  await assert.rejects(reserve({ ...holdCommand, reference: 'JP-2026-779' }));
+  // A serialized item is held through custody, never a bulk reservation.
+  await assert.rejects(reserve({ ...holdCommand, itemId: newItem.id, reference: 'JP-2026-780' }));
+  // Reservations need their own signed action.
+  await assert.rejects(
+    executeStockReservationCommand(runtime.db, tenantId, {
+      command: { ...holdCommand, reference: 'JP-2026-781' },
+      authorization: sign('tenant.warehouse.stock.transfer', 'tenant.installation.manage'),
+    }),
+  );
+
+  const releasedHold = await reserve({
+    action: 'reserve_stock',
+    itemId: bulkItem.id,
+    quantity: 2,
+    warehouseId,
+    binId: receivingBin.id,
+    reference: 'JP-2026-782',
+    ...reservationEvidence,
+  });
+  const releasedId = (releasedHold as { reservationId: string }).reservationId;
+  const released = await reserve({
+    action: 'release_reservation',
+    reservationId: releasedId,
+    expectedVersion: 1,
+    ...reservationEvidence,
+  });
+  // A release returns quantity to free stock and touches no value.
+  assert.equal((released as { status: string }).status, 'released');
+  assert.equal((released as { quantityReserved: number }).quantityReserved, 4);
+  assert.equal((released as { quantityOnHand: number }).quantityOnHand, 6);
+  await assert.rejects(
+    reserve({
+      action: 'release_reservation',
+      reservationId: releasedId,
+      expectedVersion: 2,
+      ...reservationEvidence,
+    }),
+  );
+
+  const heldId = (held as { reservationId: string }).reservationId;
+  await assert.rejects(
+    reserve({
+      action: 'consume_reservation',
+      reservationId: heldId,
+      expectedVersion: 1,
+      quantity: 5,
+      ...reservationEvidence,
+    }),
+  );
+  const consumed = await reserve({
+    action: 'consume_reservation',
+    reservationId: heldId,
+    expectedVersion: 1,
+    quantity: 3,
+    ...reservationEvidence,
+  });
+  assert.equal((consumed as { status: string }).status, 'consumed');
+  assert.equal((consumed as { quantity: number }).quantity, 3);
+  // The hold is fully released and only the used quantity leaves stock, so the unused
+  // fourth unit returns to free stock rather than staying reserved.
+  assert.equal((consumed as { quantityReserved: number }).quantityReserved, 0);
+  assert.equal((consumed as { quantityOnHand: number }).quantityOnHand, 3);
+
+  const [consumption] = await admin.unsafe(
+    `SELECT coalesce(sum(l.debit_minor),0)::int AS debits,coalesce(sum(l.credit_minor),0)::int AS credits,
+       count(DISTINCT j.id)::int AS journals
+     FROM operations_journal_entries j JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+     WHERE j.tenant_id=$1 AND j.source_type='inventory_consumption'`,
+    [tenantId],
+  );
+  // 3 units at the 1500 standard cost, expensed out of inventory.
+  assert.equal(consumption.journals, 1);
+  assert.equal(consumption.debits, 4500);
+  assert.equal(consumption.credits, 4500);
+  const [expenseSide] = await admin.unsafe(
+    `SELECT a.account_code FROM operations_journal_entries j
+       JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+       JOIN operations_chart_of_accounts a ON a.id=l.account_id
+      WHERE j.tenant_id=$1 AND j.source_type='inventory_consumption' AND l.debit_minor>0`,
+    [tenantId],
+  );
+  assert.equal(expenseSide.account_code, '5000');
+
+  const withReservations = await read();
+  assert(
+    withReservations.stockReservations.some(
+      (r) => r.id === heldId && r.status === 'consumed' && r.serviceNumber === 'INV-SVC',
+    ),
+  );
+  assert(
+    withReservations.stockReservations.some((r) => r.id === releasedId && r.status === 'released'),
+  );
+  assert(withReservations.stockMovements.some((m) => m.kind === 'consumption'));
+  assert(withReservations.stockMovements.some((m) => m.kind === 'reservation_hold'));
+  assert(withReservations.stockMovements.some((m) => m.kind === 'reservation_release'));
+
   console.log(
-    'Inventory live proof passed: custody, procurement, serialized receipt, scoped administration, partial mixed receiving, bulk transfers and valued adjustments.',
+    'Inventory live proof passed: custody, procurement, serialized receipt, scoped administration, partial mixed receiving, bulk transfers, valued adjustments, reservations and expensed consumption.',
   );
 } finally {
   await admin

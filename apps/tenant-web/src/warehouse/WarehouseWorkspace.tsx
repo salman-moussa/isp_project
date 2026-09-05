@@ -4,6 +4,7 @@ import type {
   ProcurementCommand,
   SerializedAssetRecord,
   StockCommand,
+  StockReservationCommand,
   WarehouseAdminCommand,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
@@ -197,6 +198,37 @@ export function WarehouseWorkspace({
           : t(
               'The change was not saved. Refresh to see the current record, then reapply.',
               'لم يُحفظ التغيير. حدّث الصفحة لعرض السجل الحالي ثم أعد التطبيق.',
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runReservation(command: StockReservationCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setStockMessage('');
+    try {
+      await submitTenantOperation(
+        session,
+        'warehouse/stock/reservations',
+        { command },
+        retry.current.key,
+      );
+      retry.current = undefined;
+      setStockMessage(t('Reservation updated.', 'تم تحديث الحجز.'));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setStockMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t(
+              'The reservation was not updated. Refresh and try again.',
+              'لم يتم تحديث الحجز. حدّث الصفحة وأعد المحاولة.',
             ),
       );
     } finally {
@@ -792,6 +824,7 @@ export function WarehouseWorkspace({
           busy={busy}
           message={stockMessage}
           onSubmit={(command) => void runStock(command)}
+          onReserve={(command) => void runReservation(command)}
         />
       )}
 

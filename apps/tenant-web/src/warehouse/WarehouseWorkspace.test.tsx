@@ -174,6 +174,27 @@ const fixture: Workspace = {
       actorName: 'Rana Administrator',
     },
   ],
+  stockReservations: [
+    {
+      id: 'aa000000-0000-4000-8000-000000000001',
+      itemId: bulkItemId,
+      sku: 'DROP-100',
+      itemNameEn: 'Drop wire 100m reel',
+      itemNameAr: 'بكرة سلك توصيل 100 متر',
+      warehouseId,
+      warehouseCode: 'BEY-01',
+      binId,
+      binCode: 'A-01',
+      quantity: 2,
+      status: 'held' as const,
+      installationId,
+      serviceNumber: 'SVC-101',
+      reference: 'JP-2026-778',
+      version: 1,
+      createdAt: '2026-09-04T09:00:00.000Z',
+      resolvedAt: null,
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -518,5 +539,86 @@ describe('Warehouse bulk stock', () => {
     expect(screen.getByText('استلام')).toBeVisible();
     // 4 units at 1500 minor units = 60.00 USD posted.
     expect(screen.getByText('60 USD')).toBeVisible();
+  });
+});
+
+describe('Warehouse stock reservations', () => {
+  it('holds stock for a job through the reservation route', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Reservations' }));
+    const form = screen.getByRole('heading', { name: 'Hold stock for a job' }).closest('form');
+    const controls = within(form!);
+    await user.selectOptions(controls.getByLabelText('Item'), bulkItemId);
+    await user.type(controls.getByLabelText('Quantity'), '2');
+    await user.selectOptions(controls.getByLabelText('Warehouse'), warehouseId);
+    await user.selectOptions(controls.getByLabelText('Installation (optional)'), installationId);
+    await user.type(controls.getByLabelText('Job reference'), 'JP-2026-900');
+    await user.type(
+      controls.getByLabelText('Stock reason in English'),
+      'Material held for the scheduled installation',
+    );
+    await user.type(controls.getByLabelText('Stock reason in Arabic'), 'مواد محجوزة للتركيب');
+    await user.type(controls.getByLabelText('Stock evidence / reference'), 'Job pack JP-2026-900');
+    await user.click(controls.getByRole('button', { name: 'Hold stock' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/stock/reservations');
+    expect(call?.[2].command).toMatchObject({
+      action: 'reserve_stock',
+      itemId: bulkItemId,
+      quantity: 2,
+      installationId,
+      reference: 'JP-2026-900',
+    });
+  });
+
+  it('consumes a held reservation carrying its reviewed version', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Reservations' }));
+    await user.click(screen.getByRole('button', { name: 'Consume' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    expect(vi.mocked(api.submitTenantOperation).mock.calls.at(-1)?.[2].command).toMatchObject({
+      action: 'consume_reservation',
+      reservationId: 'aa000000-0000-4000-8000-000000000001',
+      expectedVersion: 1,
+    });
+  });
+
+  it('releases a held reservation without consuming it', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Reservations' }));
+    await user.click(screen.getByRole('button', { name: 'Release' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    expect(vi.mocked(api.submitTenantOperation).mock.calls.at(-1)?.[2].command).toMatchObject({
+      action: 'release_reservation',
+      reservationId: 'aa000000-0000-4000-8000-000000000001',
+      expectedVersion: 1,
+    });
+  });
+
+  it('offers no action on a reservation that is already closed', async () => {
+    vi.mocked(api.readWarehouseWorkspace).mockResolvedValue({
+      ...fixture,
+      stockReservations: [
+        {
+          ...fixture.stockReservations[0],
+          status: 'consumed',
+          resolvedAt: '2026-09-04T11:00:00.000Z',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Reservations' }));
+
+    expect(screen.queryByRole('button', { name: 'Consume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Release' })).toBeNull();
+    expect(screen.getByText('Closed')).toBeVisible();
   });
 });

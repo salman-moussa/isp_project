@@ -16,6 +16,35 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Stock reservations and material consumption — 2026-09-05
+
+Bulk stock could be received, moved and adjusted, but nothing could hold quantity for a job or
+record that a technician used it. `operations_stock_balances` already carried a `quantity_reserved`
+column enforced against `quantity_on_hand`; migration `202609051100_tenant_stock_reservations.sql`
+is what finally sets it, through `operations_stock_reservations` with its own lifecycle and
+`execute_stock_reservation_command` at `POST …/warehouse/stock/reservations`
+(`tenant.installation.manage` + `tenant.warehouse.stock.reserve`).
+
+A release returns quantity to free stock and posts nothing, because nothing was used. **Consumption
+is where inventory becomes cost**: it removes the used quantity and posts its value from Inventory
+to Network Operating Expense (`5000`). Consuming part of a hold releases the whole hold and removes
+only what was used, so an unused remainder returns to free stock instead of staying reserved.
+
+Live acceptance on PostgreSQL 18 proves: a hold moving reserved 0 → 4 while on hand stays 6; exact
+idempotent replay and changed-payload conflict; **a transfer of reserved stock refused**; a second
+hold refused because only 2 of 6 were free; a serialized item refused from bulk reservation; a
+transfer signature refused for a reservation; release returning reserved to 4 without any journal; a
+stale expectedVersion refused; consumption above the held quantity refused; consuming 3 of a 4-unit
+hold leaving reserved 0 and on hand 3; and one balanced 4500/4500 consumption journal whose debit
+lands on account `5000`.
+
+Focused suites: contracts 23/23, database 75/75, api 101/101, tenant-web 69/69 (19 warehouse tests,
+including holding stock for a job, consuming and releasing with the reviewed version, and no action
+offered on a closed reservation). Build and all static gates pass.
+
+Not done: stock counts, RMA/repair lifecycle, reorder suggestions, vendor quote comparison,
+backorders and damaged quantities, and weighted-average costing.
+
 ## Production checkpoint deployed — 2026-09-05 (`a0ce440`)
 
 Production moved from `6f289f9` to `a0ce440`, promoting bulk stock, partial receiving, transfers and

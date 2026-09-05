@@ -147,6 +147,12 @@ function writerMocks() {
       fromQuantityOnHand: 5,
       toQuantityOnHand: 5,
     })),
+    executeStockReservationCommand: vi.fn(async () => ({
+      action: 'reserve_stock',
+      reservationId: '11111111-1111-4111-8111-111111111111',
+      status: 'held',
+      version: 1,
+    })),
     readNasClients: vi.fn(async () => []),
     readRadiusSessions: vi.fn(async () => []),
     readIpPools: vi.fn(async () => []),
@@ -1651,5 +1657,57 @@ describe('Warehouse custody routes', () => {
     expect(response.statusCode).toBe(400);
     expect(writer.executeStockCommand).not.toHaveBeenCalled();
     await operations.app.close();
+  });
+
+  it('signs stock reservations with their own action and refuses a finance-only session', async () => {
+    const writer = writerMocks();
+    const reserveCommand = {
+      action: 'reserve_stock' as const,
+      itemId,
+      quantity: 4,
+      warehouseId: serviceId,
+      installationId: routeId,
+      reference: 'JP-2026-778',
+      reasonEn: 'Material held for the scheduled customer installation',
+      reasonAr: 'مواد محجوزة للتركيب المجدول للعميل',
+      evidence: 'Job pack JP-2026-778 issued to the field team.',
+    };
+
+    const operations = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await operations.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/reservations`,
+          headers: { 'idempotency-key': 'stock-reserve-001' },
+          payload: { command: reserveCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockReservationCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.stock.reserve',
+      }),
+    );
+    await operations.app.close();
+
+    // Holding stock for a job is field authority; a finance-only session has none.
+    const finance = await makeApp({ ...claims, permissions: ['tenant.accounting.post'] }, writer);
+    expect(
+      (
+        await finance.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/reservations`,
+          headers: { 'idempotency-key': 'stock-reserve-002' },
+          payload: { command: reserveCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await finance.app.close();
   });
 });

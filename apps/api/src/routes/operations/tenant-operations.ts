@@ -10,6 +10,7 @@ import {
   procurementCommandSchema,
   warehouseAdminCommandSchema,
   stockCommandSchema,
+  stockReservationCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -51,6 +52,7 @@ const stockTransferBody = z
     ),
   })
   .strict();
+const stockReservationBody = z.object({ command: stockReservationCommandSchema }).strict();
 const stockAdjustBody = z
   .object({
     command: stockCommandSchema.refine(
@@ -678,6 +680,7 @@ export const operationsRequestSchemas = {
   warehouseAdminBody,
   stockTransferBody,
   stockAdjustBody,
+  stockReservationBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1108,6 +1111,15 @@ export function registerTenantOperationsRoutes(
       'stock_balance',
       stockTransferBody,
       (w, id, v) => w.executeStockCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/reservations',
+      'commandOperationsStockReservation',
+      'tenant.installation.manage',
+      'tenant.warehouse.stock.reserve',
+      'stock_reservation',
+      stockReservationBody,
+      (w, id, v) => w.executeStockReservationCommand(id, v as never),
     ),
     operation(
       '/warehouse/stock/adjust',

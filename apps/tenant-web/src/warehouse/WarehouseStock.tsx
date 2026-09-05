@@ -2,13 +2,14 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type {
   StockCommand,
   StockMovementRecord,
+  StockReservationCommand,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
-import { stockCommandSchema } from '@isp/contracts';
+import { stockCommandSchema, stockReservationCommandSchema } from '@isp/contracts';
 import type { Locale } from '@isp/ui';
 
 type Translate = (en: string, ar: string) => string;
-type Tab = 'balances' | 'transfer' | 'adjust' | 'movements';
+type Tab = 'balances' | 'reservations' | 'transfer' | 'adjust' | 'movements';
 
 /**
  * Bulk (non-serialized) stock: quantity per item, warehouse and bin.
@@ -23,12 +24,14 @@ export function WarehouseStock({
   busy,
   message,
   onSubmit,
+  onReserve,
 }: {
   readonly locale: Locale;
   readonly data: Workspace;
   readonly busy: boolean;
   readonly message: string;
   readonly onSubmit: (command: StockCommand) => void;
+  readonly onReserve: (command: StockReservationCommand) => void;
 }) {
   const t: Translate = (en, ar) => (locale === 'ar' ? ar : en);
   const [tab, setTab] = useState<Tab>('balances');
@@ -61,7 +64,39 @@ export function WarehouseStock({
       transfer_in: t('Transferred in', 'تحويل وارد'),
       adjustment_increase: t('Adjusted up', 'تسوية بالزيادة'),
       adjustment_decrease: t('Adjusted down', 'تسوية بالنقص'),
+      reservation_hold: t('Reserved', 'حجز'),
+      reservation_release: t('Reservation released', 'إلغاء حجز'),
+      consumption: t('Consumed', 'استهلاك'),
     })[kind];
+
+  const dispatchReservation = (
+    event: FormEvent<HTMLFormElement>,
+    build: (form: FormData) => unknown,
+  ) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const parsed = stockReservationCommandSchema.safeParse(build(new FormData(form)));
+    if (!parsed.success) {
+      setValidation(
+        parsed.error.issues[0]?.message ??
+          t(
+            'Complete every field, including bilingual reason and evidence, before saving.',
+            'أكمل جميع الحقول، بما فيها السبب ثنائي اللغة والدليل، قبل الحفظ.',
+          ),
+      );
+      return;
+    }
+    setValidation('');
+    onReserve(parsed.data);
+    form.reset();
+  };
+
+  const reservationStatusLabel = (status: 'held' | 'released' | 'consumed') =>
+    ({
+      held: t('Held', 'محجوز'),
+      released: t('Released', 'أُلغي'),
+      consumed: t('Consumed', 'استُهلك'),
+    })[status];
 
   const readText = (form: FormData, name: string) => {
     const value = form.get(name);
@@ -99,6 +134,7 @@ export function WarehouseStock({
 
   const tabs: readonly { readonly id: Tab; readonly label: string }[] = [
     { id: 'balances', label: t('On hand', 'المتوفر') },
+    { id: 'reservations', label: t('Reservations', 'الحجوزات') },
     { id: 'transfer', label: t('Transfer', 'تحويل') },
     { id: 'adjust', label: t('Adjust', 'تسوية') },
     { id: 'movements', label: t('Movements', 'الحركات') },
@@ -240,6 +276,189 @@ export function WarehouseStock({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {tab === 'reservations' && (
+        <div
+          role="tabpanel"
+          id="warehouse-stock-panel-reservations"
+          aria-labelledby="warehouse-stock-tab-reservations"
+          className="warehouse-admin-grid"
+        >
+          <div className="warehouse-card">
+            <h3>{t('Reservations', 'الحجوزات')}</h3>
+            <p className="warehouse-hint">
+              {t(
+                'Held quantity stays on hand but cannot be transferred away. Releasing returns it to free stock; consuming expenses what was actually used.',
+                'الكمية المحجوزة تبقى في المخزون لكن لا يمكن نقلها. الإلغاء يعيدها للمخزون الحر، والاستهلاك يحمّل ما استُخدم فعلاً على المصاريف.',
+              )}
+            </p>
+            <div className="warehouse-table-scroll">
+              <table className="warehouse-table">
+                <caption className="warehouse-visually-hidden">
+                  {t('Stock reservations', 'حجوزات المخزون')}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('Reference', 'المرجع')}</th>
+                    <th scope="col">{t('SKU', 'الرمز')}</th>
+                    <th scope="col">{t('Location', 'الموقع')}</th>
+                    <th scope="col">{t('Quantity', 'الكمية')}</th>
+                    <th scope="col">{t('Service', 'الخدمة')}</th>
+                    <th scope="col">{t('State', 'الحالة')}</th>
+                    <th scope="col">{t('Action', 'إجراء')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.stockReservations.map((reservation) => (
+                    <tr key={reservation.id}>
+                      <td>{reservation.reference}</td>
+                      <td>{reservation.sku}</td>
+                      <td>
+                        {reservation.warehouseCode}
+                        {reservation.binCode ? ` · ${reservation.binCode}` : ''}
+                      </td>
+                      <td>{reservation.quantity}</td>
+                      <td>{reservation.serviceNumber ?? t('Unlinked', 'غير مرتبط')}</td>
+                      <td>{reservationStatusLabel(reservation.status)}</td>
+                      <td>
+                        {reservation.status === 'held' ? (
+                          <span className="warehouse-row-actions">
+                            <button
+                              type="button"
+                              className="warehouse-link"
+                              disabled={busy}
+                              onClick={() =>
+                                onReserve({
+                                  action: 'consume_reservation',
+                                  reservationId: reservation.id,
+                                  expectedVersion: reservation.version,
+                                  reasonEn: `Material consumed for ${reservation.reference}`,
+                                  reasonAr: `تم استهلاك المواد للمرجع ${reservation.reference}`,
+                                  evidence: `Consumption confirmed against ${reservation.reference}.`,
+                                })
+                              }
+                            >
+                              {t('Consume', 'استهلاك')}
+                            </button>
+                            <button
+                              type="button"
+                              className="warehouse-link"
+                              disabled={busy}
+                              onClick={() =>
+                                onReserve({
+                                  action: 'release_reservation',
+                                  reservationId: reservation.id,
+                                  expectedVersion: reservation.version,
+                                  reasonEn: `Reservation released for ${reservation.reference}`,
+                                  reasonAr: `تم إلغاء الحجز للمرجع ${reservation.reference}`,
+                                  evidence: `Release confirmed against ${reservation.reference}.`,
+                                })
+                              }
+                            >
+                              {t('Release', 'إلغاء')}
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="warehouse-muted">{t('Closed', 'مغلق')}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {data.stockReservations.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="warehouse-empty">
+                        {t('No stock is held for a job yet.', 'لا يوجد مخزون محجوز لأي مهمة بعد.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <form
+            className="warehouse-form warehouse-card"
+            onSubmit={(event) =>
+              dispatchReservation(event, (form) => ({
+                action: 'reserve_stock',
+                itemId: readText(form, 'itemId'),
+                quantity: readNumber(form, 'quantity'),
+                warehouseId: readText(form, 'warehouseId'),
+                binId: optionalId(form, 'binId'),
+                installationId: optionalId(form, 'installationId'),
+                reference: readText(form, 'reference'),
+                ...evidenceFrom(form),
+              }))
+            }
+          >
+            <h3>{t('Hold stock for a job', 'حجز مخزون لمهمة')}</h3>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Item', 'الصنف')}
+                <select name="itemId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {bulkItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.sku} · {locale === 'ar' ? item.nameAr : item.nameEn}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('Quantity', 'الكمية')}
+                <input name="quantity" type="number" min={1} max={1000000} required />
+              </label>
+            </div>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Warehouse', 'المستودع')}
+                <select name="warehouseId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data.warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.warehouseCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('Bin (optional)', 'الرف (اختياري)')}
+                <select name="binId" defaultValue="">
+                  <option value="">{t('Unbinned', 'بدون رف')}</option>
+                  {data.bins
+                    .filter((bin) => bin.active)
+                    .map((bin) => (
+                      <option key={bin.id} value={bin.id}>
+                        {bin.warehouseCode} · {bin.binCode}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Installation (optional)', 'التركيب (اختياري)')}
+                <select name="installationId" defaultValue="">
+                  <option value="">{t('Not linked', 'غير مرتبط')}</option>
+                  {data.installations.map((installation) => (
+                    <option key={installation.id} value={installation.id}>
+                      {installation.serviceNumber} · {installation.subscriberName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('Job reference', 'مرجع المهمة')}
+                <input name="reference" required minLength={2} maxLength={200} />
+              </label>
+            </div>
+            <StockEvidenceFields t={t} />
+            <button className="warehouse-primary" disabled={busy || bulkItems.length === 0}>
+              {t('Hold stock', 'حجز المخزون')}
+            </button>
+          </form>
         </div>
       )}
 

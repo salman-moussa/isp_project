@@ -603,3 +603,11 @@
   background: #fff7ec;
   color: #6b4a17;
 }
+
+.warehouse-row-actions {
+  display: inline-flex;
+  gap: 0.7rem;
+}
+.warehouse-muted {
+  color: #8a9a9c;
+}
