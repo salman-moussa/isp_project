@@ -27,12 +27,13 @@ and mode `0755`.
 
 Four controls are now in place, with local evidence:
 
-| Control                                           | Evidence                                                                                                                   |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `.gitattributes` LF normalization                 | Staging a CRLF `.sql` file produced an LF index blob (`A \n B \n`); CRLF can no longer enter the index.                    |
-| `npm run release:packaging`                       | Passes on 589 tracked files / 59 migrations. Negative run correctly reported all 6 non-executable `*.sh` before the fix.   |
-| Six `*.sh` promoted to mode `100755` in the index | `git ls-files -s '*.sh'` shows `100755` for all 7; blob SHAs unchanged, so file content was preserved exactly.             |
-| Migration checksum preflight                      | 7/7 unit tests: matched ledger, forward-only promotion, CRLF checksum mismatch, dropped migration, out-of-order, empty DB. |
+| Control                                           | Evidence                                                                                                                                                                                                        |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.gitattributes` LF normalization                 | Staging a CRLF `.sql` file produced an LF index blob (`A \n B \n`); CRLF can no longer enter the index.                                                                                                         |
+| `npm run release:packaging`                       | Passes on 595 tracked files / 59 migrations. Negative run correctly reported all 6 non-executable `*.sh` before the fix.                                                                                        |
+| Six `*.sh` promoted to mode `100755` in the index | `git ls-files -s '*.sh'` shows `100755` for all 7; blob SHAs unchanged, so file content was preserved exactly.                                                                                                  |
+| Migration checksum preflight                      | 7/7 unit tests: matched ledger, forward-only promotion, CRLF checksum mismatch, dropped migration, out-of-order, empty DB.                                                                                      |
+| `git archive` release artifact                    | Built twice from the same commit on Windows: byte-identical tarballs. Extracted `*.sh` are mode `rwxr-xr-x`, migrations LF-only, and all 61 manifest migration checksums equal the migrator's own hashing path. |
 
 This is **local packaging evidence only**. The controls are unexercised against the production host
 in this checkpoint: outbound SSH (port 22) is blocked from the current engineering environment, so
