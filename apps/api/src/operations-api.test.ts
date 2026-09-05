@@ -14,6 +14,7 @@ const serviceId = '10000000-0000-4000-8000-000000000001';
 const branchId = '20000000-0000-4000-8000-000000000001';
 const areaId = '30000000-0000-4000-8000-000000000001';
 const routeId = '40000000-0000-4000-8000-000000000001';
+const itemId = '60000000-0000-4000-8000-000000000009';
 const claims: SessionClaims = {
   sub: 'operations-user-a',
   sessionId: 'operations-session-a',
@@ -139,6 +140,12 @@ function writerMocks() {
       id: '11111111-1111-4111-8111-111111111111',
       status: 'active',
       version: 1,
+    })),
+    executeStockCommand: vi.fn(async () => ({
+      action: 'transfer_stock',
+      quantity: 5,
+      fromQuantityOnHand: 5,
+      toQuantityOnHand: 5,
     })),
     readNasClients: vi.fn(async () => []),
     readRadiusSessions: vi.fn(async () => []),
@@ -1502,5 +1509,147 @@ describe('Warehouse custody routes', () => {
     expect(unknownField.statusCode).toBe(400);
     expect(writer.executeWarehouseAdminCommand).not.toHaveBeenCalled();
     await administrator.app.close();
+  });
+
+  it('separates moving stock from writing its value off', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Rebalancing drop wire between the depot and the field store',
+      reasonAr: 'إعادة توزيع أسلاك التوصيل بين المستودع ومخزن الميدان',
+      evidence: 'Stock movement note SM-2026-311.',
+    };
+    const transferCommand = {
+      action: 'transfer_stock' as const,
+      itemId,
+      quantity: 20,
+      fromWarehouseId: serviceId,
+      toWarehouseId: routeId,
+      ...evidence,
+    };
+
+    // Moving stock is an operations action and needs no step-up.
+    const operations = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await operations.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/transfer`,
+          headers: { 'idempotency-key': 'stock-transfer-001' },
+          payload: { command: transferCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.stock.transfer',
+      }),
+    );
+    // An adjustment posts to the variance account, so the transfer route must refuse it.
+    expect(
+      (
+        await operations.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/transfer`,
+          headers: { 'idempotency-key': 'stock-transfer-002' },
+          payload: {
+            command: {
+              action: 'adjust_stock',
+              itemId,
+              quantity: 3,
+              warehouseId: serviceId,
+              direction: 'decrease',
+              currency: 'USD',
+              ...evidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await operations.app.close();
+
+    const adjustCommand = {
+      action: 'adjust_stock' as const,
+      itemId,
+      quantity: 3,
+      warehouseId: serviceId,
+      direction: 'decrease' as const,
+      currency: 'USD' as const,
+      ...evidence,
+    };
+    const withoutMfa = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.post'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/adjust`,
+          headers: { 'idempotency-key': 'stock-adjust-001' },
+          payload: { command: adjustCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutMfa.app.close();
+
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/adjust`,
+          headers: { 'idempotency-key': 'stock-adjust-002' },
+          payload: { command: adjustCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.stock.adjust',
+      }),
+    );
+    await withMfa.app.close();
+  });
+
+  it('rejects a transfer whose source and destination are the same location', async () => {
+    const writer = writerMocks();
+    const operations = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    const response = await operations.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/stock/transfer`,
+      headers: { 'idempotency-key': 'stock-transfer-003' },
+      payload: {
+        command: {
+          action: 'transfer_stock',
+          itemId,
+          quantity: 5,
+          fromWarehouseId: serviceId,
+          toWarehouseId: serviceId,
+          reasonEn: 'Attempted no-op transfer between identical locations',
+          reasonAr: 'محاولة نقل بين موقعين متطابقين',
+          evidence: 'Rejected before reaching the database command.',
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(writer.executeStockCommand).not.toHaveBeenCalled();
+    await operations.app.close();
   });
 });

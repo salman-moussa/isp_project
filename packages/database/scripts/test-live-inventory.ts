@@ -7,6 +7,7 @@ import type {
   Permission,
   ProcurementCommand,
   WarehouseAdminCommand,
+  StockCommand,
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
@@ -17,6 +18,7 @@ import {
   transitionInventoryCustody,
   executeProcurementCommand,
   executeWarehouseAdminCommand,
+  executeStockCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -562,8 +564,246 @@ try {
   );
   assert.equal(adminAudit.count, administered.administrationEvents.length);
 
+  // --- Non-serialized stock: partial receiving, transfers, adjustments -----------------
+  const stockMove = (
+    command: StockCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeStockCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign(
+        command.action === 'adjust_stock'
+          ? 'tenant.warehouse.stock.adjust'
+          : 'tenant.warehouse.stock.transfer',
+        command.action === 'adjust_stock' ? 'tenant.accounting.post' : 'tenant.installation.manage',
+        key,
+        overrides,
+      ),
+    });
+  const stockEvidence = {
+    reasonEn: 'Bulk cable stock movement for the branch rollout',
+    reasonAr: 'حركة مخزون الكابلات لإطلاق الفرع',
+    evidence: 'Stock movement note SM-2026-311 approved by operations.',
+  };
+
+  // A bin in the receiving warehouse itself; newBin belongs to the other depot.
+  const receivingBin = await administer({
+    action: 'create_bin',
+    warehouseId,
+    binCode: 'R-01',
+    nameEn: 'Receiving bay 1',
+    nameAr: 'ساحة الاستلام ١',
+    binKind: 'staging',
+    ...adminEvidence,
+  });
+
+  const bulkItem = await administer({
+    action: 'create_item',
+    sku: `DROP-${tenantId.slice(0, 8)}`,
+    nameEn: 'Drop wire 100m reel',
+    nameAr: 'بكرة سلك توصيل 100 متر',
+    category: 'drop_wire',
+    unitCostMinorUsd: 1500,
+    unitCostMinorLbp: 0,
+    serializedFlag: false,
+    reorderThreshold: 10,
+    ...adminEvidence,
+  });
+
+  // A purchase order may now mix serialized and bulk lines.
+  const mixedOrder = await procure({
+    action: 'create_purchase_order',
+    poNumber: `PO2-${tenantId.slice(0, 8)}`,
+    vendorId: vendor.id,
+    warehouseId,
+    currency: 'USD',
+    lines: [
+      { itemId: newItem.id, quantity: 2, unitCostMinor: 4400 },
+      { itemId: bulkItem.id, quantity: 10, unitCostMinor: 1500 },
+    ],
+    ...procurementEvidence,
+  });
+  await procure({
+    action: 'approve_purchase_order',
+    purchaseOrderId: mixedOrder.id,
+    expectedVersion: 1,
+    ...procurementEvidence,
+  });
+  const orderLines = await admin.unsafe(
+    `SELECT l.id,i.serialized_flag FROM operations_purchase_order_lines l
+      JOIN operations_inventory_items i ON i.tenant_id=l.tenant_id AND i.id=l.item_id
+      WHERE l.tenant_id=$1 AND l.purchase_order_id=$2 ORDER BY l.line_number`,
+    [tenantId, mixedOrder.id],
+  );
+  const serializedLine = orderLines.find((l) => l.serialized_flag)!;
+  const bulkLine = orderLines.find((l) => !l.serialized_flag)!;
+
+  // A bulk line cannot be received by serial number, and vice versa.
+  await assert.rejects(
+    procure({
+      action: 'receive_purchase_order',
+      purchaseOrderId: mixedOrder.id,
+      expectedVersion: 2,
+      assets: [{ lineId: bulkLine.id as string, serialNumber: `WRONG-${randomUUID()}` }],
+      ...procurementEvidence,
+    }),
+  );
+  // Over-receiving beyond the outstanding quantity is refused.
+  await assert.rejects(
+    procure({
+      action: 'receive_purchase_order',
+      purchaseOrderId: mixedOrder.id,
+      expectedVersion: 2,
+      quantities: [{ lineId: bulkLine.id as string, quantity: 11 }],
+      ...procurementEvidence,
+    }),
+  );
+
+  const firstReceiptKey = randomUUID();
+  const firstReceipt = await procure(
+    {
+      action: 'receive_purchase_order',
+      purchaseOrderId: mixedOrder.id,
+      expectedVersion: 2,
+      binId: receivingBin.id,
+      quantities: [{ lineId: bulkLine.id as string, quantity: 4 }],
+      ...procurementEvidence,
+    },
+    firstReceiptKey,
+  );
+  assert.equal(firstReceipt.status, 'partially_received');
+  // Only the value actually received is posted, never the whole order.
+  assert.equal(
+    (firstReceipt as unknown as { receivedValueMinor: number }).receivedValueMinor,
+    6000,
+  );
+  assert.deepEqual(
+    await procure(
+      {
+        action: 'receive_purchase_order',
+        purchaseOrderId: mixedOrder.id,
+        expectedVersion: 2,
+        binId: receivingBin.id,
+        quantities: [{ lineId: bulkLine.id as string, quantity: 4 }],
+        ...procurementEvidence,
+      },
+      firstReceiptKey,
+    ),
+    firstReceipt,
+  );
+
+  const secondReceipt = await procure({
+    action: 'receive_purchase_order',
+    purchaseOrderId: mixedOrder.id,
+    expectedVersion: 3,
+    binId: receivingBin.id,
+    assets: [
+      { lineId: serializedLine.id as string, serialNumber: `MX-${randomUUID()}` },
+      { lineId: serializedLine.id as string, serialNumber: `MX-${randomUUID()}` },
+    ],
+    quantities: [{ lineId: bulkLine.id as string, quantity: 6 }],
+    ...procurementEvidence,
+  });
+  assert.equal(secondReceipt.status, 'received');
+  assert.equal(
+    (secondReceipt as unknown as { receivedValueMinor: number }).receivedValueMinor,
+    17800,
+  );
+
+  const [payable] = await admin.unsafe(
+    `SELECT coalesce(sum(l.debit_minor),0)::int AS debits,coalesce(sum(l.credit_minor),0)::int AS credits,
+       count(DISTINCT j.id)::int AS journals
+     FROM operations_journal_entries j JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+     WHERE j.tenant_id=$1 AND j.source_type='inventory_receipt' AND j.source_id=$2`,
+    [tenantId, mixedOrder.id],
+  );
+  // Two instalments, two journals, and the two posts sum to the full order value.
+  assert.equal(payable.journals, 2);
+  assert.equal(payable.debits, 23800);
+  assert.equal(payable.credits, 23800);
+
+  // Transfers relocate quantity without changing value, so they post no journal.
+  const transferKey = randomUUID();
+  const transferCommand: StockCommand = {
+    action: 'transfer_stock',
+    itemId: bulkItem.id,
+    quantity: 4,
+    fromWarehouseId: warehouseId,
+    fromBinId: receivingBin.id,
+    toWarehouseId: newWarehouse.id,
+    ...stockEvidence,
+  };
+  const transferred = await stockMove(transferCommand, transferKey);
+  assert.equal((transferred as { fromQuantityOnHand: number }).fromQuantityOnHand, 6);
+  assert.equal((transferred as { toQuantityOnHand: number }).toQuantityOnHand, 4);
+  assert.deepEqual(await stockMove(transferCommand, transferKey), transferred);
+  await assert.rejects(
+    stockMove({ ...transferCommand, evidence: 'A conflicting transfer retry.' }, transferKey),
+  );
+  // Moving more than the location holds is refused.
+  await assert.rejects(stockMove({ ...transferCommand, quantity: 999 }));
+  // A serialized item never moves through the bulk plane.
+  await assert.rejects(stockMove({ ...transferCommand, itemId: newItem.id, quantity: 1 }));
+  // Transfers need the operations action, not the finance one.
+  await assert.rejects(
+    executeStockCommand(runtime.db, tenantId, {
+      command: { ...transferCommand, quantity: 1 },
+      authorization: sign('tenant.warehouse.stock.adjust', 'tenant.accounting.post'),
+    }),
+  );
+
+  const shrinkage = await stockMove({
+    action: 'adjust_stock',
+    itemId: bulkItem.id,
+    quantity: 2,
+    warehouseId: newWarehouse.id,
+    direction: 'decrease',
+    currency: 'USD',
+    ...stockEvidence,
+  });
+  assert.equal((shrinkage as { quantityOnHand: number }).quantityOnHand, 2);
+  const [variance] = await admin.unsafe(
+    `SELECT coalesce(sum(l.debit_minor),0)::int AS debits,coalesce(sum(l.credit_minor),0)::int AS credits
+     FROM operations_journal_entries j JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+     WHERE j.tenant_id=$1 AND j.source_type='inventory_adjustment'`,
+    [tenantId],
+  );
+  // 2 units at the item's 1500 standard cost, posted to variance against inventory.
+  assert.equal(variance.debits, 3000);
+  assert.equal(variance.credits, 3000);
+
+  // Stock movements are append-only.
+  await assert.rejects(
+    inOperationsTransaction(
+      runtime.db,
+      tenantId,
+      sign('tenant.warehouse.stock.transfer', 'tenant.installation.manage'),
+      (transaction) =>
+        transaction.execute(
+          sql`UPDATE operations_stock_movements SET evidence='tampered' WHERE tenant_id=${tenantId}::uuid`,
+        ),
+    ),
+  );
+
+  const withStock = await read();
+  const binBalance = withStock.stockBalances.find(
+    (b) => b.itemId === bulkItem.id && b.binId === receivingBin.id,
+  );
+  assert.equal(binBalance?.quantityOnHand, 6);
+  assert(
+    withStock.stockBalances.some(
+      (b) =>
+        b.itemId === bulkItem.id && b.warehouseId === newWarehouse.id && b.quantityOnHand === 2,
+    ),
+  );
+  assert(withStock.stockMovements.some((m) => m.kind === 'transfer_out'));
+  assert(withStock.stockMovements.some((m) => m.kind === 'transfer_in'));
+  assert(withStock.stockMovements.some((m) => m.kind === 'adjustment_decrease'));
+  assert(withStock.purchaseOrders.some((p) => p.id === mixedOrder.id && p.status === 'received'));
+
   console.log(
-    'Inventory live proof passed: governed custody plus vendor, approval, serialized receipt, exact replay/conflict, balanced inventory/AP posting, and scoped catalog/warehouse/bin administration.',
+    'Inventory live proof passed: custody, procurement, serialized receipt, scoped administration, partial mixed receiving, bulk transfers and valued adjustments.',
   );
 } finally {
   await admin

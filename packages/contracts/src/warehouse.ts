@@ -155,11 +155,14 @@ export const procurementCommandSchema = z.discriminatedUnion('action', [
       ...procurementEvidence,
     })
     .strict(),
+  // A receipt may be partial and may mix serialized units with bulk quantities, because a
+  // supplier part-ships. Serialized lines are received by serial number, bulk lines by count.
   z
     .object({
       action: z.literal('receive_purchase_order'),
       purchaseOrderId: z.string().uuid(),
       expectedVersion: z.number().int().positive(),
+      binId: z.string().uuid().optional(),
       assets: z
         .array(
           z
@@ -170,11 +173,39 @@ export const procurementCommandSchema = z.discriminatedUnion('action', [
             })
             .strict(),
         )
-        .min(1)
-        .max(500),
+        .max(500)
+        .optional(),
+      quantities: z
+        .array(
+          z
+            .object({
+              lineId: z.string().uuid(),
+              quantity: z.number().int().positive().max(1_000_000),
+            })
+            .strict(),
+        )
+        .max(100)
+        .optional(),
       ...procurementEvidence,
     })
-    .strict(),
+    .strict()
+    .superRefine((value, context) => {
+      if ((value.assets?.length ?? 0) + (value.quantities?.length ?? 0) === 0) {
+        context.addIssue({
+          code: 'custom',
+          path: ['assets'],
+          message: 'A receipt must record at least one serialized unit or one quantity.',
+        });
+      }
+      const serials = (value.assets ?? []).map((asset) => asset.serialNumber);
+      if (new Set(serials).size !== serials.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['assets'],
+          message: 'A receipt cannot repeat the same serial number.',
+        });
+      }
+    }),
 ]);
 export type ProcurementCommand = z.infer<typeof procurementCommandSchema>;
 
@@ -283,6 +314,99 @@ export const warehouseAdminCommandSchema = z.discriminatedUnion('action', [
 ]);
 export type WarehouseAdminCommand = z.infer<typeof warehouseAdminCommandSchema>;
 
+/**
+ * Bulk (non-serialized) stock lives as a quantity per (item, warehouse, bin). Serialized units
+ * keep their own per-unit custody rows and never appear here.
+ */
+export const stockBalanceRecordSchema = z.object({
+  id: z.string().uuid(),
+  itemId: z.string().uuid(),
+  sku: z.string(),
+  itemNameEn: z.string(),
+  itemNameAr: z.string(),
+  warehouseId: z.string().uuid(),
+  warehouseCode: z.string(),
+  binId: z.string().uuid().nullable(),
+  binCode: z.string().nullable(),
+  quantityOnHand: z.number().int().nonnegative(),
+  quantityReserved: z.number().int().nonnegative(),
+  reorderThreshold: z.number().int().nonnegative(),
+  version: z.number().int().positive(),
+});
+export type StockBalanceRecord = z.infer<typeof stockBalanceRecordSchema>;
+
+export const stockMovementKindSchema = z.enum([
+  'receipt',
+  'transfer_out',
+  'transfer_in',
+  'adjustment_increase',
+  'adjustment_decrease',
+]);
+export type StockMovementKind = z.infer<typeof stockMovementKindSchema>;
+
+export interface StockMovementRecord {
+  readonly id: string;
+  readonly itemId: string;
+  readonly sku: string;
+  readonly kind: StockMovementKind;
+  readonly warehouseCode: string;
+  readonly binCode: string | null;
+  readonly quantity: number;
+  readonly unitCostMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly journalEntryId: string | null;
+  readonly reasonEn: string;
+  readonly reasonAr: string;
+  readonly evidence: string;
+  readonly occurredAt: string;
+  readonly actorName: string | null;
+}
+
+const stockEvidence = {
+  reasonEn: z.string().trim().min(8).max(1000),
+  reasonAr: z.string().trim().min(8).max(1000),
+  evidence: z.string().trim().min(8).max(2000),
+} as const;
+
+export const stockCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('transfer_stock'),
+      itemId: z.string().uuid(),
+      quantity: z.number().int().positive().max(1_000_000),
+      fromWarehouseId: z.string().uuid(),
+      fromBinId: z.string().uuid().optional(),
+      toWarehouseId: z.string().uuid(),
+      toBinId: z.string().uuid().optional(),
+      ...stockEvidence,
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (value.fromWarehouseId === value.toWarehouseId && value.fromBinId === value.toBinId) {
+        context.addIssue({
+          code: 'custom',
+          path: ['toWarehouseId'],
+          message: 'Source and destination locations must differ.',
+        });
+      }
+    }),
+  // Writing inventory value up or down posts to the variance account, so this is a finance
+  // action rather than an operations one.
+  z
+    .object({
+      action: z.literal('adjust_stock'),
+      itemId: z.string().uuid(),
+      quantity: z.number().int().positive().max(1_000_000),
+      warehouseId: z.string().uuid(),
+      binId: z.string().uuid().optional(),
+      direction: z.enum(['increase', 'decrease']),
+      currency: z.enum(['USD', 'LBP']),
+      ...stockEvidence,
+    })
+    .strict(),
+]);
+export type StockCommand = z.infer<typeof stockCommandSchema>;
+
 export interface WarehouseAdminEvent {
   readonly id: string;
   readonly aggregateType: 'item' | 'warehouse' | 'bin';
@@ -304,7 +428,7 @@ export interface ProcurementPurchaseOrder {
   readonly vendorNameAr: string;
   readonly warehouseId: string;
   readonly warehouseCode: string;
-  readonly status: 'draft' | 'approved' | 'received' | 'cancelled';
+  readonly status: 'draft' | 'approved' | 'partially_received' | 'received' | 'cancelled';
   readonly currency: 'USD' | 'LBP';
   readonly totalAmountMinor: number;
   readonly version: number;
@@ -371,4 +495,6 @@ export interface WarehouseWorkspace {
     readonly nameAr: string;
   }[];
   readonly administrationEvents: readonly WarehouseAdminEvent[];
+  readonly stockBalances: readonly StockBalanceRecord[];
+  readonly stockMovements: readonly StockMovementRecord[];
 }
