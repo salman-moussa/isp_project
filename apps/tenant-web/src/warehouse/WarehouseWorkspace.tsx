@@ -5,6 +5,7 @@ import type {
   SerializedAssetRecord,
   StockCommand,
   RmaCommand,
+  VendorQuoteCommand,
   StockCountCommand,
   StockReservationCommand,
   WarehouseAdminCommand,
@@ -201,6 +202,32 @@ export function WarehouseWorkspace({
           : t(
               'The change was not saved. Refresh to see the current record, then reapply.',
               'لم يُحفظ التغيير. حدّث الصفحة لعرض السجل الحالي ثم أعد التطبيق.',
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runQuote(command: VendorQuoteCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setStockMessage('');
+    try {
+      await submitTenantOperation(session, 'warehouse/quotes', { command }, retry.current.key);
+      retry.current = undefined;
+      setStockMessage(t('Quote request updated.', 'تم تحديث طلب عرض السعر.'));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setStockMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t(
+              'The quote request was not updated. Refresh and try again.',
+              'لم يتم تحديث طلب عرض السعر. حدّث الصفحة وأعد المحاولة.',
             ),
       );
     } finally {
@@ -896,6 +923,7 @@ export function WarehouseWorkspace({
           onReserve={(command) => void runReservation(command)}
           onCount={(command) => void runCount(command)}
           onRma={(command) => void runRma(command)}
+          onQuote={(command) => void runQuote(command)}
         />
       )}
 

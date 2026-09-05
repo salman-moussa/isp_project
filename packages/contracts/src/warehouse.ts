@@ -583,6 +583,114 @@ export const rmaCommandSchema = z.discriminatedUnion('action', [
 ]);
 export type RmaCommand = z.infer<typeof rmaCommandSchema>;
 
+export interface VendorQuoteRecord {
+  readonly id: string;
+  readonly vendorId: string;
+  readonly vendorNameEn: string;
+  readonly vendorNameAr: string;
+  readonly currency: 'USD' | 'LBP';
+  readonly totalAmountMinor: number;
+  readonly leadTimeDays: number;
+  readonly validUntil: string | null;
+  readonly status: 'received' | 'awarded' | 'rejected';
+  readonly lines: readonly {
+    readonly requestLineId: string;
+    readonly unitCostMinor: number;
+  }[];
+}
+
+export interface VendorQuoteRequestRecord {
+  readonly id: string;
+  readonly requestNumber: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly neededBy: string | null;
+  readonly status: 'open' | 'awarded' | 'cancelled';
+  readonly awardedQuoteId: string | null;
+  readonly purchaseOrderId: string | null;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly lines: readonly {
+    readonly id: string;
+    readonly itemId: string;
+    readonly sku: string;
+    readonly itemNameEn: string;
+    readonly itemNameAr: string;
+    readonly quantity: number;
+  }[];
+  readonly quotes: readonly VendorQuoteRecord[];
+}
+
+/**
+ * Vendor quote requests and comparison. Awarding turns the chosen quote into a draft purchase
+ * order at the quoted prices, so nobody retypes them and the order still goes through the normal
+ * approval path. Quotes in different currencies are compared side by side, never summed.
+ */
+export const vendorQuoteCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('create_quote_request'),
+      requestNumber: z.string().trim().min(2).max(80),
+      warehouseId: z.string().uuid(),
+      neededBy: z.string().date().optional(),
+      lines: z
+        .array(
+          z
+            .object({
+              itemId: z.string().uuid(),
+              quantity: z.number().int().positive().max(10000),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(100),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('record_quote'),
+      requestId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      vendorId: z.string().uuid(),
+      currency: z.enum(['USD', 'LBP']),
+      leadTimeDays: z.number().int().nonnegative().max(365),
+      validUntil: z.string().date().optional(),
+      lines: z
+        .array(
+          z
+            .object({
+              requestLineId: z.string().uuid(),
+              unitCostMinor: z.number().int().positive().safe(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(100),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('award_quote'),
+      requestId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      quoteId: z.string().uuid(),
+      poNumber: z.string().trim().min(2).max(80),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('cancel_quote_request'),
+      requestId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+]);
+export type VendorQuoteCommand = z.infer<typeof vendorQuoteCommandSchema>;
+
 /**
  * Derived purchasing signal: what a location holds, what is already on order, and how much more
  * would restore it to its reorder threshold. Read-only — nothing here commits a purchase.
@@ -752,5 +860,6 @@ export interface WarehouseWorkspace {
   readonly stockReservations: readonly StockReservationRecord[];
   readonly stockCounts: readonly StockCountRecord[];
   readonly rmaCases: readonly RmaCaseRecord[];
+  readonly quoteRequests: readonly VendorQuoteRequestRecord[];
   readonly reorderSuggestions: readonly ReorderSuggestionRecord[];
 }

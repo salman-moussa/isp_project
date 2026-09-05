@@ -9,6 +9,7 @@ import {
   type StockReservationCommand,
   type StockCountCommand,
   type RmaCommand,
+  type VendorQuoteCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -376,6 +377,38 @@ export async function readWarehouseWorkspace(
         0) > 0
       ORDER BY "suggestedQuantity" DESC,i.sku LIMIT 200
     `);
+    // Quotes are ordered cheapest first for comparison, but a cross-currency request is compared
+    // side by side rather than summed: USD and LBP totals are never added together.
+    const quoteRequests = await transaction.execute<
+      WarehouseWorkspace['quoteRequests'][number] & Record<string, unknown>
+    >(sql`
+      SELECT r.id,r.request_number AS "requestNumber",r.warehouse_id AS "warehouseId",
+        w.warehouse_code AS "warehouseCode",r.needed_by AS "neededBy",r.status,
+        r.awarded_quote_id AS "awardedQuoteId",r.purchase_order_id AS "purchaseOrderId",
+        r.version,r.created_at AS "createdAt",
+        coalesce((SELECT jsonb_agg(jsonb_build_object(
+          'id',l.id,'itemId',l.item_id,'sku',i.sku,'itemNameEn',i.name_en,
+          'itemNameAr',i.name_ar,'quantity',l.quantity) ORDER BY l.line_number)
+          FROM operations_vendor_quote_request_lines l
+          JOIN operations_inventory_items i ON i.tenant_id=l.tenant_id AND i.id=l.item_id
+          WHERE l.tenant_id=r.tenant_id AND l.request_id=r.id),'[]'::jsonb) AS lines,
+        coalesce((SELECT jsonb_agg(jsonb_build_object(
+          'id',q.id,'vendorId',q.vendor_id,'vendorNameEn',v.name_en,'vendorNameAr',v.name_ar,
+          'currency',q.currency,'totalAmountMinor',q.total_amount_minor::float8,
+          'leadTimeDays',q.lead_time_days,'validUntil',q.valid_until,'status',q.status,
+          'lines',coalesce((SELECT jsonb_agg(jsonb_build_object(
+            'requestLineId',ql.request_line_id,'unitCostMinor',ql.unit_cost_minor::float8))
+            FROM operations_vendor_quote_lines ql
+            WHERE ql.tenant_id=q.tenant_id AND ql.quote_id=q.id),'[]'::jsonb))
+          ORDER BY q.total_amount_minor)
+          FROM operations_vendor_quotes q
+          JOIN operations_procurement_vendors v ON v.tenant_id=q.tenant_id AND v.id=q.vendor_id
+          WHERE q.tenant_id=r.tenant_id AND q.request_id=r.id),'[]'::jsonb) AS quotes
+      FROM operations_vendor_quote_requests r
+      JOIN operations_warehouses w ON w.tenant_id=r.tenant_id AND w.id=r.warehouse_id
+      WHERE r.tenant_id=${tenantId}
+      ORDER BY (r.status='open') DESC,r.created_at DESC,r.id LIMIT 100
+    `);
     return {
       warehouses,
       items,
@@ -391,8 +424,26 @@ export async function readWarehouseWorkspace(
       stockReservations,
       stockCounts,
       rmaCases,
+      quoteRequests,
       reorderSuggestions,
     };
+  });
+}
+
+export async function executeVendorQuoteCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: VendorQuoteCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<Record<string, unknown>> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{ result: Record<string, unknown> }>(
+      sql`SELECT execute_vendor_quote_command(${JSON.stringify(input.command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('Vendor quote command returned no result.');
+    return row.result;
   });
 }
 

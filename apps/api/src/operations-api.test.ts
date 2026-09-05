@@ -159,6 +159,12 @@ function writerMocks() {
       status: 'open',
       version: 1,
     })),
+    executeVendorQuoteCommand: vi.fn(async () => ({
+      action: 'create_quote_request',
+      requestId: '11111111-1111-4111-8111-111111111111',
+      status: 'open',
+      version: 1,
+    })),
     executeStockCountCommand: vi.fn(async () => ({
       action: 'open_count',
       countId: '11111111-1111-4111-8111-111111111111',
