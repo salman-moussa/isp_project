@@ -8,6 +8,7 @@ import {
   type StockCommand,
   type StockReservationCommand,
   type StockCountCommand,
+  type RmaCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -320,6 +321,61 @@ export async function readWarehouseWorkspace(
       WHERE k.tenant_id=${tenantId}
       ORDER BY (k.status='open') DESC,k.opened_at DESC,k.id LIMIT 100
     `);
+    const rmaCases = await transaction.execute<
+      WarehouseWorkspace['rmaCases'][number] & Record<string, unknown>
+    >(sql`
+      SELECT r.id,r.case_number AS "caseNumber",r.asset_id AS "assetId",
+        a.serial_number AS "serialNumber",i.sku,r.vendor_id AS "vendorId",
+        v.name_en AS "vendorNameEn",v.name_ar AS "vendorNameAr",
+        w.warehouse_code AS "warehouseCode",r.fault_summary AS "faultSummary",r.status,
+        p.serial_number AS "replacementSerialNumber",r.journal_entry_id AS "journalEntryId",
+        r.version,r.opened_at AS "openedAt",r.resolved_at AS "resolvedAt"
+      FROM operations_rma_cases r
+      JOIN operations_serialized_assets a ON a.tenant_id=r.tenant_id AND a.id=r.asset_id
+      JOIN operations_inventory_items i ON i.tenant_id=a.tenant_id AND i.id=a.item_id
+      JOIN operations_warehouses w ON w.tenant_id=r.tenant_id AND w.id=r.warehouse_id
+      LEFT JOIN operations_procurement_vendors v ON v.tenant_id=r.tenant_id AND v.id=r.vendor_id
+      LEFT JOIN operations_serialized_assets p ON p.tenant_id=r.tenant_id AND p.id=r.replacement_asset_id
+      WHERE r.tenant_id=${tenantId}
+      ORDER BY (r.status NOT IN('closed','scrapped')) DESC,r.opened_at DESC,r.id LIMIT 200
+    `);
+    // Derived purchasing signal. Outstanding purchase-order quantity counts as already on order,
+    // so a location that has been replenished is not suggested twice.
+    const reorderSuggestions = await transaction.execute<
+      WarehouseWorkspace['reorderSuggestions'][number] & Record<string, unknown>
+    >(sql`
+      SELECT b.item_id AS "itemId",i.sku,i.name_en AS "itemNameEn",i.name_ar AS "itemNameAr",
+        b.warehouse_id AS "warehouseId",w.warehouse_code AS "warehouseCode",
+        sum(b.quantity_on_hand)::int AS "quantityOnHand",
+        sum(b.quantity_reserved)::int AS "quantityReserved",
+        (sum(b.quantity_on_hand)-sum(b.quantity_reserved))::int AS "quantityAvailable",
+        coalesce(o.on_order,0)::int AS "quantityOnOrder",
+        i.reorder_threshold AS "reorderThreshold",
+        greatest(
+          i.reorder_threshold
+            - (sum(b.quantity_on_hand)-sum(b.quantity_reserved))
+            - coalesce(o.on_order,0),
+          0)::int AS "suggestedQuantity"
+      FROM operations_stock_balances b
+      JOIN operations_inventory_items i ON i.tenant_id=b.tenant_id AND i.id=b.item_id
+      JOIN operations_warehouses w ON w.tenant_id=b.tenant_id AND w.id=b.warehouse_id
+      LEFT JOIN LATERAL (
+        SELECT sum(l.quantity-l.received_quantity)::int AS on_order
+        FROM operations_purchase_order_lines l
+        JOIN operations_purchase_orders p ON p.tenant_id=l.tenant_id AND p.id=l.purchase_order_id
+        WHERE l.tenant_id=b.tenant_id AND l.item_id=b.item_id AND p.warehouse_id=b.warehouse_id
+          AND p.status IN('approved','partially_received')
+      ) o ON true
+      WHERE b.tenant_id=${tenantId} AND i.active
+      GROUP BY b.item_id,i.sku,i.name_en,i.name_ar,b.warehouse_id,w.warehouse_code,
+        i.reorder_threshold,o.on_order
+      HAVING greatest(
+        i.reorder_threshold
+          - (sum(b.quantity_on_hand)-sum(b.quantity_reserved))
+          - coalesce(o.on_order,0),
+        0) > 0
+      ORDER BY "suggestedQuantity" DESC,i.sku LIMIT 200
+    `);
     return {
       warehouses,
       items,
@@ -334,7 +390,26 @@ export async function readWarehouseWorkspace(
       stockMovements,
       stockReservations,
       stockCounts,
+      rmaCases,
+      reorderSuggestions,
     };
+  });
+}
+
+export async function executeRmaCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: RmaCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<Record<string, unknown>> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{ result: Record<string, unknown> }>(
+      sql`SELECT execute_rma_command(${JSON.stringify(input.command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('RMA command returned no result.');
+    return row.result;
   });
 }
 

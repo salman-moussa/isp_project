@@ -12,6 +12,7 @@ import {
   stockCommandSchema,
   stockReservationCommandSchema,
   stockCountCommandSchema,
+  rmaCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -60,6 +61,23 @@ const stockCountBody = z
     command: stockCountCommandSchema.refine(
       (command) => command.action !== 'close_count',
       'Closing a count uses the MFA-protected finance route.',
+    ),
+  })
+  .strict();
+// Scrapping writes a device off, so it is the only RMA step that is finance work.
+const rmaManageBody = z
+  .object({
+    command: rmaCommandSchema.refine(
+      (command) => command.action !== 'scrap_asset',
+      'Scrapping uses the MFA-protected finance route.',
+    ),
+  })
+  .strict();
+const rmaScrapBody = z
+  .object({
+    command: rmaCommandSchema.refine(
+      (command) => command.action === 'scrap_asset',
+      'Only scrap commands are accepted here.',
     ),
   })
   .strict();
@@ -701,6 +719,8 @@ export const operationsRequestSchemas = {
   stockReservationBody,
   stockCountBody,
   stockCountCloseBody,
+  rmaManageBody,
+  rmaScrapBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1140,6 +1160,25 @@ export function registerTenantOperationsRoutes(
       'stock_reservation',
       stockReservationBody,
       (w, id, v) => w.executeStockReservationCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/rma',
+      'commandOperationsRma',
+      'tenant.installation.manage',
+      'tenant.warehouse.rma.manage',
+      'rma_case',
+      rmaManageBody,
+      (w, id, v) => w.executeRmaCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/rma/scrap',
+      'scrapOperationsRmaAsset',
+      'tenant.accounting.post',
+      'tenant.warehouse.rma.scrap',
+      'rma_case',
+      rmaScrapBody,
+      (w, id, v) => w.executeRmaCommand(id, v as never),
+      true,
     ),
     operation(
       '/warehouse/stock/counts',

@@ -153,6 +153,12 @@ function writerMocks() {
       status: 'held',
       version: 1,
     })),
+    executeRmaCommand: vi.fn(async () => ({
+      action: 'open_case',
+      caseId: '11111111-1111-4111-8111-111111111111',
+      status: 'open',
+      version: 1,
+    })),
     executeStockCountCommand: vi.fn(async () => ({
       action: 'open_count',
       countId: '11111111-1111-4111-8111-111111111111',
@@ -1812,6 +1818,89 @@ describe('Warehouse custody routes', () => {
       expect.objectContaining({
         permission: 'tenant.accounting.post',
         auditAction: 'tenant.warehouse.stock.count.close',
+      }),
+    );
+    await withMfa.app.close();
+  });
+
+  it('separates repair handling from writing a device off', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Device failed acceptance testing after return from the field',
+      reasonAr: 'فشل الجهاز في اختبار القبول بعد إرجاعه من الميدان',
+      evidence: 'Fault report FR-2026-091 attached to the vendor claim.',
+    };
+    const openCommand = {
+      action: 'open_case' as const,
+      caseNumber: 'RMA-2026-011',
+      assetId: itemId,
+      faultSummary: 'Optical transmit power below the acceptance threshold on both ports.',
+      ...evidence,
+    };
+    const scrapCommand = {
+      action: 'scrap_asset' as const,
+      caseId: serviceId,
+      expectedVersion: 1,
+      ...evidence,
+    };
+
+    const warehouse = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/rma`,
+          headers: { 'idempotency-key': 'rma-open-001' },
+          payload: { command: openCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeRmaCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.rma.manage',
+      }),
+    );
+    // Writing a device off destroys value, so the warehouse route must refuse it.
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/rma`,
+          headers: { 'idempotency-key': 'rma-open-002' },
+          payload: { command: scrapCommand },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await warehouse.app.close();
+
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/rma/scrap`,
+          headers: { 'idempotency-key': 'rma-scrap-001' },
+          payload: { command: scrapCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeRmaCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.rma.scrap',
       }),
     );
     await withMfa.app.close();

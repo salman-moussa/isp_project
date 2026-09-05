@@ -16,6 +16,41 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## RMA lifecycle and reorder suggestions — 2026-09-05
+
+A serialized asset could be moved to the `rma` status, but that was a dead end: no case, no vendor,
+no outcome, and no way to write off a device that never came back. Migration
+`202609051300_tenant_rma_repair.sql` adds `operations_rma_cases` and the append-only
+`operations_rma_events`, plus `execute_rma_command` covering open → send → repaired / replaced /
+scrapped → closed. Serialized assets gain a terminal `scrapped` state.
+
+Scrapping is the only step that touches the books, so it is finance work with step-up at
+`POST …/warehouse/rma/scrap` (`tenant.accounting.post` + `tenant.warehouse.rma.scrap`) and posts the
+device's standard cost to inventory variance. Everything else is warehouse work at
+`POST …/warehouse/rma` (`tenant.installation.manage` + `tenant.warehouse.rma.manage`), and each
+route refuses the other's command. A partial unique index allows one open case per asset: a device
+cannot be at two vendors at once.
+
+Reorder suggestions are a derived read model, not a stored table: available quantity (on hand less
+reserved) minus what is already outstanding on approved or partially-received purchase orders,
+compared with the item's reorder threshold. Nothing there commits a purchase.
+
+Live acceptance on PostgreSQL 18 proves: opening moves the asset to `rma`; exact idempotent replay
+and changed-payload conflict; a second case for the same asset refused; the warehouse signature
+refused for scrapping; closing before resolution refused; "repaired" before shipping refused;
+shipping, then a replacement that scraps the faulty unit and puts the vendor's unit in stock at the
+same warehouse; closing; a second case ending in a write-off with a balanced 4400/4400
+`inventory_scrap` journal; append-only RMA events rejecting tampering; and a reorder suggestion of 8
+for an item at 2 on hand against a threshold of 10.
+
+Two scope gaps surfaced by running it: `procurement_scope_allows` did not admit the RMA action, so
+the case could not read the vendor register it names; and nulling `warehouse_id` on a scrapped asset
+put the row outside its own row-level security scope. The last known warehouse is now retained,
+which is better data anyway — a write-off has a place attached to it.
+
+Focused suites: contracts 23/23, database 75/75, api 103/103, tenant-web 78/78 (28 warehouse tests).
+Build and all static gates pass.
+
 ## Controlled stock counts — 2026-09-05
 
 Adjustments existed, but a real count is not a series of ad-hoc adjustments: it is a session that

@@ -10,6 +10,7 @@ import type {
   StockCommand,
   StockReservationCommand,
   StockCountCommand,
+  RmaCommand,
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
@@ -23,6 +24,7 @@ import {
   executeStockCommand,
   executeStockReservationCommand,
   executeStockCountCommand,
+  executeRmaCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -1081,8 +1083,179 @@ try {
   );
   assert(afterCount.stockMovements.some((m) => m.kind === 'count_decrease'));
 
+  // --- RMA and repair lifecycle -------------------------------------------------------
+  const rmaCommand = (
+    command: RmaCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeRmaCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign(
+        command.action === 'scrap_asset'
+          ? 'tenant.warehouse.rma.scrap'
+          : 'tenant.warehouse.rma.manage',
+        command.action === 'scrap_asset' ? 'tenant.accounting.post' : 'tenant.installation.manage',
+        key,
+        overrides,
+      ),
+    });
+  const rmaEvidence = {
+    reasonEn: 'Device failed acceptance testing after return from the field',
+    reasonAr: 'فشل الجهاز في اختبار القبول بعد إرجاعه من الميدان',
+    evidence: 'Fault report FR-2026-091 attached to the vendor claim.',
+  };
+
+  // Take one of the serialized units received earlier and put it through repair.
+  const [repairable] = await admin.unsafe(
+    `SELECT id,serial_number FROM operations_serialized_assets
+      WHERE tenant_id=$1 AND status='in_stock' AND warehouse_id=$2 ORDER BY serial_number LIMIT 1`,
+    [tenantId, warehouseId],
+  );
+  const openKey = randomUUID();
+  const openCase: RmaCommand = {
+    action: 'open_case',
+    caseNumber: `RMA-${tenantId.slice(0, 8)}`,
+    assetId: repairable.id as string,
+    vendorId: vendor.id,
+    faultSummary: 'Optical transmit power below the acceptance threshold on both ports.',
+    ...rmaEvidence,
+  };
+  const rmaOpened = await rmaCommand(openCase, openKey);
+  const caseId = (rmaOpened as { caseId: string }).caseId;
+  assert.equal((rmaOpened as { status: string }).status, 'open');
+  assert.equal((rmaOpened as { assetStatus: string }).assetStatus, 'rma');
+  assert.deepEqual(await rmaCommand(openCase, openKey), rmaOpened);
+  await assert.rejects(rmaCommand({ ...openCase, evidence: 'A conflicting RMA retry.' }, openKey));
+
+  // The device is already in a case; a second one would mean it is at two vendors at once.
+  await assert.rejects(rmaCommand({ ...openCase, caseNumber: `RMA2-${tenantId.slice(0, 8)}` }));
+  // Scrapping is finance work; the warehouse signature must not reach it.
+  await assert.rejects(
+    executeRmaCommand(runtime.db, tenantId, {
+      command: { action: 'scrap_asset', caseId, expectedVersion: 1, ...rmaEvidence },
+      authorization: sign('tenant.warehouse.rma.manage', 'tenant.installation.manage'),
+    }),
+  );
+  // A case cannot be closed before it is resolved.
+  await assert.rejects(
+    rmaCommand({ action: 'close_case', caseId, expectedVersion: 1, ...rmaEvidence }),
+  );
+  // Nor repaired before it was ever shipped.
+  await assert.rejects(
+    rmaCommand({ action: 'receive_repaired', caseId, expectedVersion: 1, ...rmaEvidence }),
+  );
+
+  const shipped = await rmaCommand({
+    action: 'send_to_vendor',
+    caseId,
+    expectedVersion: 1,
+    ...rmaEvidence,
+  });
+  assert.equal((shipped as { status: string }).status, 'sent_to_vendor');
+  await assert.rejects(
+    rmaCommand({ action: 'send_to_vendor', caseId, expectedVersion: 1, ...rmaEvidence }),
+  );
+
+  const replacementSerial = `RPL-${randomUUID()}`;
+  const replaced = await rmaCommand({
+    action: 'receive_replacement',
+    caseId,
+    expectedVersion: 2,
+    replacementSerialNumber: replacementSerial,
+    ...rmaEvidence,
+  });
+  assert.equal((replaced as { status: string }).status, 'replaced');
+  // The faulty unit is written out of stock and the vendor's unit takes its place.
+  assert.equal((replaced as { assetStatus: string }).assetStatus, 'rma');
+  const [faultyAfter] = await admin.unsafe(
+    'SELECT status,warehouse_id FROM operations_serialized_assets WHERE tenant_id=$1 AND id=$2',
+    [tenantId, repairable.id],
+  );
+  assert.equal(faultyAfter.status, 'scrapped');
+  // The last known warehouse is retained so the write-off has a place attached to it.
+  assert.equal(faultyAfter.warehouse_id, warehouseId);
+  const [replacementAsset] = await admin.unsafe(
+    'SELECT status,warehouse_id FROM operations_serialized_assets WHERE tenant_id=$1 AND serial_number=$2',
+    [tenantId, replacementSerial],
+  );
+  assert.equal(replacementAsset.status, 'in_stock');
+  assert.equal(replacementAsset.warehouse_id, warehouseId);
+
+  const rmaClosed = await rmaCommand({
+    action: 'close_case',
+    caseId,
+    expectedVersion: 3,
+    ...rmaEvidence,
+  });
+  assert.equal((rmaClosed as { status: string }).status, 'closed');
+
+  // A second case that ends in a write-off, to prove the accounting consequence.
+  const [scrappable] = await admin.unsafe(
+    `SELECT id FROM operations_serialized_assets
+      WHERE tenant_id=$1 AND status='in_stock' AND warehouse_id=$2 AND item_id=$3
+      ORDER BY serial_number LIMIT 1`,
+    [tenantId, warehouseId, newItem.id],
+  );
+  const scrapCase = await rmaCommand({
+    action: 'open_case',
+    caseNumber: `RMA3-${tenantId.slice(0, 8)}`,
+    assetId: scrappable.id as string,
+    faultSummary: 'Water ingress; the unit is beyond economical repair and will be written off.',
+    ...rmaEvidence,
+  });
+  const scrapCaseId = (scrapCase as { caseId: string }).caseId;
+  const scrapped = await rmaCommand({
+    action: 'scrap_asset',
+    caseId: scrapCaseId,
+    expectedVersion: 1,
+    ...rmaEvidence,
+  });
+  assert.equal((scrapped as { status: string }).status, 'scrapped');
+  assert.equal((scrapped as { assetStatus: string }).assetStatus, 'scrapped');
+
+  const [scrapJournal] = await admin.unsafe(
+    `SELECT coalesce(sum(l.debit_minor),0)::int AS debits,coalesce(sum(l.credit_minor),0)::int AS credits,
+       count(DISTINCT j.id)::int AS journals
+     FROM operations_journal_entries j JOIN operations_journal_lines l ON l.journal_entry_id=j.id
+     WHERE j.tenant_id=$1 AND j.source_type='inventory_scrap'`,
+    [tenantId],
+  );
+  // The ONT carries a 4400 standard cost, written off against inventory.
+  assert.equal(scrapJournal.journals, 1);
+  assert.equal(scrapJournal.debits, 4400);
+  assert.equal(scrapJournal.credits, 4400);
+
+  // RMA history is append-only.
+  await assert.rejects(
+    inOperationsTransaction(
+      runtime.db,
+      tenantId,
+      sign('tenant.warehouse.rma.manage', 'tenant.installation.manage'),
+      (transaction) =>
+        transaction.execute(
+          sql`UPDATE operations_rma_events SET evidence='tampered' WHERE tenant_id=${tenantId}::uuid`,
+        ),
+    ),
+  );
+
+  const afterRma = await read();
+  assert(
+    afterRma.rmaCases.some(
+      (r) =>
+        r.id === caseId && r.status === 'closed' && r.replacementSerialNumber === replacementSerial,
+    ),
+  );
+  assert(afterRma.rmaCases.some((r) => r.id === scrapCaseId && r.status === 'scrapped'));
+  // The bulk item sits at 2 on hand against a threshold of 10, so it must be suggested.
+  const suggestion = afterRma.reorderSuggestions.find((s) => s.itemId === bulkItem.id);
+  assert(suggestion, 'expected a reorder suggestion for the depleted bulk item');
+  assert.equal(suggestion.quantityOnHand, 2);
+  assert.equal(suggestion.reorderThreshold, 10);
+  assert.equal(suggestion.suggestedQuantity, 8);
+
   console.log(
-    'Inventory live proof passed: custody, procurement, administration, partial mixed receiving, transfers, adjustments, reservations, expensed consumption and posted stock counts.',
+    'Inventory live proof passed: custody, procurement, administration, partial receiving, transfers, adjustments, reservations, consumption, stock counts, RMA lifecycle and reorder suggestions.',
   );
 } finally {
   await admin

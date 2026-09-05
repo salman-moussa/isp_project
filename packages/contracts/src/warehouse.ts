@@ -63,7 +63,16 @@ export const serializedAssetRecordSchema = z.object({
   warehouseId: z.string().uuid().nullable(),
   currentCustodianId: z.string().uuid().nullable(),
   installedServiceId: z.string().uuid().nullable(),
-  status: z.enum(['in_stock', 'reserved', 'issued', 'installed', 'returned', 'rma']),
+  status: z.enum([
+    'in_stock',
+    'reserved',
+    'issued',
+    'installed',
+    'returned',
+    'rma',
+    // Terminal: written off through an RMA case, so it is no longer held anywhere.
+    'scrapped',
+  ]),
   version: z.number().int().positive(),
 });
 export type SerializedAssetRecord = z.infer<typeof serializedAssetRecordSchema>;
@@ -495,6 +504,104 @@ export const stockCountCommandSchema = z.discriminatedUnion('action', [
 ]);
 export type StockCountCommand = z.infer<typeof stockCountCommandSchema>;
 
+export interface RmaCaseRecord {
+  readonly id: string;
+  readonly caseNumber: string;
+  readonly assetId: string;
+  readonly serialNumber: string;
+  readonly sku: string;
+  readonly vendorId: string | null;
+  readonly vendorNameEn: string | null;
+  readonly vendorNameAr: string | null;
+  readonly warehouseCode: string;
+  readonly faultSummary: string;
+  readonly status: 'open' | 'sent_to_vendor' | 'repaired' | 'replaced' | 'scrapped' | 'closed';
+  readonly replacementSerialNumber: string | null;
+  readonly journalEntryId: string | null;
+  readonly version: number;
+  readonly openedAt: string;
+  readonly resolvedAt: string | null;
+}
+
+/**
+ * RMA lifecycle for serialized equipment. Scrapping writes the device off and is the only step
+ * that touches the books, so it carries finance authority; the rest is warehouse work.
+ */
+export const rmaCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('open_case'),
+      caseNumber: z.string().trim().min(2).max(80),
+      assetId: z.string().uuid(),
+      vendorId: z.string().uuid().optional(),
+      faultSummary: z.string().trim().min(8).max(1000),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('send_to_vendor'),
+      caseId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('receive_repaired'),
+      caseId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('receive_replacement'),
+      caseId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      replacementSerialNumber: z.string().trim().min(2).max(100),
+      replacementMacAddress: z.string().trim().min(2).max(50).optional(),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('scrap_asset'),
+      caseId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('close_case'),
+      caseId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+]);
+export type RmaCommand = z.infer<typeof rmaCommandSchema>;
+
+/**
+ * Derived purchasing signal: what a location holds, what is already on order, and how much more
+ * would restore it to its reorder threshold. Read-only — nothing here commits a purchase.
+ */
+export interface ReorderSuggestionRecord {
+  readonly itemId: string;
+  readonly sku: string;
+  readonly itemNameEn: string;
+  readonly itemNameAr: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly quantityOnHand: number;
+  readonly quantityReserved: number;
+  readonly quantityAvailable: number;
+  readonly quantityOnOrder: number;
+  readonly reorderThreshold: number;
+  readonly suggestedQuantity: number;
+}
+
 export interface StockMovementRecord {
   readonly id: string;
   readonly itemId: string;
@@ -644,4 +751,6 @@ export interface WarehouseWorkspace {
   readonly stockMovements: readonly StockMovementRecord[];
   readonly stockReservations: readonly StockReservationRecord[];
   readonly stockCounts: readonly StockCountRecord[];
+  readonly rmaCases: readonly RmaCaseRecord[];
+  readonly reorderSuggestions: readonly ReorderSuggestionRecord[];
 }

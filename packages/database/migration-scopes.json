@@ -61,5 +61,6 @@
   "202609050900_tenant_warehouse_administration.sql": "tenant",
   "202609051000_tenant_stock_movements.sql": "tenant",
   "202609051100_tenant_stock_reservations.sql": "tenant",
-  "202609051200_tenant_stock_counts.sql": "tenant"
+  "202609051200_tenant_stock_counts.sql": "tenant",
+  "202609051300_tenant_rma_repair.sql": "tenant"
 }
