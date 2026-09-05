@@ -57,5 +57,6 @@
   "202609021808_tenant_noc_incident_workflow.sql": "tenant",
   "202609021809_tenant_network_result_scope.sql": "tenant",
   "202609021810_tenant_inventory_custody.sql": "tenant",
-  "202609021811_tenant_procurement_receiving.sql": "tenant"
+  "202609021811_tenant_procurement_receiving.sql": "tenant",
+  "202609050900_tenant_warehouse_administration.sql": "tenant"
 }

@@ -1,6 +1,7 @@
 import type { SessionClaims } from '@isp/contracts';
 import { AuthorizationDeniedError } from '@isp/domain';
 import Fastify from 'fastify';
+import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryAuditWriter } from './audit.js';
 import { MemorySecurityAuditWriter } from './security-audit.js';
@@ -134,6 +135,11 @@ function writerMocks() {
       status: 'draft',
       version: 1,
     })),
+    executeWarehouseAdminCommand: vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'active',
+      version: 1,
+    })),
     readNasClients: vi.fn(async () => []),
     readRadiusSessions: vi.fn(async () => []),
     readIpPools: vi.fn(async () => []),
@@ -156,11 +162,22 @@ async function makeApp(activeClaims: SessionClaims, writer: OperationsWriter) {
     writer,
     now: () => new Date('2026-08-11T12:00:00.000Z'),
   });
+  // Mirrors the production handler in app.ts so contract violations surface as 400 here too;
+  // otherwise every rejected payload would look like a server fault in these tests.
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AuthorizationDeniedError) {
       return reply
         .code(403)
         .send({ error: { code: error.code, message: error.message, requestId: request.id } });
+    }
+    if (error instanceof ZodError) {
+      return reply.code(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'The request did not match the expected contract.',
+          requestId: request.id,
+        },
+      });
     }
     return reply.code(500).send({
       error: { code: 'INTERNAL_ERROR', message: 'Request failed.', requestId: request.id },
@@ -812,7 +829,9 @@ describe('tenant operations API route plugin', () => {
       headers: { 'idempotency-key': 'billing-rate-001' },
       payload: { periodStart: '2026-08-01', periodEnd: '2026-09-01', vatRateBasisPoints: 1100 },
     });
-    expect(billing.statusCode).toBe(500);
+    // A caller-supplied VAT rate is not part of the contract, so the request is rejected as a
+    // contract violation before any billing work is attempted.
+    expect(billing.statusCode).toBe(400);
     expect(writer.prepareBilling).not.toHaveBeenCalled();
     const reconciliation = await app.inject({
       method: 'POST',
@@ -827,7 +846,7 @@ describe('tenant operations API route plugin', () => {
         declaredMinor: 100,
       },
     });
-    expect(reconciliation.statusCode).toBe(500);
+    expect(reconciliation.statusCode).toBe(400);
     expect(writer.reconcileCollector).not.toHaveBeenCalled();
     await app.close();
   });
@@ -1366,5 +1385,122 @@ describe('Warehouse custody routes', () => {
       }),
     );
     await withMfa.app.close();
+  });
+
+  it('signs warehouse administration with its own action and rejects unscoped callers', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'New fiber ONT stocked for the northern branch rollout',
+      reasonAr: 'تم إدخال وحدة الألياف الجديدة لمخزون فرع الشمال',
+      evidence: 'Catalog change request CR-2026-114 approved by operations.',
+    };
+    const createItem = {
+      action: 'create_item' as const,
+      sku: 'ONT-2100',
+      nameEn: 'GPON ONT 2100',
+      nameAr: 'وحدة ألياف 2100',
+      category: 'ont_onu' as const,
+      unitCostMinorUsd: 4200,
+      unitCostMinorLbp: 0,
+      serializedFlag: true,
+      reorderThreshold: 25,
+      ...evidence,
+    };
+
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.catalog.manage'] },
+      writer,
+    );
+    const created = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+      headers: { 'idempotency-key': 'warehouse-admin-item-001' },
+      payload: { command: createItem },
+    });
+    expect(created.statusCode).toBe(201);
+    // Administration carries a different signed action than procurement, so a procurement
+    // operator's signed context cannot be replayed to reshape the catalog.
+    expect(writer.executeWarehouseAdminCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.catalog.manage',
+        auditAction: 'tenant.warehouse.administration.manage',
+      }),
+    );
+    await administrator.app.close();
+
+    const withoutCatalog = await makeApp(
+      { ...claims, permissions: ['tenant.installation.view'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutCatalog.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+          headers: { 'idempotency-key': 'warehouse-admin-item-002' },
+          payload: { command: createItem },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutCatalog.app.close();
+  });
+
+  it('rejects a warehouse administration payload with unknown or missing fields', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.catalog.manage'] },
+      writer,
+    );
+    const evidence = {
+      reasonEn: 'Attempted catalog change without complete attributes',
+      reasonAr: 'محاولة تغيير الفهرس بدون سمات كاملة',
+      evidence: 'Rejected before reaching the database command.',
+    };
+
+    // An update is a full replacement: omitting `active` must be refused rather than
+    // silently leaving the previous value in place.
+    const missingField = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+      headers: { 'idempotency-key': 'warehouse-admin-item-003' },
+      payload: {
+        command: {
+          action: 'update_item',
+          itemId: serviceId,
+          expectedVersion: 1,
+          nameEn: 'GPON ONT 2100',
+          nameAr: 'وحدة ألياف 2100',
+          category: 'ont_onu',
+          unitCostMinorUsd: 4200,
+          unitCostMinorLbp: 0,
+          serializedFlag: true,
+          reorderThreshold: 25,
+          ...evidence,
+        },
+      },
+    });
+    expect(missingField.statusCode).toBe(400);
+
+    const unknownField = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+      headers: { 'idempotency-key': 'warehouse-admin-item-004' },
+      payload: {
+        command: {
+          action: 'create_bin',
+          warehouseId: serviceId,
+          binCode: 'A-01',
+          nameEn: 'Aisle A shelf 1',
+          nameAr: 'الممر أ الرف ١',
+          binKind: 'stock',
+          capacity: 40,
+          ...evidence,
+        },
+      },
+    });
+    expect(unknownField.statusCode).toBe(400);
+    expect(writer.executeWarehouseAdminCommand).not.toHaveBeenCalled();
+    await administrator.app.close();
   });
 });

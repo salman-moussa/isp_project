@@ -6,6 +6,7 @@ import type {
   InventoryCustodyCommand,
   Permission,
   ProcurementCommand,
+  WarehouseAdminCommand,
   VerifiedTenantId,
 } from '@isp/contracts';
 import {
@@ -15,6 +16,7 @@ import {
   signOperationsAttestation,
   transitionInventoryCustody,
   executeProcurementCommand,
+  executeWarehouseAdminCommand,
 } from '../src/index.js';
 
 const adminUrl = process.env.SALES_TEST_ADMIN_DATABASE_URL;
@@ -321,8 +323,247 @@ try {
       (candidate) => candidate.id === draft.id && candidate.status === 'received',
     ),
   );
+
+  // --- Catalog, warehouse and bin administration -------------------------------------
+  const administer = (
+    command: WarehouseAdminCommand,
+    key = randomUUID(),
+    overrides: Record<string, unknown> = {},
+  ) =>
+    executeWarehouseAdminCommand(runtime.db, tenantId, {
+      command,
+      authorization: sign(
+        'tenant.warehouse.administration.manage',
+        'tenant.catalog.manage',
+        key,
+        overrides,
+      ),
+    });
+  const adminEvidence = {
+    reasonEn: 'Catalog and warehouse structure approved for the branch rollout',
+    reasonAr: 'تمت الموافقة على هيكل الفهرس والمستودع لإطلاق الفرع',
+    evidence: 'Change request CR-2026-114 signed by operations and finance.',
+  };
+
+  // Administration requires its own signed action; a procurement signature must not work.
+  await assert.rejects(
+    executeWarehouseAdminCommand(runtime.db, tenantId, {
+      command: {
+        action: 'create_item',
+        sku: `WRONG-${tenantId.slice(0, 8)}`,
+        nameEn: 'Rejected item',
+        nameAr: 'صنف مرفوض',
+        category: 'accessory',
+        unitCostMinorUsd: 100,
+        unitCostMinorLbp: 0,
+        serializedFlag: false,
+        reorderThreshold: 1,
+        ...adminEvidence,
+      },
+      authorization: sign('tenant.warehouse.procurement.manage', 'tenant.catalog.manage'),
+    }),
+  );
+
+  const createdItem: WarehouseAdminCommand = {
+    action: 'create_item',
+    sku: `ONT-${tenantId.slice(0, 8)}`,
+    nameEn: 'GPON ONT acceptance unit',
+    nameAr: 'وحدة ألياف لاختبار القبول',
+    category: 'ont_onu',
+    unitCostMinorUsd: 4200,
+    unitCostMinorLbp: 0,
+    serializedFlag: true,
+    reorderThreshold: 25,
+    ...adminEvidence,
+  };
+  const itemKey = randomUUID();
+  const newItem = await administer(createdItem, itemKey);
+  assert.equal(newItem.version, 1);
+  // Exact replay returns the original result; a changed payload under the same key conflicts.
+  assert.deepEqual(await administer(createdItem, itemKey), newItem);
+  await assert.rejects(
+    administer({ ...createdItem, evidence: 'A conflicting administration retry.' }, itemKey),
+  );
+  // A duplicate SKU is refused rather than silently creating a second catalog entry.
+  await assert.rejects(administer({ ...createdItem, nameEn: 'Duplicate SKU attempt' }));
+
+  const updatedItem = await administer({
+    action: 'update_item',
+    itemId: newItem.id,
+    expectedVersion: 1,
+    nameEn: 'GPON ONT acceptance unit v2',
+    nameAr: 'وحدة ألياف لاختبار القبول ٢',
+    category: 'ont_onu',
+    unitCostMinorUsd: 4400,
+    unitCostMinorLbp: 0,
+    serializedFlag: true,
+    reorderThreshold: 30,
+    active: true,
+    ...adminEvidence,
+  });
+  assert.equal(updatedItem.version, 2);
+  // A stale expectedVersion is a conflict, not a last-writer-wins overwrite.
+  await assert.rejects(
+    administer({
+      action: 'update_item',
+      itemId: newItem.id,
+      expectedVersion: 1,
+      nameEn: 'Stale write',
+      nameAr: 'كتابة قديمة',
+      category: 'ont_onu',
+      unitCostMinorUsd: 4400,
+      unitCostMinorLbp: 0,
+      serializedFlag: true,
+      reorderThreshold: 30,
+      active: true,
+      ...adminEvidence,
+    }),
+  );
+  // The item received in this run already carries stock, so serialization is now history.
+  await assert.rejects(
+    administer({
+      action: 'update_item',
+      itemId,
+      expectedVersion: 1,
+      nameEn: 'Serialization flip attempt',
+      nameAr: 'محاولة تغيير التسلسل',
+      category: 'router_cpe',
+      unitCostMinorUsd: 100,
+      unitCostMinorLbp: 0,
+      serializedFlag: false,
+      reorderThreshold: 5,
+      active: true,
+      ...adminEvidence,
+    }),
+  );
+
+  const newWarehouse = await administer({
+    action: 'create_warehouse',
+    warehouseCode: `WH-${tenantId.slice(0, 8)}`,
+    nameEn: 'Northern acceptance depot',
+    nameAr: 'مستودع الشمال لاختبار القبول',
+    locationAddress: 'Tripoli, Lebanon',
+    branchId,
+    isPrimary: false,
+    ...adminEvidence,
+  });
+  assert.equal(newWarehouse.version, 1);
+  // A branch outside the signed scope cannot receive a warehouse.
+  await assert.rejects(
+    administer({
+      action: 'create_warehouse',
+      warehouseCode: `WH2-${tenantId.slice(0, 8)}`,
+      nameEn: 'Out of scope depot',
+      nameAr: 'مستودع خارج النطاق',
+      locationAddress: 'Beirut, Lebanon',
+      branchId: randomUUID(),
+      isPrimary: false,
+      ...adminEvidence,
+    }),
+  );
+  // The primary designation is tenant-wide, so a branch-scoped signature must refuse it.
+  await assert.rejects(
+    administer({
+      action: 'create_warehouse',
+      warehouseCode: `WH3-${tenantId.slice(0, 8)}`,
+      nameEn: 'Scoped primary attempt',
+      nameAr: 'محاولة تعيين مستودع رئيسي',
+      locationAddress: 'Beirut, Lebanon',
+      branchId,
+      isPrimary: true,
+      ...adminEvidence,
+    }),
+  );
+
+  const newBin = await administer({
+    action: 'create_bin',
+    warehouseId: newWarehouse.id,
+    binCode: 'A-01',
+    nameEn: 'Aisle A shelf 1',
+    nameAr: 'الممر أ الرف ١',
+    binKind: 'stock',
+    ...adminEvidence,
+  });
+  assert.equal(newBin.version, 1);
+  await assert.rejects(
+    administer({
+      action: 'create_bin',
+      warehouseId: newWarehouse.id,
+      binCode: 'a-01',
+      nameEn: 'Duplicate bin code',
+      nameAr: 'رمز رف مكرر',
+      binKind: 'stock',
+      ...adminEvidence,
+    }),
+  );
+  const quarantined = await administer({
+    action: 'update_bin',
+    binId: newBin.id,
+    expectedVersion: 1,
+    nameEn: 'Aisle A quarantine',
+    nameAr: 'الممر أ الحجر',
+    binKind: 'quarantine',
+    active: true,
+    ...adminEvidence,
+  });
+  assert.equal(quarantined.version, 2);
+
+  // The original warehouse still holds RMA/returned custody, so closing it is refused.
+  const [originalWarehouseVersion] = await admin.unsafe(
+    'SELECT version FROM operations_warehouses WHERE tenant_id=$1 AND id=$2',
+    [tenantId, warehouseId],
+  );
+  await assert.rejects(
+    administer({
+      action: 'update_warehouse',
+      warehouseId,
+      expectedVersion: originalWarehouseVersion.version as number,
+      nameEn: 'Closing attempt',
+      nameAr: 'محاولة إغلاق',
+      locationAddress: 'Beirut, Lebanon',
+      branchId,
+      isPrimary: false,
+      active: false,
+      ...adminEvidence,
+    }),
+  );
+
+  // Administration history is append-only.
+  await assert.rejects(
+    inOperationsTransaction(
+      runtime.db,
+      tenantId,
+      sign('tenant.warehouse.administration.manage', 'tenant.catalog.manage'),
+      (transaction) =>
+        transaction.execute(
+          sql`UPDATE operations_warehouse_admin_events SET evidence='tampered' WHERE tenant_id=${tenantId}::uuid`,
+        ),
+    ),
+  );
+
+  const administered = await read();
+  assert(
+    administered.items.some(
+      (candidate) => candidate.id === newItem.id && candidate.version === 2 && candidate.active,
+    ),
+  );
+  assert(administered.warehouses.some((candidate) => candidate.id === newWarehouse.id));
+  assert(
+    administered.bins.some(
+      (candidate) => candidate.id === newBin.id && candidate.binKind === 'quarantine',
+    ),
+  );
+  assert(administered.branches.some((candidate) => candidate.id === branchId));
+  assert(administered.administrationEvents.length >= 5);
+  const [adminAudit] = await admin.unsafe(
+    `SELECT count(*)::int AS count FROM operations_audit_outbox
+      WHERE tenant_id=$1 AND action='tenant.warehouse.administration.manage'`,
+    [tenantId],
+  );
+  assert.equal(adminAudit.count, administered.administrationEvents.length);
+
   console.log(
-    'Inventory live proof passed: governed custody plus vendor, approval, serialized receipt, exact replay/conflict, and balanced inventory/AP posting.',
+    'Inventory live proof passed: governed custody plus vendor, approval, serialized receipt, exact replay/conflict, balanced inventory/AP posting, and scoped catalog/warehouse/bin administration.',
   );
 } finally {
   await admin
