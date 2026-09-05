@@ -611,3 +611,34 @@
 .warehouse-muted {
   color: #8a9a9c;
 }
+
+.warehouse-count {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--wh-line);
+}
+.warehouse-count > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.warehouse-count header small {
+  display: block;
+  color: #687e80;
+}
+.warehouse-count h4 {
+  margin: 0.9rem 0 0.2rem;
+}
+.warehouse-status--open {
+  background: #e7f3ff;
+  color: #1d4e79;
+}
+.warehouse-status--closed {
+  background: #eaf6ee;
+  color: #23603a;
+}
+.warehouse-status--cancelled {
+  background: #f2f2f2;
+  color: #5f5f5f;
+}

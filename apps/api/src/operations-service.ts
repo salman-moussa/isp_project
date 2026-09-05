@@ -25,6 +25,7 @@ import {
   executeWarehouseAdminCommand,
   executeStockCommand,
   executeStockReservationCommand,
+  executeStockCountCommand,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -114,6 +115,7 @@ export interface OperationsRepositoryAdapter {
   readonly executeWarehouseAdminCommand: typeof executeWarehouseAdminCommand;
   readonly executeStockCommand: typeof executeStockCommand;
   readonly executeStockReservationCommand: typeof executeStockReservationCommand;
+  readonly executeStockCountCommand: typeof executeStockCountCommand;
   readonly readNasClients: typeof readNasClients;
   readonly readRadiusSessions: typeof readRadiusSessions;
   readonly readIpPools: typeof readIpPools;
@@ -189,6 +191,7 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   executeWarehouseAdminCommand,
   executeStockCommand,
   executeStockReservationCommand,
+  executeStockCountCommand,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -864,6 +867,16 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'executeStockReservationCommand'>,
   ) {
     return this.repository.executeStockReservationCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeStockCountCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeStockCountCommand'>,
+  ) {
+    return this.repository.executeStockCountCommand(this.database, tenantId, {
       command: input.command,
       authorization: this.sign(tenantId, input),
     });

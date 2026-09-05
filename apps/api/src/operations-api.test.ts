@@ -153,6 +153,13 @@ function writerMocks() {
       status: 'held',
       version: 1,
     })),
+    executeStockCountCommand: vi.fn(async () => ({
+      action: 'open_count',
+      countId: '11111111-1111-4111-8111-111111111111',
+      status: 'open',
+      version: 1,
+      lines: 3,
+    })),
     readNasClients: vi.fn(async () => []),
     readRadiusSessions: vi.fn(async () => []),
     readIpPools: vi.fn(async () => []),
@@ -1709,5 +1716,104 @@ describe('Warehouse custody routes', () => {
       ).statusCode,
     ).toBe(403);
     await finance.app.close();
+  });
+
+  it('separates counting stock from posting its variance', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Quarterly physical count of the receiving bay',
+      reasonAr: 'الجرد الفعلي الربعي لساحة الاستلام',
+      evidence: 'Count sheet CS-2026-042 signed by the warehouse supervisor.',
+    };
+    const openCommand = {
+      action: 'open_count' as const,
+      countNumber: 'CS-2026-042',
+      warehouseId: serviceId,
+      currency: 'USD' as const,
+      ...evidence,
+    };
+    const closeCommand = {
+      action: 'close_count' as const,
+      countId: serviceId,
+      expectedVersion: 2,
+      ...evidence,
+    };
+
+    const warehouse = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts`,
+          headers: { 'idempotency-key': 'stock-count-001' },
+          payload: { command: openCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCountCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.stock.count',
+      }),
+    );
+    // Closing posts variance, so the warehouse route must refuse it outright.
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts`,
+          headers: { 'idempotency-key': 'stock-count-002' },
+          payload: { command: closeCommand },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await warehouse.app.close();
+
+    const withoutMfa = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.post'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts/close`,
+          headers: { 'idempotency-key': 'stock-count-003' },
+          payload: { command: closeCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutMfa.app.close();
+
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts/close`,
+          headers: { 'idempotency-key': 'stock-count-004' },
+          payload: { command: closeCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCountCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.stock.count.close',
+      }),
+    );
+    await withMfa.app.close();
   });
 });
