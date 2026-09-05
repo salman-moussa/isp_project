@@ -9,6 +9,7 @@ import {
   inventoryCustodyCommandSchema,
   procurementCommandSchema,
   warehouseAdminCommandSchema,
+  stockCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -41,6 +42,23 @@ const procurementApprovalBody = z
   })
   .strict();
 const warehouseAdminBody = z.object({ command: warehouseAdminCommandSchema }).strict();
+// Moving stock and writing its value off carry different authority, so they are separate routes.
+const stockTransferBody = z
+  .object({
+    command: stockCommandSchema.refine(
+      (command) => command.action === 'transfer_stock',
+      'Only transfer commands are accepted here.',
+    ),
+  })
+  .strict();
+const stockAdjustBody = z
+  .object({
+    command: stockCommandSchema.refine(
+      (command) => command.action === 'adjust_stock',
+      'Adjustments use the MFA-protected finance route.',
+    ),
+  })
+  .strict();
 
 const salesLeadBody = z
   .object({
@@ -658,6 +676,8 @@ export const operationsRequestSchemas = {
   procurementManageBody,
   procurementApprovalBody,
   warehouseAdminBody,
+  stockTransferBody,
+  stockAdjustBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1079,6 +1099,25 @@ export function registerTenantOperationsRoutes(
       'warehouse_administration',
       warehouseAdminBody,
       (w, id, v) => w.executeWarehouseAdminCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/transfer',
+      'transferOperationsStock',
+      'tenant.installation.manage',
+      'tenant.warehouse.stock.transfer',
+      'stock_balance',
+      stockTransferBody,
+      (w, id, v) => w.executeStockCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/adjust',
+      'adjustOperationsStock',
+      'tenant.accounting.post',
+      'tenant.warehouse.stock.adjust',
+      'stock_balance',
+      stockAdjustBody,
+      (w, id, v) => w.executeStockCommand(id, v as never),
+      true,
     ),
     operation(
       '/warehouse/procurement/approve',

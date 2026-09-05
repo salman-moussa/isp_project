@@ -5,6 +5,7 @@ import {
   type InventoryCustodyCommand,
   type ProcurementCommand,
   type WarehouseAdminCommand,
+  type StockCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -249,6 +250,37 @@ export async function readWarehouseWorkspace(
       WHERE e.tenant_id=${tenantId}
       ORDER BY e.occurred_at DESC,e.id LIMIT 200
     `);
+    const stockBalances = await transaction.execute<
+      WarehouseWorkspace['stockBalances'][number] & Record<string, unknown>
+    >(sql`
+      SELECT b.id,b.item_id AS "itemId",i.sku,i.name_en AS "itemNameEn",i.name_ar AS "itemNameAr",
+        b.warehouse_id AS "warehouseId",w.warehouse_code AS "warehouseCode",
+        b.bin_id AS "binId",n.bin_code AS "binCode",
+        b.quantity_on_hand AS "quantityOnHand",b.quantity_reserved AS "quantityReserved",
+        i.reorder_threshold AS "reorderThreshold",b.version
+      FROM operations_stock_balances b
+      JOIN operations_inventory_items i ON i.tenant_id=b.tenant_id AND i.id=b.item_id
+      JOIN operations_warehouses w ON w.tenant_id=b.tenant_id AND w.id=b.warehouse_id
+      LEFT JOIN operations_warehouse_bins n ON n.tenant_id=b.tenant_id AND n.id=b.bin_id
+      WHERE b.tenant_id=${tenantId}
+      ORDER BY i.sku,w.warehouse_code,n.bin_code NULLS FIRST,b.id LIMIT 500
+    `);
+    const stockMovements = await transaction.execute<
+      WarehouseWorkspace['stockMovements'][number] & Record<string, unknown>
+    >(sql`
+      SELECT m.id,m.item_id AS "itemId",i.sku,m.kind,w.warehouse_code AS "warehouseCode",
+        n.bin_code AS "binCode",m.quantity,m.unit_cost_minor::float8 AS "unitCostMinor",
+        m.currency,m.journal_entry_id AS "journalEntryId",m.reason_en AS "reasonEn",
+        m.reason_ar AS "reasonAr",m.evidence,m.occurred_at AS "occurredAt",
+        u.display_name AS "actorName"
+      FROM operations_stock_movements m
+      JOIN operations_inventory_items i ON i.tenant_id=m.tenant_id AND i.id=m.item_id
+      JOIN operations_warehouses w ON w.tenant_id=m.tenant_id AND w.id=m.warehouse_id
+      LEFT JOIN operations_warehouse_bins n ON n.tenant_id=m.tenant_id AND n.id=m.bin_id
+      LEFT JOIN users u ON u.id=m.actor_id
+      WHERE m.tenant_id=${tenantId}
+      ORDER BY m.occurred_at DESC,m.sequence,m.id LIMIT 200
+    `);
     return {
       warehouses,
       items,
@@ -259,7 +291,26 @@ export async function readWarehouseWorkspace(
       bins,
       branches,
       administrationEvents,
+      stockBalances,
+      stockMovements,
     };
+  });
+}
+
+export async function executeStockCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: StockCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<Record<string, unknown>> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{ result: Record<string, unknown> }>(
+      sql`SELECT execute_stock_command(${JSON.stringify(input.command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('Stock command returned no result.');
+    return row.result;
   });
 }
 

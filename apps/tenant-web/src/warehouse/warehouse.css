@@ -559,3 +559,47 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Bulk stock -------------------------------------------------------------------- */
+.warehouse-stock {
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--wh-line);
+  border-radius: 1.35rem;
+  background: linear-gradient(145deg, #f6fbfa, #fdfaf5);
+}
+.warehouse-stock > .warehouse-panel__head {
+  align-items: flex-start;
+}
+.warehouse-stock .warehouse-metrics {
+  margin: 1rem 0 0;
+}
+.warehouse-stock .warehouse-tabs {
+  margin: 1rem 0;
+}
+.warehouse-table tr.is-low td {
+  background: #fff7ec;
+}
+.warehouse-flag {
+  display: inline-block;
+  margin-inline-start: 0.45rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #f4a63a;
+  color: #3a2708;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.warehouse-table__reason {
+  white-space: normal;
+  min-inline-size: 18ch;
+  max-inline-size: 40ch;
+}
+.warehouse-hint--warn {
+  padding: 0.6rem 0.7rem;
+  border-inline-start: 3px solid #d98324;
+  border-radius: 0.4rem;
+  background: #fff7ec;
+  color: #6b4a17;
+}
