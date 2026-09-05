@@ -16,6 +16,55 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Production checkpoint deployed — 2026-09-05 (`6f289f9`)
+
+Production was moved from `7ecf011` to `6f289f9`, promoting the Wave 0 release-packaging work and
+the Wave 1 warehouse administration vertical. Release id `20260905T015202Z-6f289f9`.
+
+**The preflight caught a real pre-existing corruption before anything was touched.** Run read-only
+against the live tenant ledger, it reported 12 blocking `checksum_mismatch` findings: migrations
+`202609021800`–`202609021811` were applied on 2026-09-04 from a CRLF checkout, so
+`_orvex_migrations` holds CRLF checksums while the repository is now LF-normalized. On-disk
+inspection confirmed exactly those 12 files were CRLF on the server and hashed to the recorded
+values (for example `202609021811` → `bcb55006…` on disk and in the ledger, versus `c82b4e93…`
+committed). Production was self-consistent, but unpacking the LF versions over them would have
+aborted the migrator _after_ services were stopped — the same failure as 2026-09-04.
+
+Resolution followed the standing rule that applied migrations are immutable including the bytes that
+were applied: the deploy script now preserves the live file for every name already in the ledger and
+unpacks only new forward migrations. No stored checksum was edited.
+
+Deployment facts:
+
+| Item                | Result                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Artifact            | `6f289f9….tar`, sha256 `74625f0e86c5d757bf458f8efff8d0156f93a8c23215ed721f7dc0fb68de5589`, identical local and on-host |
+| Backup              | `/opt/orvex-backups/20260905T015202Z-6f289f9`, 7 files, `sha256sum -c` all OK                                          |
+| Migrations promoted | 1 — `202609050900_tenant_warehouse_administration.sql`; tenant ledger 48 → 49, control 13 unchanged                    |
+| Applied bytes kept  | 12 CRLF files preserved exactly; new migration written LF (0 CR bytes)                                                 |
+| Services            | api, finance-audit-relay, network-worker, postgres, web — all `running (healthy)`                                      |
+| Endpoints           | `/` 200, `/control/` 200, `/ready` 200 `{"status":"ready"}`                                                            |
+| Invariants          | unbalanced journal entries 0, invalid indexes 0                                                                        |
+| New schema          | `operations_warehouse_bins` and `operations_warehouse_admin_events` present                                            |
+| Logs                | no error/fatal/panic lines in api, workers, or web since deployment                                                    |
+
+Rollback boundary: `/opt/orvex-backups/20260905T015202Z-6f289f9/source.tar` plus
+`orvex_control.dump` and `orvex_tenant.dump`. The backup is retained; only the Docker build cache
+was pruned. No unrelated host workload was inspected or changed.
+
+Two script defects surfaced during the run and are fixed:
+
+- PHASE 9 aborted on a transient `502` because the reverse proxy had not yet re-registered the
+  just-recreated web container. All mutating phases had already succeeded and production was healthy
+  seconds later; verification now polls each endpoint until it settles (120s budget).
+- The status capture combined `curl -f` with an `|| echo 000` fallback, so an error status printed
+  as `502000`. `-f` is now omitted and the code captured cleanly.
+
+Because of the first defect the script exited before its own PHASE 9/10 checks, so container state,
+database invariants, schema objects, logs and backup verification were confirmed by separate
+read-only commands rather than by the script itself. A subsequent deployment will exercise the fixed
+path end to end.
+
 ## Release packaging hardening — 2026-09-05
 
 The 2026-09-04 production deployment failed after services were stopped, because the release
@@ -35,14 +84,11 @@ Four controls are now in place, with local evidence:
 | Migration checksum preflight                      | 7/7 unit tests: matched ledger, forward-only promotion, CRLF checksum mismatch, dropped migration, out-of-order, empty DB.                                                                                      |
 | `git archive` release artifact                    | Built twice from the same commit on Windows: byte-identical tarballs. Extracted `*.sh` are mode `rwxr-xr-x`, migrations LF-only, and all 61 manifest migration checksums equal the migrator's own hashing path. |
 
-This is **local evidence only**. The preflight has since been exercised against a real
-`_orvex_migrations` ledger on a disposable local PostgreSQL 18 — see the warehouse administration
-checkpoint below, which also records the `permission denied for schema public` defect that live run
-uncovered and fixed. It has **not** run against production. Outbound SSH (port 22) is blocked from
-the current engineering environment, so `deploy/production/deploy-checkpoint.sh` has been
-syntax-checked (`sh -n`) but never executed on the host. Production remains on `7ecf011`; `/`,
-`/control/` and `/ready` were confirmed HTTP 200 read-only over HTTPS on 2026-09-05. Platform
-operations stays `partial` until a checkpoint is actually deployed with this script.
+These controls have now been exercised against production. The preflight ran read-only against the
+live `_orvex_migrations` ledger, found 12 genuine checksum mismatches inherited from 2026-09-04, and
+the artifact-based deploy script promoted `6f289f9` without touching a single applied migration —
+see the deployment record above. Platform operations remains `partial` until restore, rollback, load
+and DR exercises are recorded; one successful checkpoint is not release acceptance.
 
 ## Warehouse master-data administration — 2026-09-05
 

@@ -231,11 +231,28 @@ compose up -d --no-deps web
 # PHASE 9 — verification
 # ---------------------------------------------------------------------------
 step "PHASE 9: verification"
-for path in "/ready" "/" "/control/"; do
-  code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 25 "$PUBLIC_BASE$path" || echo 000)"
-  echo "  $path -> HTTP $code"
-  [ "$code" = "200" ] || fail "$path returned HTTP $code"
-done
+# The reverse proxy needs a moment to re-register the just-recreated web container, so a 502
+# immediately after PHASE 8 is expected and transient. Poll each endpoint until it settles
+# rather than aborting a deployment that actually succeeded.
+#
+# `-f` is deliberately omitted: with it curl exits non-zero on an error status and the
+# fallback would be concatenated onto the code it already printed, yielding "502000".
+check_endpoint() {
+  endpoint="$1"
+  elapsed=0
+  while :; do
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 "$PUBLIC_BASE$endpoint" 2>/dev/null || true)"
+    [ -n "$code" ] || code=000
+    if [ "$code" = "200" ]; then
+      echo "  $endpoint -> HTTP 200 (after ${elapsed}s)"
+      return 0
+    fi
+    elapsed=$((elapsed + 5))
+    [ "$elapsed" -le 120 ] || fail "$endpoint returned HTTP $code for ${elapsed}s after recreation"
+    sleep 5
+  done
+}
+for path in "/ready" "/" "/control/"; do check_endpoint "$path"; done
 echo "Readiness body: $(curl -fsS --max-time 20 "$PUBLIC_BASE/ready")"
 
 # Journal balance is asserted per entry per currency: a total that balances only after
