@@ -16,6 +16,33 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Production checkpoint deployed — 2026-09-05 (`a0ce440`)
+
+Production moved from `6f289f9` to `a0ce440`, promoting bulk stock, partial receiving, transfers and
+adjustments. Release id `20260905T121757Z-a0ce440`. **The deploy script completed end to end with
+exit code 0**, exercising the phases the previous run aborted before.
+
+| Item                | Result                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Artifact            | sha256 `24848a45d962539bad8b0a0b20700831098f3c866d695ff4a5fd4270f4d3b1c1`, identical local and on-host |
+| Backup              | `/opt/orvex-backups/20260905T121757Z-a0ce440`, verified with `sha256sum -c`                            |
+| Migration reconcile | 12 already-applied files preserved byte-for-byte; 1 forward migration identified                       |
+| Preflight           | control 13/13 matched; tenant 49/49 matched, 1 pending — no blocking findings                          |
+| Migrations promoted | `202609051000_tenant_stock_movements.sql`; tenant ledger 49 → 50                                       |
+| Services            | all five `running (healthy)`                                                                           |
+| Endpoints           | `/ready` 200 after 10s, `/` 200, `/control/` 200                                                       |
+| Invariants          | unbalanced journal entries 0, invalid indexes 0                                                        |
+| Migration bytes     | 12 CRLF preserved, 49 LF, new migration 0 CR bytes                                                     |
+| Logs                | no error/fatal/panic lines after deployment                                                            |
+
+The proxy-settling fix proved itself: `/ready` returned non-200 for 10s after the web container was
+recreated and the retry loop absorbed it, where the previous run aborted on exactly that transient.
+The migration-preservation design also proved itself on a real second pass — the 12 CRLF files
+inherited from 2026-09-04 were kept, and only the genuinely new migration was promoted.
+
+Rollback boundary: `/opt/orvex-backups/20260905T121757Z-a0ce440/source.tar` plus both database
+dumps. Backups retained; only the Docker build cache was pruned.
+
 ## Bulk stock, partial receiving, transfers and adjustments — 2026-09-05
 
 The catalog could already describe a non-serialized SKU, but nothing could hold, receive, move or
