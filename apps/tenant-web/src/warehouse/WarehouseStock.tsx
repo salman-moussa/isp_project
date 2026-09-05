@@ -3,6 +3,7 @@ import type {
   StockCommand,
   StockMovementRecord,
   RmaCommand,
+  VendorQuoteCommand,
   StockCountCommand,
   StockReservationCommand,
   WarehouseWorkspace as Workspace,
@@ -10,6 +11,7 @@ import type {
 import {
   stockCommandSchema,
   rmaCommandSchema,
+  vendorQuoteCommandSchema,
   stockCountCommandSchema,
   stockReservationCommandSchema,
 } from '@isp/contracts';
@@ -22,6 +24,7 @@ type Tab =
   | 'counts'
   | 'rma'
   | 'reorder'
+  | 'quotes'
   | 'transfer'
   | 'adjust'
   | 'movements';
@@ -42,6 +45,7 @@ export function WarehouseStock({
   onReserve,
   onCount,
   onRma,
+  onQuote,
 }: {
   readonly locale: Locale;
   readonly data: Workspace;
@@ -51,6 +55,7 @@ export function WarehouseStock({
   readonly onReserve: (command: StockReservationCommand) => void;
   readonly onCount: (command: StockCountCommand) => void;
   readonly onRma: (command: RmaCommand) => void;
+  readonly onQuote: (command: VendorQuoteCommand) => void;
 }) {
   const t: Translate = (en, ar) => (locale === 'ar' ? ar : en);
   const [tab, setTab] = useState<Tab>('balances');
@@ -89,6 +94,25 @@ export function WarehouseStock({
       count_increase: t('Count surplus', 'زيادة جرد'),
       count_decrease: t('Count shortfall', 'نقص جرد'),
     })[kind];
+
+  const dispatchQuote = (event: FormEvent<HTMLFormElement>, build: (form: FormData) => unknown) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const parsed = vendorQuoteCommandSchema.safeParse(build(new FormData(form)));
+    if (!parsed.success) {
+      setValidation(
+        parsed.error.issues[0]?.message ??
+          t(
+            'Complete every field, including bilingual reason and evidence, before saving.',
+            'أكمل جميع الحقول، بما فيها السبب ثنائي اللغة والدليل، قبل الحفظ.',
+          ),
+      );
+      return;
+    }
+    setValidation('');
+    onQuote(parsed.data);
+    form.reset();
+  };
 
   const dispatchRma = (event: FormEvent<HTMLFormElement>, build: (form: FormData) => unknown) => {
     event.preventDefault();
@@ -197,6 +221,7 @@ export function WarehouseStock({
     { id: 'counts', label: t('Counts', 'الجرد') },
     { id: 'rma', label: t('RMA', 'الصيانة') },
     { id: 'reorder', label: t('Reorder', 'إعادة الطلب') },
+    { id: 'quotes', label: t('Quotes', 'عروض الأسعار') },
     { id: 'transfer', label: t('Transfer', 'تحويل') },
     { id: 'adjust', label: t('Adjust', 'تسوية') },
     { id: 'movements', label: t('Movements', 'الحركات') },
@@ -519,6 +544,198 @@ export function WarehouseStock({
             <StockEvidenceFields t={t} />
             <button className="warehouse-primary" disabled={busy || bulkItems.length === 0}>
               {t('Hold stock', 'حجز المخزون')}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {tab === 'quotes' && (
+        <div
+          role="tabpanel"
+          id="warehouse-stock-panel-quotes"
+          aria-labelledby="warehouse-stock-tab-quotes"
+          className="warehouse-admin-grid"
+        >
+          <div className="warehouse-card">
+            <h3>{t('Quote requests', 'طلبات عروض الأسعار')}</h3>
+            <p className="warehouse-hint">
+              {t(
+                'Ask several vendors, compare what comes back, and award. Awarding creates a draft purchase order at the quoted prices, which still goes through the normal approval.',
+                'اطلب من عدة موردين، قارن ما يصل، ثم رَسِّ العرض. الترسية تنشئ مسودة طلب شراء بالأسعار المعروضة، وتبقى خاضعة للاعتماد المعتاد.',
+              )}
+            </p>
+            {data.quoteRequests.length === 0 ? (
+              <p className="warehouse-empty">
+                {t('No quote request has been raised.', 'لم يُنشأ أي طلب عرض سعر.')}
+              </p>
+            ) : (
+              data.quoteRequests.map((request) => (
+                <article key={request.id} className="warehouse-count">
+                  <header>
+                    <div>
+                      <strong>{request.requestNumber}</strong>
+                      <small>
+                        {request.warehouseCode}
+                        {request.neededBy
+                          ? ` · ${t('needed by', 'مطلوب قبل')} ${request.neededBy}`
+                          : ''}
+                      </small>
+                    </div>
+                    <span className={`warehouse-status warehouse-status--${request.status}`}>
+                      {
+                        {
+                          open: t('Open', 'مفتوح'),
+                          awarded: t('Awarded', 'مُرسى'),
+                          cancelled: t('Cancelled', 'ملغى'),
+                        }[request.status]
+                      }
+                    </span>
+                  </header>
+                  <div className="warehouse-table-scroll">
+                    <table className="warehouse-table">
+                      <caption className="warehouse-visually-hidden">
+                        {t('Quotes for', 'عروض لـ')} {request.requestNumber}
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">{t('Vendor', 'المورد')}</th>
+                          <th scope="col">{t('Total', 'الإجمالي')}</th>
+                          <th scope="col">{t('Lead time', 'مدة التوريد')}</th>
+                          <th scope="col">{t('Valid until', 'صالح حتى')}</th>
+                          <th scope="col">{t('State', 'الحالة')}</th>
+                          <th scope="col">{t('Action', 'إجراء')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {request.quotes.map((quote) => (
+                          <tr key={quote.id}>
+                            <td>{locale === 'ar' ? quote.vendorNameAr : quote.vendorNameEn}</td>
+                            <td>
+                              {/* Currency is shown per quote; totals are never summed across currencies. */}
+                              {(quote.totalAmountMinor / 100).toLocaleString(
+                                locale === 'ar' ? 'ar-LB' : 'en-GB',
+                              )}{' '}
+                              {quote.currency}
+                            </td>
+                            <td>
+                              {quote.leadTimeDays} {t('days', 'يوم')}
+                            </td>
+                            <td>{quote.validUntil ?? '—'}</td>
+                            <td>
+                              {
+                                {
+                                  received: t('Received', 'مستلم'),
+                                  awarded: t('Awarded', 'مُرسى'),
+                                  rejected: t('Not selected', 'غير مختار'),
+                                }[quote.status]
+                              }
+                            </td>
+                            <td>
+                              {request.status === 'open' ? (
+                                <button
+                                  type="button"
+                                  className="warehouse-link"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    onQuote({
+                                      action: 'award_quote',
+                                      requestId: request.id,
+                                      expectedVersion: request.version,
+                                      quoteId: quote.id,
+                                      poNumber: `PO-${request.requestNumber}`,
+                                      reasonEn: `Awarding ${request.requestNumber} to the selected vendor`,
+                                      reasonAr: `ترسية ${request.requestNumber} على المورد المختار`,
+                                      evidence: `Comparison sheet for ${request.requestNumber} approved.`,
+                                    })
+                                  }
+                                >
+                                  {t('Award', 'ترسية')}
+                                </button>
+                              ) : (
+                                <span className="warehouse-muted">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {request.quotes.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="warehouse-empty">
+                              {t('No quote received yet.', 'لم يُستلم أي عرض بعد.')}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+
+          <form
+            className="warehouse-form warehouse-card"
+            onSubmit={(event) =>
+              dispatchQuote(event, (form) => ({
+                action: 'create_quote_request',
+                requestNumber: readText(form, 'requestNumber'),
+                warehouseId: readText(form, 'warehouseId'),
+                neededBy: optionalId(form, 'neededBy'),
+                lines: [
+                  {
+                    itemId: readText(form, 'itemId'),
+                    quantity: readNumber(form, 'quantity'),
+                  },
+                ],
+                ...evidenceFrom(form),
+              }))
+            }
+          >
+            <h3>{t('Request quotes', 'طلب عروض أسعار')}</h3>
+            <label>
+              {t('Request number', 'رقم الطلب')}
+              <input name="requestNumber" required minLength={2} maxLength={80} />
+            </label>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Item', 'الصنف')}
+                <select name="itemId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data.items
+                    .filter((item) => item.active)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.sku} · {locale === 'ar' ? item.nameAr : item.nameEn}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                {t('Quantity', 'الكمية')}
+                <input name="quantity" type="number" min={1} max={10000} required />
+              </label>
+            </div>
+            <div className="warehouse-form__pair">
+              <label>
+                {t('Deliver to', 'التسليم إلى')}
+                <select name="warehouseId" required defaultValue="">
+                  <option value="">{t('Choose', 'اختر')}</option>
+                  {data.warehouses
+                    .filter((warehouse) => warehouse.active)
+                    .map((warehouse) => (
+                      <option key={warehouse.id} value={warehouse.id}>
+                        {warehouse.warehouseCode}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                {t('Needed by (optional)', 'مطلوب قبل (اختياري)')}
+                <input name="neededBy" type="date" />
+              </label>
+            </div>
+            <StockEvidenceFields t={t} />
+            <button className="warehouse-primary" disabled={busy}>
+              {t('Raise request', 'إنشاء الطلب')}
             </button>
           </form>
         </div>

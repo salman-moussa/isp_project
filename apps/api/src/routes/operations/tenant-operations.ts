@@ -13,6 +13,7 @@ import {
   stockReservationCommandSchema,
   stockCountCommandSchema,
   rmaCommandSchema,
+  vendorQuoteCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -65,6 +66,7 @@ const stockCountBody = z
   })
   .strict();
 // Scrapping writes a device off, so it is the only RMA step that is finance work.
+const vendorQuoteBody = z.object({ command: vendorQuoteCommandSchema }).strict();
 const rmaManageBody = z
   .object({
     command: rmaCommandSchema.refine(
@@ -721,6 +723,7 @@ export const operationsRequestSchemas = {
   stockCountCloseBody,
   rmaManageBody,
   rmaScrapBody,
+  vendorQuoteBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -1160,6 +1163,15 @@ export function registerTenantOperationsRoutes(
       'stock_reservation',
       stockReservationBody,
       (w, id, v) => w.executeStockReservationCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/quotes',
+      'commandOperationsVendorQuote',
+      'tenant.catalog.manage',
+      'tenant.warehouse.quote.manage',
+      'vendor_quote_request',
+      vendorQuoteBody,
+      (w, id, v) => w.executeVendorQuoteCommand(id, v as never),
     ),
     operation(
       '/warehouse/rma',

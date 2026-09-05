@@ -260,6 +260,56 @@ const fixture: Workspace = {
       suggestedQuantity: 8,
     },
   ],
+  quoteRequests: [
+    {
+      id: 'ff000000-0000-4000-8000-000000000001',
+      requestNumber: 'RFQ-2026-004',
+      warehouseId,
+      warehouseCode: 'BEY-01',
+      neededBy: '2026-10-01',
+      status: 'open' as const,
+      awardedQuoteId: null,
+      purchaseOrderId: null,
+      version: 3,
+      createdAt: '2026-09-05T06:00:00.000Z',
+      lines: [
+        {
+          id: '11000000-0000-4000-8000-000000000001',
+          itemId: bulkItemId,
+          sku: 'DROP-100',
+          itemNameEn: 'Drop wire 100m reel',
+          itemNameAr: 'بكرة سلك توصيل 100 متر',
+          quantity: 100,
+        },
+      ],
+      quotes: [
+        {
+          id: '12000000-0000-4000-8000-000000000001',
+          vendorId: '80000000-0000-4000-8000-000000000001',
+          vendorNameEn: 'Fiber supplier',
+          vendorNameAr: 'مورد الألياف',
+          currency: 'USD' as const,
+          totalAmountMinor: 145000,
+          leadTimeDays: 30,
+          validUntil: '2026-10-15',
+          status: 'received' as const,
+          lines: [{ requestLineId: '11000000-0000-4000-8000-000000000001', unitCostMinor: 1450 }],
+        },
+        {
+          id: '12000000-0000-4000-8000-000000000002',
+          vendorId: '80000000-0000-4000-8000-000000000002',
+          vendorNameEn: 'Competing supplier',
+          vendorNameAr: 'مورد منافس',
+          currency: 'USD' as const,
+          totalAmountMinor: 160000,
+          leadTimeDays: 21,
+          validUntil: null,
+          status: 'received' as const,
+          lines: [{ requestLineId: '11000000-0000-4000-8000-000000000001', unitCostMinor: 1600 }],
+        },
+      ],
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -866,5 +916,87 @@ describe('Warehouse RMA and reorder suggestions', () => {
     expect(
       screen.getByText('Every stocked location is at or above its reorder threshold.'),
     ).toBeVisible();
+  });
+});
+
+describe('Warehouse vendor quotes', () => {
+  it('compares quotes cheapest first with each currency shown per quote', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Quotes' }));
+    const table = screen.getByRole('table', { name: /Quotes for/ });
+    const rows = within(table).getAllByRole('row').slice(1);
+    // The repository orders by total, so the cheapest bid is read first without re-sorting.
+    expect(rows[0]).toHaveTextContent('Fiber supplier');
+    expect(rows[0]).toHaveTextContent('1,450 USD');
+    expect(rows[1]).toHaveTextContent('Competing supplier');
+    expect(rows[1]).toHaveTextContent('1,600 USD');
+  });
+
+  it('awards the chosen quote carrying the reviewed request version', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Quotes' }));
+    await user.click(
+      within(screen.getByRole('table', { name: /Quotes for/ })).getAllByRole('button', {
+        name: 'Award',
+      })[0],
+    );
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/quotes');
+    expect(call?.[2].command).toMatchObject({
+      action: 'award_quote',
+      requestId: 'ff000000-0000-4000-8000-000000000001',
+      expectedVersion: 3,
+      quoteId: '12000000-0000-4000-8000-000000000001',
+    });
+  });
+
+  it('raises a quote request for an item and delivery warehouse', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Quotes' }));
+    const form = screen.getByRole('heading', { name: 'Request quotes' }).closest('form');
+    const controls = within(form!);
+    await user.type(controls.getByLabelText('Request number'), 'RFQ-2026-009');
+    await user.selectOptions(controls.getByLabelText('Item'), bulkItemId);
+    await user.type(controls.getByLabelText('Quantity'), '250');
+    await user.selectOptions(controls.getByLabelText('Deliver to'), warehouseId);
+    await user.type(controls.getByLabelText('Stock reason in English'), 'Sourcing for the rollout');
+    await user.type(controls.getByLabelText('Stock reason in Arabic'), 'تأمين مواد الإطلاق');
+    await user.type(
+      controls.getByLabelText('Stock evidence / reference'),
+      'Sourcing file SRC-2026-020',
+    );
+    await user.click(controls.getByRole('button', { name: 'Raise request' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    expect(vi.mocked(api.submitTenantOperation).mock.calls.at(-1)?.[2].command).toMatchObject({
+      action: 'create_quote_request',
+      requestNumber: 'RFQ-2026-009',
+      lines: [{ itemId: bulkItemId, quantity: 250 }],
+    });
+  });
+
+  it('offers no award once the request has been awarded', async () => {
+    vi.mocked(api.readWarehouseWorkspace).mockResolvedValue({
+      ...fixture,
+      quoteRequests: [
+        {
+          ...fixture.quoteRequests[0],
+          status: 'awarded',
+          awardedQuoteId: '12000000-0000-4000-8000-000000000001',
+          purchaseOrderId: '13000000-0000-4000-8000-000000000001',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Quotes' }));
+
+    expect(screen.queryByRole('button', { name: 'Award' })).toBeNull();
+    expect(screen.getByText('Awarded')).toBeVisible();
   });
 });
