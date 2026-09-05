@@ -59,5 +59,6 @@
   "202609021810_tenant_inventory_custody.sql": "tenant",
   "202609021811_tenant_procurement_receiving.sql": "tenant",
   "202609050900_tenant_warehouse_administration.sql": "tenant",
-  "202609051000_tenant_stock_movements.sql": "tenant"
+  "202609051000_tenant_stock_movements.sql": "tenant",
+  "202609051100_tenant_stock_reservations.sql": "tenant"
 }

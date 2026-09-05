@@ -6,6 +6,7 @@ import {
   type ProcurementCommand,
   type WarehouseAdminCommand,
   type StockCommand,
+  type StockReservationCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -281,6 +282,23 @@ export async function readWarehouseWorkspace(
       WHERE m.tenant_id=${tenantId}
       ORDER BY m.occurred_at DESC,m.sequence,m.id LIMIT 200
     `);
+    const stockReservations = await transaction.execute<
+      WarehouseWorkspace['stockReservations'][number] & Record<string, unknown>
+    >(sql`
+      SELECT r.id,r.item_id AS "itemId",i.sku,i.name_en AS "itemNameEn",i.name_ar AS "itemNameAr",
+        r.warehouse_id AS "warehouseId",w.warehouse_code AS "warehouseCode",
+        r.bin_id AS "binId",n.bin_code AS "binCode",r.quantity,r.status,
+        r.installation_id AS "installationId",s.service_number AS "serviceNumber",
+        r.reference,r.version,r.created_at AS "createdAt",r.resolved_at AS "resolvedAt"
+      FROM operations_stock_reservations r
+      JOIN operations_inventory_items i ON i.tenant_id=r.tenant_id AND i.id=r.item_id
+      JOIN operations_warehouses w ON w.tenant_id=r.tenant_id AND w.id=r.warehouse_id
+      LEFT JOIN operations_warehouse_bins n ON n.tenant_id=r.tenant_id AND n.id=r.bin_id
+      LEFT JOIN operations_installations f ON f.tenant_id=r.tenant_id AND f.id=r.installation_id
+      LEFT JOIN operations_services s ON s.tenant_id=f.tenant_id AND s.id=f.service_id
+      WHERE r.tenant_id=${tenantId}
+      ORDER BY (r.status='held') DESC,r.created_at DESC,r.id LIMIT 300
+    `);
     return {
       warehouses,
       items,
@@ -293,7 +311,25 @@ export async function readWarehouseWorkspace(
       administrationEvents,
       stockBalances,
       stockMovements,
+      stockReservations,
     };
+  });
+}
+
+export async function executeStockReservationCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: StockReservationCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<Record<string, unknown>> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{ result: Record<string, unknown> }>(
+      sql`SELECT execute_stock_reservation_command(${JSON.stringify(input.command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('Stock reservation command returned no result.');
+    return row.result;
   });
 }
 
