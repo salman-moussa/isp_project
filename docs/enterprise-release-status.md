@@ -1,7 +1,7 @@
 # Orvex ISP enterprise release status
 
 Status: live engineering ledger Controlling specification:
-[`product/enterprise-capability-map.md`](product/enterprise-capability-map.md) Updated: 2026-09-04
+[`product/enterprise-capability-map.md`](product/enterprise-capability-map.md) Updated: 2026-09-05
 
 This ledger records what the composed product can prove today. The only allowed capability states
 are `foundation`, `partial`, `missing`, `activation_required`, and `verified`. A unit test is
@@ -15,6 +15,32 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Audit/worker**: immutable evidence and asynchronous or external execution boundary.
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
+
+## Release packaging hardening — 2026-09-05
+
+The 2026-09-04 production deployment failed after services were stopped, because the release
+artifact carried CRLF line endings and non-executable shell scripts. Migration checksums are SHA-256
+over raw bytes, so content-identical files aborted the migrator, and
+`infra/docker/postgres/admin/*.sh` could not execute in Alpine. Recovery required restoring the
+server's backed-up historical migration bytes and re-installing the admin scripts with LF endings
+and mode `0755`.
+
+Four controls are now in place, with local evidence:
+
+| Control                                           | Evidence                                                                                                                   |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `.gitattributes` LF normalization                 | Staging a CRLF `.sql` file produced an LF index blob (`A \n B \n`); CRLF can no longer enter the index.                    |
+| `npm run release:packaging`                       | Passes on 589 tracked files / 59 migrations. Negative run correctly reported all 6 non-executable `*.sh` before the fix.   |
+| Six `*.sh` promoted to mode `100755` in the index | `git ls-files -s '*.sh'` shows `100755` for all 7; blob SHAs unchanged, so file content was preserved exactly.             |
+| Migration checksum preflight                      | 7/7 unit tests: matched ledger, forward-only promotion, CRLF checksum mismatch, dropped migration, out-of-order, empty DB. |
+
+This is **local packaging evidence only**. The controls are unexercised against the production host
+in this checkpoint: outbound SSH (port 22) is blocked from the current engineering environment, so
+`deploy/production/deploy-checkpoint.sh` has been syntax-checked (`sh -n`) but never executed, and
+the migration preflight has never run against the live `_orvex_migrations` ledger. Production
+remains on `7ecf011`; `/`, `/control/` and `/ready` were confirmed HTTP 200 read-only over HTTPS on
+2026-09-05. Platform operations stays `partial` until a checkpoint is actually deployed with this
+script.
 
 ## Accounting integrity checkpoint — 2026-09-02
 

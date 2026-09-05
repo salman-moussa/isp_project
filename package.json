@@ -28,10 +28,12 @@
     "test:integration": "npm run test:integration --workspace=@isp/database",
     "db:check": "npm run db:check --workspace=@isp/database",
     "phase-g:check": "node scripts/release/validate-phase-g.mjs",
+    "release:packaging": "node scripts/release/verify-release-packaging.mjs",
+    "release:artifact": "node scripts/release/build-release-artifact.mjs",
     "security:audit": "node scripts/security/audit-production.mjs",
     "brand:check": "node scripts/brand-check.mjs",
     "smoke:api": "node scripts/smoke-api-artifact.mjs",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run smoke:api && npm run db:check && npm run phase-g:check && npm run security:audit && npm run test:integration"
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run smoke:api && npm run db:check && npm run release:packaging && npm run phase-g:check && npm run security:audit && npm run test:integration"
   },
   "devDependencies": {
     "@eslint/js": "9.35.0",
