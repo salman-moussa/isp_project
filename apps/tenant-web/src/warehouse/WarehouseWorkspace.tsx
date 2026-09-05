@@ -4,6 +4,7 @@ import type {
   ProcurementCommand,
   SerializedAssetRecord,
   StockCommand,
+  RmaCommand,
   StockCountCommand,
   StockReservationCommand,
   WarehouseAdminCommand,
@@ -81,6 +82,7 @@ export function WarehouseWorkspace({
       installed: t('Installed', 'مركّب'),
       returned: t('Returned', 'مرتجع'),
       rma: t('RMA', 'صيانة المورد'),
+      scrapped: t('Scrapped', 'مُتلف'),
     })[status];
   const allowedActions = (status: SerializedAssetRecord['status']): readonly Action[] => {
     if (status === 'in_stock') return ['issue'];
@@ -199,6 +201,38 @@ export function WarehouseWorkspace({
           : t(
               'The change was not saved. Refresh to see the current record, then reapply.',
               'لم يُحفظ التغيير. حدّث الصفحة لعرض السجل الحالي ثم أعد التطبيق.',
+            ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runRma(command: RmaCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setStockMessage('');
+    try {
+      // Writing a device off is the only RMA step that touches the books.
+      await submitTenantOperation(
+        session,
+        command.action === 'scrap_asset' ? 'warehouse/rma/scrap' : 'warehouse/rma',
+        { command },
+        retry.current.key,
+      );
+      retry.current = undefined;
+      setStockMessage(t('Repair case updated.', 'تم تحديث حالة الصيانة.'));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setStockMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t(
+              'The repair case was not updated. Refresh and try again.',
+              'لم يتم تحديث حالة الصيانة. حدّث الصفحة وأعد المحاولة.',
             ),
       );
     } finally {
@@ -861,6 +895,7 @@ export function WarehouseWorkspace({
           onSubmit={(command) => void runStock(command)}
           onReserve={(command) => void runReservation(command)}
           onCount={(command) => void runCount(command)}
+          onRma={(command) => void runRma(command)}
         />
       )}
 

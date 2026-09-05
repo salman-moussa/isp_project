@@ -17,6 +17,7 @@ import type {
   StockCommand,
   StockReservationCommand,
   StockCountCommand,
+  RmaCommand,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -586,6 +587,10 @@ export interface OperationsWriter {
   executeStockCountCommand(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly command: StockCountCommand },
+  ): Promise<unknown>;
+  executeRmaCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: RmaCommand },
   ): Promise<unknown>;
   readNasClients(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readRadiusSessions(
