@@ -30,18 +30,80 @@ Four controls are now in place, with local evidence:
 | Control                                           | Evidence                                                                                                                                                                                                        |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `.gitattributes` LF normalization                 | Staging a CRLF `.sql` file produced an LF index blob (`A \n B \n`); CRLF can no longer enter the index.                                                                                                         |
-| `npm run release:packaging`                       | Passes on 595 tracked files / 59 migrations. Negative run correctly reported all 6 non-executable `*.sh` before the fix.                                                                                        |
+| `npm run release:packaging`                       | Passes on 597 tracked files / 60 migrations. Negative run correctly reported all 6 non-executable `*.sh` before the fix.                                                                                        |
 | Six `*.sh` promoted to mode `100755` in the index | `git ls-files -s '*.sh'` shows `100755` for all 7; blob SHAs unchanged, so file content was preserved exactly.                                                                                                  |
 | Migration checksum preflight                      | 7/7 unit tests: matched ledger, forward-only promotion, CRLF checksum mismatch, dropped migration, out-of-order, empty DB.                                                                                      |
 | `git archive` release artifact                    | Built twice from the same commit on Windows: byte-identical tarballs. Extracted `*.sh` are mode `rwxr-xr-x`, migrations LF-only, and all 61 manifest migration checksums equal the migrator's own hashing path. |
 
-This is **local packaging evidence only**. The controls are unexercised against the production host
-in this checkpoint: outbound SSH (port 22) is blocked from the current engineering environment, so
-`deploy/production/deploy-checkpoint.sh` has been syntax-checked (`sh -n`) but never executed, and
-the migration preflight has never run against the live `_orvex_migrations` ledger. Production
-remains on `7ecf011`; `/`, `/control/` and `/ready` were confirmed HTTP 200 read-only over HTTPS on
-2026-09-05. Platform operations stays `partial` until a checkpoint is actually deployed with this
-script.
+This is **local evidence only**. The preflight has since been exercised against a real
+`_orvex_migrations` ledger on a disposable local PostgreSQL 18 — see the warehouse administration
+checkpoint below, which also records the `permission denied for schema public` defect that live run
+uncovered and fixed. It has **not** run against production. Outbound SSH (port 22) is blocked from
+the current engineering environment, so `deploy/production/deploy-checkpoint.sh` has been
+syntax-checked (`sh -n`) but never executed on the host. Production remains on `7ecf011`; `/`,
+`/control/` and `/ready` were confirmed HTTP 200 read-only over HTTPS on 2026-09-05. Platform
+operations stays `partial` until a checkpoint is actually deployed with this script.
+
+## Warehouse master-data administration — 2026-09-05
+
+Until this checkpoint an ISP could receive stock but could not create the SKU, warehouse or bin it
+was received into; those rows required a direct DBA insert. Migration
+`202609050900_tenant_warehouse_administration.sql` adds versioned catalog items, warehouses and
+bins, an append-only `operations_warehouse_admin_events` ledger, and
+`execute_warehouse_admin_command`, reached through
+`POST /v1/tenants/:tenantId/operations/warehouse/administration` and a bilingual tabbed
+administration panel in the tenant warehouse workspace.
+
+Administration carries its own signed action (`tenant.warehouse.administration.manage` under
+`tenant.catalog.manage`), so a procurement signature cannot reshape the catalog. Updates are full
+replacements guarded by `expectedVersion`.
+
+Live acceptance against PostgreSQL 18 (disposable local `isp_test`) proves: allowed operation; wrong
+signed action denied; exact idempotent replay returning the original result; changed-payload retry
+conflict; duplicate SKU and duplicate bin code refused; stale `expectedVersion` conflict;
+serialization immutable once stock or purchase commitments exist; branch outside signed scope
+denied; primary-warehouse designation refused for a branch-scoped signature; warehouse holding
+custody refused for closure; administration events reject tampering; and audit-outbox rows equal
+administration events one-for-one.
+
+Focused suites: `@isp/contracts` 23/23, `@isp/database` 75/75, `@isp/api` 98/98 (including a new
+route test proving the distinct signed action and contract rejection), `@isp/tenant-web` 60/60
+(including 10 warehouse tests covering create, versioned edit, server-conflict surfacing, trim-aware
+evidence rejection, out-of-scope branch guidance, and Arabic bins/history). Repository build,
+`brand:check`, `db:check`, `smoke:api`, `release:packaging` and Prettier all pass.
+
+**Wave 0 tooling exercised for the first time against a live ledger in this checkpoint.** The
+migration preflight initially failed with `permission denied for schema public` because it read the
+ledger without assuming `orvex_owner` the way the migrator does; that defect is fixed. It then
+reported `checksum-matched 49, pending 0` on a clean database, and correctly **blocked** a
+deliberately CRLF-converted historical migration with
+`BLOCKING checksum_mismatch ... applied b812d19f…, packaged c41172f6…` and exit code 1 — the exact
+failure that stopped the 2026-09-04 production deployment, now caught before any container is
+recreated.
+
+Integration suite status on a clean local stack (PostgreSQL 18, Redis, MinIO): 13 of 14 live scripts
+pass — finance audit upgrade, empty-migration safety, finance, finance outbox, tenant staff,
+operations, invoice archive, sales, financial-source journals, inventory (including the new
+administration vertical), operations relay, Collect, and the Network Worker store.
+
+Two **pre-existing** fixture-ordering defects in the suite were identified; neither involves the
+warehouse change, whose migration adds only warehouse tables and functions:
+
+- `test-live-customer-accounts.ts` asserts "need an unpaid synthetic sales invoice", but
+  `test-live-financial-journals.ts` runs before it in the `test:integration` chain and allocates
+  payment to that invoice. Re-seeding `test-live-sales.ts` immediately before it makes both pass.
+- `test-live-noc.ts:33` requires an invoiced service whose status is not `terminated`, while
+  `test-live-sales.ts:1107` deliberately terminates its own service as part of the lifecycle
+  assertions. On a genuinely clean database the NOC script can therefore never find its fixture.
+
+`.github/workflows/ci.yml` was also missing `TENANT_STAFF_TEST_*`, `SALES_TEST_*` and
+`SALES_TEST_NETWORK_WORKER_DATABASE_URL`, so the CI integration job could not have reached those
+scripts; the workflow now exports them. The two fixture-ordering defects remain open and are owned
+by the sales/NOC verticals, not this checkpoint.
+
+Not done: partial and non-serialized receipts, bin-level stock balances, reservations, transfers,
+stock counts, RMA/repair lifecycle, reorder suggestions, and independent review. No production
+change was made; production remains on `7ecf011`.
 
 ## Accounting integrity checkpoint — 2026-09-02
 

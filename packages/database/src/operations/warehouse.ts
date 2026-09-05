@@ -4,6 +4,7 @@ import {
   type SerializedAssetRecord,
   type InventoryCustodyCommand,
   type ProcurementCommand,
+  type WarehouseAdminCommand,
   type WarehouseWorkspace,
   type VerifiedTenantId,
 } from '@isp/contracts';
@@ -27,8 +28,9 @@ export async function readWarehouses(
       location_address: string;
       is_primary: boolean;
       active: boolean;
+      version: number;
     }>(sql`
-      SELECT id, branch_id, warehouse_code, name_en, name_ar, location_address, is_primary, active
+      SELECT id, branch_id, warehouse_code, name_en, name_ar, location_address, is_primary, active, version
       FROM operations_warehouses
       WHERE tenant_id = ${tenantId}
       ORDER BY warehouse_code ASC
@@ -43,6 +45,7 @@ export async function readWarehouses(
       locationAddress: r.location_address,
       isPrimary: r.is_primary,
       active: r.active,
+      version: r.version,
     }));
   });
 }
@@ -63,8 +66,10 @@ export async function readInventoryItems(
       unit_cost_minor_lbp: string;
       serialized_flag: boolean;
       reorder_threshold: number;
+      active: boolean;
+      version: number;
     }>(sql`
-      SELECT id, sku, name_en, name_ar, category, unit_cost_minor_usd::text, unit_cost_minor_lbp::text, serialized_flag, reorder_threshold
+      SELECT id, sku, name_en, name_ar, category, unit_cost_minor_usd::text, unit_cost_minor_lbp::text, serialized_flag, reorder_threshold, active, version
       FROM operations_inventory_items
       WHERE tenant_id = ${tenantId}
       ORDER BY sku ASC
@@ -80,6 +85,8 @@ export async function readInventoryItems(
       unitCostMinorLbp: parseInt(r.unit_cost_minor_lbp, 10),
       serializedFlag: r.serialized_flag,
       reorderThreshold: r.reorder_threshold,
+      active: r.active,
+      version: r.version,
     }));
   });
 }
@@ -144,14 +151,15 @@ export async function readWarehouseWorkspace(
       locationAddress: string;
       isPrimary: boolean;
       active: boolean;
+      version: number;
     }>(sql`SELECT id,branch_id AS "branchId",warehouse_code AS "warehouseCode",
       name_en AS "nameEn",name_ar AS "nameAr",location_address AS "locationAddress",
-      is_primary AS "isPrimary",active
+      is_primary AS "isPrimary",active,version
       FROM operations_warehouses WHERE tenant_id=${tenantId} ORDER BY is_primary DESC,warehouse_code,id`);
     const items = await transaction.execute<InventoryItemRecord>(sql`SELECT id,sku,
       name_en AS "nameEn",name_ar AS "nameAr",category,
       unit_cost_minor_usd::float8 AS "unitCostMinorUsd",unit_cost_minor_lbp::float8 AS "unitCostMinorLbp",
-      serialized_flag AS "serializedFlag",reorder_threshold AS "reorderThreshold"
+      serialized_flag AS "serializedFlag",reorder_threshold AS "reorderThreshold",active,version
       FROM operations_inventory_items WHERE tenant_id=${tenantId} ORDER BY sku,id`);
     const assets = await transaction.execute<WarehouseWorkspace['assets'][number]>(sql`
       SELECT a.id,a.item_id AS "itemId",a.serial_number AS "serialNumber",a.mac_address AS "macAddress",
@@ -211,7 +219,66 @@ export async function readWarehouseWorkspace(
       JOIN operations_warehouses w ON w.tenant_id=p.tenant_id AND w.id=p.warehouse_id
       WHERE p.tenant_id=${tenantId} ORDER BY p.created_at DESC,p.id LIMIT 250
     `);
-    return { warehouses, items, assets, installations, vendors, purchaseOrders };
+    const bins = await transaction.execute<WarehouseWorkspace['bins'][number]>(sql`
+      SELECT b.id,b.warehouse_id AS "warehouseId",w.warehouse_code AS "warehouseCode",
+        b.bin_code AS "binCode",b.name_en AS "nameEn",b.name_ar AS "nameAr",
+        b.bin_kind AS "binKind",b.active,b.version
+      FROM operations_warehouse_bins b
+      JOIN operations_warehouses w ON w.tenant_id=b.tenant_id AND w.id=b.warehouse_id
+      WHERE b.tenant_id=${tenantId}
+      ORDER BY w.warehouse_code,b.bin_code,b.id LIMIT 500
+    `);
+    // Only branches the signed session may actually place a warehouse in, so the
+    // administration form cannot offer a branch the write would then deny.
+    const branches = await transaction.execute<WarehouseWorkspace['branches'][number]>(sql`
+      SELECT b.id,b.code,b.name_en AS "nameEn",b.name_ar AS "nameAr"
+      FROM operations_branches b, operations_current_context() c
+      WHERE b.tenant_id=${tenantId} AND b.active
+        AND (c.branch_ids IS NULL OR b.id=ANY(c.branch_ids))
+      ORDER BY b.code,b.id LIMIT 200
+    `);
+    const administrationEvents = await transaction.execute<
+      WarehouseWorkspace['administrationEvents'][number] & Record<string, unknown>
+    >(sql`
+      SELECT e.id,e.aggregate_type AS "aggregateType",e.aggregate_id AS "aggregateId",
+        e.aggregate_version AS "aggregateVersion",e.action,e.reason_en AS "reasonEn",
+        e.reason_ar AS "reasonAr",e.evidence,e.occurred_at AS "occurredAt",
+        u.display_name AS "actorName"
+      FROM operations_warehouse_admin_events e
+      LEFT JOIN users u ON u.id=e.actor_id
+      WHERE e.tenant_id=${tenantId}
+      ORDER BY e.occurred_at DESC,e.id LIMIT 200
+    `);
+    return {
+      warehouses,
+      items,
+      assets,
+      installations,
+      vendors,
+      purchaseOrders,
+      bins,
+      branches,
+      administrationEvents,
+    };
+  });
+}
+
+export async function executeWarehouseAdminCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly command: WarehouseAdminCommand;
+    readonly authorization: SignedOperationsDatabaseContext;
+  },
+): Promise<{ readonly id: string; readonly status: string; readonly version: number }> {
+  return inOperationsTransaction(database, tenantId, input.authorization, async (transaction) => {
+    const [row] = await transaction.execute<{
+      result: { id: string; status: string; version: number };
+    }>(
+      sql`SELECT execute_warehouse_admin_command(${JSON.stringify(input.command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('Warehouse administration command returned no result.');
+    return row.result;
   });
 }
 

@@ -3,11 +3,13 @@ import type {
   InventoryCustodyCommand,
   ProcurementCommand,
   SerializedAssetRecord,
+  WarehouseAdminCommand,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
 import { inventoryCustodyCommandSchema, procurementCommandSchema } from '@isp/contracts';
 import type { ApiSession, Locale } from '@isp/ui';
 import { readWarehouseWorkspace, submitTenantOperation } from '../api';
+import { WarehouseAdministration } from './WarehouseAdministration';
 import './warehouse.css';
 
 type Action = InventoryCustodyCommand['action'];
@@ -30,6 +32,7 @@ export function WarehouseWorkspace({
   const [refresh, setRefresh] = useState(0);
   const retry = useRef<{ fingerprint: string; key: string } | undefined>(undefined);
   const [procurementMessage, setProcurementMessage] = useState('');
+  const [administrationMessage, setAdministrationMessage] = useState('');
 
   useEffect(() => {
     if (!session) {
@@ -159,6 +162,39 @@ export function WarehouseWorkspace({
           'The command was not confirmed. Check permission, MFA, or refreshed order state, then retry.',
           'لم يتأكد الأمر. تحقق من الصلاحية والمصادقة وحالة الطلب المحدّثة ثم أعد المحاولة.',
         ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runAdministration(command: WarehouseAdminCommand) {
+    if (!session || busy) return;
+    const fingerprint = JSON.stringify(command);
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: crypto.randomUUID() };
+    setBusy(true);
+    setAdministrationMessage('');
+    try {
+      await submitTenantOperation(
+        session,
+        'warehouse/administration',
+        { command },
+        retry.current.key,
+      );
+      retry.current = undefined;
+      setAdministrationMessage(t('Master data saved.', 'تم حفظ البيانات الأساسية.'));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      // The server reports a stale version, a duplicate code, or a blocked change as a
+      // conflict. Surface its message so the operator knows whether to refresh or amend.
+      setAdministrationMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t(
+              'The change was not saved. Refresh to see the current record, then reapply.',
+              'لم يُحفظ التغيير. حدّث الصفحة لعرض السجل الحالي ثم أعد التطبيق.',
+            ),
       );
     } finally {
       setBusy(false);
@@ -709,6 +745,16 @@ export function WarehouseWorkspace({
           </p>
         )}
       </section>
+
+      {data && (
+        <WarehouseAdministration
+          locale={locale}
+          data={data}
+          busy={busy}
+          message={administrationMessage}
+          onSubmit={(command) => void runAdministration(command)}
+        />
+      )}
     </main>
   );
 }
