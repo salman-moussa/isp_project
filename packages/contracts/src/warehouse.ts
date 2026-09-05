@@ -413,6 +413,88 @@ export const stockReservationCommandSchema = z.discriminatedUnion('action', [
 ]);
 export type StockReservationCommand = z.infer<typeof stockReservationCommandSchema>;
 
+export interface StockCountLineRecord {
+  readonly id: string;
+  readonly itemId: string;
+  readonly sku: string;
+  readonly itemNameEn: string;
+  readonly itemNameAr: string;
+  readonly systemQuantity: number;
+  readonly countedQuantity: number | null;
+  readonly unitCostMinor: number;
+  readonly variance: number | null;
+}
+
+export interface StockCountRecord {
+  readonly id: string;
+  readonly countNumber: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly binId: string | null;
+  readonly binCode: string | null;
+  readonly currency: 'USD' | 'LBP';
+  readonly status: 'open' | 'closed' | 'cancelled';
+  readonly version: number;
+  readonly openedAt: string;
+  readonly closedAt: string | null;
+  readonly journalEntryId: string | null;
+  readonly lines: readonly StockCountLineRecord[];
+}
+
+/**
+ * A stock count is a session, not a series of ad-hoc adjustments: it freezes what the system
+ * believed, records what was found, and posts the difference once. Opening and recording are
+ * warehouse work; closing moves money and carries finance authority with step-up.
+ */
+export const stockCountCommandSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('open_count'),
+      countNumber: z.string().trim().min(2).max(80),
+      warehouseId: z.string().uuid(),
+      binId: z.string().uuid().optional(),
+      currency: z.enum(['USD', 'LBP']),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('record_count'),
+      countId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      lines: z
+        .array(
+          z
+            .object({
+              lineId: z.string().uuid(),
+              countedQuantity: z.number().int().nonnegative().max(10_000_000),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(500),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('close_count'),
+      countId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('cancel_count'),
+      countId: z.string().uuid(),
+      expectedVersion: z.number().int().positive(),
+      ...stockEvidence,
+    })
+    .strict(),
+]);
+export type StockCountCommand = z.infer<typeof stockCountCommandSchema>;
+
 export interface StockMovementRecord {
   readonly id: string;
   readonly itemId: string;
@@ -561,4 +643,5 @@ export interface WarehouseWorkspace {
   readonly stockBalances: readonly StockBalanceRecord[];
   readonly stockMovements: readonly StockMovementRecord[];
   readonly stockReservations: readonly StockReservationRecord[];
+  readonly stockCounts: readonly StockCountRecord[];
 }

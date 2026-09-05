@@ -195,6 +195,35 @@ const fixture: Workspace = {
       resolvedAt: null,
     },
   ],
+  stockCounts: [
+    {
+      id: 'bb000000-0000-4000-8000-000000000001',
+      countNumber: 'CS-2026-042',
+      warehouseId,
+      warehouseCode: 'BEY-01',
+      binId,
+      binCode: 'A-01',
+      currency: 'USD' as const,
+      status: 'open' as const,
+      version: 1,
+      openedAt: '2026-09-05T08:00:00.000Z',
+      closedAt: null,
+      journalEntryId: null,
+      lines: [
+        {
+          id: 'cc000000-0000-4000-8000-000000000001',
+          itemId: bulkItemId,
+          sku: 'DROP-100',
+          itemNameEn: 'Drop wire 100m reel',
+          itemNameAr: 'بكرة سلك توصيل 100 متر',
+          systemQuantity: 4,
+          countedQuantity: null,
+          unitCostMinor: 1500,
+          variance: null,
+        },
+      ],
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -619,6 +648,102 @@ describe('Warehouse stock reservations', () => {
 
     expect(screen.queryByRole('button', { name: 'Consume' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Release' })).toBeNull();
+    expect(screen.getByText('Closed')).toBeVisible();
+  });
+});
+
+describe('Warehouse stock counts', () => {
+  it('opens a count against a location with a declared valuation currency', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Counts' }));
+    const form = screen.getByRole('heading', { name: 'Open a count' }).closest('form');
+    const controls = within(form!);
+    await user.type(controls.getByLabelText('Count number'), 'CS-2026-050');
+    await user.selectOptions(controls.getByLabelText('Warehouse'), warehouseId);
+    await user.selectOptions(controls.getByLabelText('Bin (optional)'), binId);
+    await user.type(
+      controls.getByLabelText('Stock reason in English'),
+      'Quarterly physical count of the receiving bay',
+    );
+    await user.type(controls.getByLabelText('Stock reason in Arabic'), 'الجرد الربعي للمستودع');
+    await user.type(
+      controls.getByLabelText('Stock evidence / reference'),
+      'Count sheet CS-2026-050',
+    );
+    await user.click(controls.getByRole('button', { name: 'Open count' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/stock/counts');
+    expect(call?.[2].command).toMatchObject({
+      action: 'open_count',
+      countNumber: 'CS-2026-050',
+      binId,
+      currency: 'USD',
+    });
+  });
+
+  it('records counted quantities against the reviewed version', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Counts' }));
+    const form = screen.getByRole('heading', { name: 'Record counted quantities' }).closest('form');
+    const controls = within(form!);
+    // Seeded from the system quantity so an unedited line is still explicitly confirmed.
+    expect(controls.getByLabelText('DROP-100')).toHaveValue(4);
+    await user.clear(controls.getByLabelText('DROP-100'));
+    await user.type(controls.getByLabelText('DROP-100'), '3');
+    await user.type(controls.getByLabelText('Stock reason in English'), 'Counted one unit short');
+    await user.type(controls.getByLabelText('Stock reason in Arabic'), 'نقص وحدة واحدة عند الجرد');
+    await user.type(
+      controls.getByLabelText('Stock evidence / reference'),
+      'Count sheet CS-2026-042',
+    );
+    await user.click(controls.getByRole('button', { name: 'Save counted quantities' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/stock/counts');
+    expect(call?.[2].command).toMatchObject({
+      action: 'record_count',
+      countId: 'bb000000-0000-4000-8000-000000000001',
+      expectedVersion: 1,
+      lines: [{ lineId: 'cc000000-0000-4000-8000-000000000001', countedQuantity: 3 }],
+    });
+  });
+
+  it('closes a count through the MFA-protected finance route', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Counts' }));
+    await user.click(screen.getByRole('button', { name: 'Close and post variance' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    // Closing posts variance, so it must not travel on the warehouse route.
+    expect(call?.[1]).toBe('warehouse/stock/counts/close');
+    expect(call?.[2].command).toMatchObject({ action: 'close_count', expectedVersion: 1 });
+  });
+
+  it('offers no recording form once a count is closed', async () => {
+    vi.mocked(api.readWarehouseWorkspace).mockResolvedValue({
+      ...fixture,
+      stockCounts: [
+        {
+          ...fixture.stockCounts[0],
+          status: 'closed',
+          closedAt: '2026-09-05T09:00:00.000Z',
+          journalEntryId: 'dd000000-0000-4000-8000-000000000001',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Counts' }));
+
+    expect(screen.queryByRole('button', { name: 'Save counted quantities' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Close and post variance' })).toBeNull();
     expect(screen.getByText('Closed')).toBeVisible();
   });
 });
