@@ -224,6 +224,42 @@ const fixture: Workspace = {
       ],
     },
   ],
+  rmaCases: [
+    {
+      id: 'ee000000-0000-4000-8000-000000000001',
+      caseNumber: 'RMA-2026-011',
+      assetId,
+      serialNumber: 'ORX-0001',
+      sku: 'CPE-AX',
+      vendorId: '80000000-0000-4000-8000-000000000001',
+      vendorNameEn: 'Fiber supplier',
+      vendorNameAr: 'مورد الألياف',
+      warehouseCode: 'BEY-01',
+      faultSummary: 'Optical transmit power below the acceptance threshold.',
+      status: 'open' as const,
+      replacementSerialNumber: null,
+      journalEntryId: null,
+      version: 1,
+      openedAt: '2026-09-05T07:00:00.000Z',
+      resolvedAt: null,
+    },
+  ],
+  reorderSuggestions: [
+    {
+      itemId: bulkItemId,
+      sku: 'DROP-100',
+      itemNameEn: 'Drop wire 100m reel',
+      itemNameAr: 'بكرة سلك توصيل 100 متر',
+      warehouseId,
+      warehouseCode: 'BEY-01',
+      quantityOnHand: 4,
+      quantityReserved: 2,
+      quantityAvailable: 2,
+      quantityOnOrder: 0,
+      reorderThreshold: 10,
+      suggestedQuantity: 8,
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -745,5 +781,90 @@ describe('Warehouse stock counts', () => {
     expect(screen.queryByRole('button', { name: 'Save counted quantities' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Close and post variance' })).toBeNull();
     expect(screen.getByText('Closed')).toBeVisible();
+  });
+});
+
+describe('Warehouse RMA and reorder suggestions', () => {
+  it('opens a repair case only against a device physically in a warehouse', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'RMA' }));
+    const form = screen.getByRole('heading', { name: 'Open a repair case' }).closest('form');
+    const controls = within(form!);
+    // Only in_stock/returned devices are offered; an installed one cannot be sent for repair.
+    expect(controls.getByLabelText('Device')).toHaveTextContent('ORX-0001');
+    await user.type(controls.getByLabelText('Case number'), 'RMA-2026-012');
+    await user.selectOptions(controls.getByLabelText('Device'), assetId);
+    await user.selectOptions(
+      controls.getByLabelText('Vendor (optional)'),
+      '80000000-0000-4000-8000-000000000001',
+    );
+    await user.type(
+      controls.getByLabelText('Fault summary'),
+      'Optical transmit power below the acceptance threshold',
+    );
+    await user.type(controls.getByLabelText('Stock reason in English'), 'Device failed acceptance');
+    await user.type(controls.getByLabelText('Stock reason in Arabic'), 'فشل الجهاز في الاختبار');
+    await user.type(
+      controls.getByLabelText('Stock evidence / reference'),
+      'Fault report FR-2026-091',
+    );
+    await user.click(controls.getByRole('button', { name: 'Open case' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/rma');
+    expect(call?.[2].command).toMatchObject({
+      action: 'open_case',
+      caseNumber: 'RMA-2026-012',
+      assetId,
+    });
+  });
+
+  it('routes a write-off to the MFA-protected finance route', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'RMA' }));
+    await user.click(screen.getByRole('button', { name: 'Write off' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    // Scrapping destroys value, so it must not travel on the warehouse route.
+    expect(call?.[1]).toBe('warehouse/rma/scrap');
+    expect(call?.[2].command).toMatchObject({ action: 'scrap_asset', expectedVersion: 1 });
+  });
+
+  it('sends an open case to its vendor on the warehouse route', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'RMA' }));
+    await user.click(screen.getByRole('button', { name: 'Send to vendor' }));
+
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalled());
+    const call = vi.mocked(api.submitTenantOperation).mock.calls.at(-1);
+    expect(call?.[1]).toBe('warehouse/rma');
+    expect(call?.[2].command).toMatchObject({ action: 'send_to_vendor', expectedVersion: 1 });
+  });
+
+  it('shows what to reorder after reservations and open orders are subtracted', async () => {
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Reorder' }));
+    const table = screen.getByRole('table', { name: 'Purchasing suggestions' });
+    const row = within(table).getByText('DROP-100').closest('tr');
+    // 4 on hand less 2 reserved is 2 available; against a threshold of 10 that is 8 short.
+    expect(within(row!).getByText('2')).toBeVisible();
+    expect(within(row!).getByText('8')).toBeVisible();
+  });
+
+  it('says nothing needs reordering when every location is stocked', async () => {
+    vi.mocked(api.readWarehouseWorkspace).mockResolvedValue({ ...fixture, reorderSuggestions: [] });
+    const user = userEvent.setup();
+    render(<WarehouseWorkspace locale="en" session={session} />);
+    await user.click(await screen.findByRole('tab', { name: 'Reorder' }));
+
+    expect(
+      screen.getByText('Every stocked location is at or above its reorder threshold.'),
+    ).toBeVisible();
   });
 });

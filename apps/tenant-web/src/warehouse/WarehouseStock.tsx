@@ -2,19 +2,29 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type {
   StockCommand,
   StockMovementRecord,
+  RmaCommand,
   StockCountCommand,
   StockReservationCommand,
   WarehouseWorkspace as Workspace,
 } from '@isp/contracts';
 import {
   stockCommandSchema,
+  rmaCommandSchema,
   stockCountCommandSchema,
   stockReservationCommandSchema,
 } from '@isp/contracts';
 import type { Locale } from '@isp/ui';
 
 type Translate = (en: string, ar: string) => string;
-type Tab = 'balances' | 'reservations' | 'counts' | 'transfer' | 'adjust' | 'movements';
+type Tab =
+  | 'balances'
+  | 'reservations'
+  | 'counts'
+  | 'rma'
+  | 'reorder'
+  | 'transfer'
+  | 'adjust'
+  | 'movements';
 
 /**
  * Bulk (non-serialized) stock: quantity per item, warehouse and bin.
@@ -31,6 +41,7 @@ export function WarehouseStock({
   onSubmit,
   onReserve,
   onCount,
+  onRma,
 }: {
   readonly locale: Locale;
   readonly data: Workspace;
@@ -39,6 +50,7 @@ export function WarehouseStock({
   readonly onSubmit: (command: StockCommand) => void;
   readonly onReserve: (command: StockReservationCommand) => void;
   readonly onCount: (command: StockCountCommand) => void;
+  readonly onRma: (command: RmaCommand) => void;
 }) {
   const t: Translate = (en, ar) => (locale === 'ar' ? ar : en);
   const [tab, setTab] = useState<Tab>('balances');
@@ -77,6 +89,25 @@ export function WarehouseStock({
       count_increase: t('Count surplus', 'زيادة جرد'),
       count_decrease: t('Count shortfall', 'نقص جرد'),
     })[kind];
+
+  const dispatchRma = (event: FormEvent<HTMLFormElement>, build: (form: FormData) => unknown) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const parsed = rmaCommandSchema.safeParse(build(new FormData(form)));
+    if (!parsed.success) {
+      setValidation(
+        parsed.error.issues[0]?.message ??
+          t(
+            'Complete every field, including bilingual reason and evidence, before saving.',
+            'أكمل جميع الحقول، بما فيها السبب ثنائي اللغة والدليل، قبل الحفظ.',
+          ),
+      );
+      return;
+    }
+    setValidation('');
+    onRma(parsed.data);
+    form.reset();
+  };
 
   const dispatchCount = (event: FormEvent<HTMLFormElement>, build: (form: FormData) => unknown) => {
     event.preventDefault();
@@ -164,6 +195,8 @@ export function WarehouseStock({
     { id: 'balances', label: t('On hand', 'المتوفر') },
     { id: 'reservations', label: t('Reservations', 'الحجوزات') },
     { id: 'counts', label: t('Counts', 'الجرد') },
+    { id: 'rma', label: t('RMA', 'الصيانة') },
+    { id: 'reorder', label: t('Reorder', 'إعادة الطلب') },
     { id: 'transfer', label: t('Transfer', 'تحويل') },
     { id: 'adjust', label: t('Adjust', 'تسوية') },
     { id: 'movements', label: t('Movements', 'الحركات') },
@@ -488,6 +521,280 @@ export function WarehouseStock({
               {t('Hold stock', 'حجز المخزون')}
             </button>
           </form>
+        </div>
+      )}
+
+      {tab === 'rma' && (
+        <div
+          role="tabpanel"
+          id="warehouse-stock-panel-rma"
+          aria-labelledby="warehouse-stock-tab-rma"
+          className="warehouse-admin-grid"
+        >
+          <div className="warehouse-card">
+            <h3>{t('Repair and return cases', 'حالات الصيانة والإرجاع')}</h3>
+            <p className="warehouse-hint">
+              {t(
+                'A device sent for repair either comes back, is replaced, or is written off. Scrapping is the only step that touches the books and requires finance authority.',
+                'الجهاز المرسل للصيانة إما يعود أو يُستبدل أو يُشطب. الإتلاف هو الخطوة الوحيدة التي تمس الدفاتر وتتطلب صلاحية مالية.',
+              )}
+            </p>
+            <div className="warehouse-table-scroll">
+              <table className="warehouse-table">
+                <caption className="warehouse-visually-hidden">
+                  {t('RMA cases', 'حالات الصيانة')}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('Case', 'الحالة')}</th>
+                    <th scope="col">{t('Serial', 'التسلسل')}</th>
+                    <th scope="col">{t('Vendor', 'المورد')}</th>
+                    <th scope="col">{t('State', 'الوضع')}</th>
+                    <th scope="col">{t('Replacement', 'البديل')}</th>
+                    <th scope="col">{t('Action', 'إجراء')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rmaCases.map((rma) => (
+                    <tr key={rma.id}>
+                      <td>{rma.caseNumber}</td>
+                      <td>{rma.serialNumber}</td>
+                      <td>
+                        {rma.vendorId
+                          ? locale === 'ar'
+                            ? rma.vendorNameAr
+                            : rma.vendorNameEn
+                          : t('None', 'لا يوجد')}
+                      </td>
+                      <td>
+                        {
+                          {
+                            open: t('Open', 'مفتوحة'),
+                            sent_to_vendor: t('At vendor', 'لدى المورد'),
+                            repaired: t('Repaired', 'تم الإصلاح'),
+                            replaced: t('Replaced', 'تم الاستبدال'),
+                            scrapped: t('Written off', 'مشطوب'),
+                            closed: t('Closed', 'مغلقة'),
+                          }[rma.status]
+                        }
+                      </td>
+                      <td>{rma.replacementSerialNumber ?? '—'}</td>
+                      <td>
+                        <span className="warehouse-row-actions">
+                          {rma.status === 'open' && rma.vendorId && (
+                            <button
+                              type="button"
+                              className="warehouse-link"
+                              disabled={busy}
+                              onClick={() =>
+                                onRma({
+                                  action: 'send_to_vendor',
+                                  caseId: rma.id,
+                                  expectedVersion: rma.version,
+                                  reasonEn: `Shipping ${rma.serialNumber} to the vendor for repair`,
+                                  reasonAr: `إرسال ${rma.serialNumber} إلى المورد للإصلاح`,
+                                  evidence: `Vendor claim raised against case ${rma.caseNumber}.`,
+                                })
+                              }
+                            >
+                              {t('Send to vendor', 'إرسال للمورد')}
+                            </button>
+                          )}
+                          {rma.status === 'sent_to_vendor' && (
+                            <button
+                              type="button"
+                              className="warehouse-link"
+                              disabled={busy}
+                              onClick={() =>
+                                onRma({
+                                  action: 'receive_repaired',
+                                  caseId: rma.id,
+                                  expectedVersion: rma.version,
+                                  reasonEn: `Repaired unit ${rma.serialNumber} returned to stock`,
+                                  reasonAr: `عودة الوحدة ${rma.serialNumber} بعد الإصلاح للمخزون`,
+                                  evidence: `Repair confirmed against case ${rma.caseNumber}.`,
+                                })
+                              }
+                            >
+                              {t('Receive repaired', 'استلام بعد الإصلاح')}
+                            </button>
+                          )}
+                          {(rma.status === 'open' || rma.status === 'sent_to_vendor') && (
+                            <button
+                              type="button"
+                              className="warehouse-link"
+                              disabled={busy}
+                              onClick={() =>
+                                onRma({
+                                  action: 'scrap_asset',
+                                  caseId: rma.id,
+                                  expectedVersion: rma.version,
+                                  reasonEn: `Writing off ${rma.serialNumber} as beyond repair`,
+                                  reasonAr: `شطب ${rma.serialNumber} لتعذر إصلاحه`,
+                                  evidence: `Write-off approved against case ${rma.caseNumber}.`,
+                                })
+                              }
+                            >
+                              {t('Write off', 'شطب')}
+                            </button>
+                          )}
+                          {['repaired', 'replaced', 'scrapped'].includes(rma.status) && (
+                            <button
+                              type="button"
+                              className="warehouse-link"
+                              disabled={busy}
+                              onClick={() =>
+                                onRma({
+                                  action: 'close_case',
+                                  caseId: rma.id,
+                                  expectedVersion: rma.version,
+                                  reasonEn: `Closing resolved case ${rma.caseNumber}`,
+                                  reasonAr: `إغلاق الحالة المنتهية ${rma.caseNumber}`,
+                                  evidence: `Case ${rma.caseNumber} resolved and closed.`,
+                                })
+                              }
+                            >
+                              {t('Close', 'إغلاق')}
+                            </button>
+                          )}
+                          {rma.status === 'closed' && (
+                            <span className="warehouse-muted">{t('Closed', 'مغلقة')}</span>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {data.rmaCases.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="warehouse-empty">
+                        {t('No repair case has been opened.', 'لم تُفتح أي حالة صيانة.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <form
+            className="warehouse-form warehouse-card"
+            onSubmit={(event) =>
+              dispatchRma(event, (form) => ({
+                action: 'open_case',
+                caseNumber: readText(form, 'caseNumber'),
+                assetId: readText(form, 'assetId'),
+                vendorId: optionalId(form, 'vendorId'),
+                faultSummary: readText(form, 'faultSummary'),
+                ...evidenceFrom(form),
+              }))
+            }
+          >
+            <h3>{t('Open a repair case', 'فتح حالة صيانة')}</h3>
+            <label>
+              {t('Case number', 'رقم الحالة')}
+              <input name="caseNumber" required minLength={2} maxLength={80} />
+            </label>
+            <label>
+              {t('Device', 'الجهاز')}
+              <select name="assetId" required defaultValue="">
+                <option value="">{t('Choose', 'اختر')}</option>
+                {data.assets
+                  .filter((asset) => ['in_stock', 'returned'].includes(asset.status))
+                  .map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.serialNumber} · {asset.sku}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              {t('Vendor (optional)', 'المورد (اختياري)')}
+              <select name="vendorId" defaultValue="">
+                <option value="">{t('Not assigned', 'غير محدد')}</option>
+                {data.vendors
+                  .filter((vendor) => vendor.active)
+                  .map((vendor) => (
+                    <option key={vendor.id} value={vendor.id}>
+                      {locale === 'ar' ? vendor.nameAr : vendor.nameEn}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              {t('Fault summary', 'ملخص العطل')}
+              <textarea name="faultSummary" minLength={8} maxLength={1000} required />
+            </label>
+            <p className="warehouse-hint">
+              {t(
+                'Only a device physically back in a warehouse can enter a repair case.',
+                'الجهاز الموجود فعلياً في المستودع فقط يمكن أن يدخل حالة صيانة.',
+              )}
+            </p>
+            <StockEvidenceFields t={t} />
+            <button className="warehouse-primary" disabled={busy}>
+              {t('Open case', 'فتح الحالة')}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {tab === 'reorder' && (
+        <div
+          role="tabpanel"
+          id="warehouse-stock-panel-reorder"
+          aria-labelledby="warehouse-stock-tab-reorder"
+          className="warehouse-card"
+        >
+          <h3>{t('Purchasing suggestions', 'اقتراحات الشراء')}</h3>
+          <p className="warehouse-hint">
+            {t(
+              'Locations whose available quantity, after subtracting reservations and what is already on order, sits below the reorder threshold. Nothing here commits a purchase.',
+              'المواقع التي تقل كميتها المتاحة — بعد خصم الحجوزات وما هو قيد الطلب — عن حد إعادة الطلب. لا شيء هنا يلتزم بشراء.',
+            )}
+          </p>
+          <div className="warehouse-table-scroll">
+            <table className="warehouse-table">
+              <caption className="warehouse-visually-hidden">
+                {t('Purchasing suggestions', 'اقتراحات الشراء')}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{t('SKU', 'الرمز')}</th>
+                  <th scope="col">{t('Item', 'الصنف')}</th>
+                  <th scope="col">{t('Warehouse', 'المستودع')}</th>
+                  <th scope="col">{t('Available', 'المتاح')}</th>
+                  <th scope="col">{t('On order', 'قيد الطلب')}</th>
+                  <th scope="col">{t('Reorder at', 'حد إعادة الطلب')}</th>
+                  <th scope="col">{t('Suggested', 'المقترح')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.reorderSuggestions.map((suggestion) => (
+                  <tr key={`${suggestion.itemId}-${suggestion.warehouseId}`}>
+                    <td>{suggestion.sku}</td>
+                    <td>{locale === 'ar' ? suggestion.itemNameAr : suggestion.itemNameEn}</td>
+                    <td>{suggestion.warehouseCode}</td>
+                    <td>{suggestion.quantityAvailable}</td>
+                    <td>{suggestion.quantityOnOrder}</td>
+                    <td>{suggestion.reorderThreshold}</td>
+                    <td>
+                      <strong>{suggestion.suggestedQuantity}</strong>
+                    </td>
+                  </tr>
+                ))}
+                {data.reorderSuggestions.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="warehouse-empty">
+                      {t(
+                        'Every stocked location is at or above its reorder threshold.',
+                        'كل المواقع عند حد إعادة الطلب أو أعلى منه.',
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
