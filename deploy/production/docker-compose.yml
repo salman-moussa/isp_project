@@ -109,8 +109,16 @@ services:
       OPERATIONS_CONTEXT_SECRET_BASE64: ${OPERATIONS_CONTEXT_SECRET_BASE64}
       AUTH_TOKEN_DIGEST_SECRET_BASE64:
         ${AUTH_TOKEN_DIGEST_SECRET_BASE64:?AUTH_TOKEN_DIGEST_SECRET_BASE64 is required}
-      AUTH_DELIVERY_BASE_URL: https://isp.mosesgr.com/_auth-delivery-not-configured/
-      AUTH_DELIVERY_TOKEN: ${AUTH_DELIVERY_TOKEN:?AUTH_DELIVERY_TOKEN is required}
+      # Verification mail, recovery links and staff invitations are sent through the SMTP
+      # settings configured in the Control Center (Administration → Integrations). The optional
+      # remote delivery provider is used only while no SMTP settings exist.
+      INTEGRATION_SECRET_KEY_BASE64:
+        ${INTEGRATION_SECRET_KEY_BASE64:?INTEGRATION_SECRET_KEY_BASE64 is required}
+      INTEGRATION_SECRET_KEY_ID: ${INTEGRATION_SECRET_KEY_ID:-production-1}
+      PUBLIC_TENANT_WEB_URL: https://isp.mosesgr.com
+      PUBLIC_PLATFORM_WEB_URL: https://isp.mosesgr.com/control
+      AUTH_DELIVERY_BASE_URL: ${AUTH_DELIVERY_BASE_URL:-}
+      AUTH_DELIVERY_TOKEN: ${AUTH_DELIVERY_TOKEN:-}
       FINANCE_AUDIT_READINESS_URL: http://finance-audit-relay:9464/ready
       NETWORK_WORKER_READINESS_URL: http://network-worker:8092/ready
       CORS_ORIGINS: https://isp.mosesgr.com

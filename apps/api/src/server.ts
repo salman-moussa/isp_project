@@ -1,4 +1,8 @@
-import { createDatabase, PostgresAuthRepository } from '@isp/database';
+import {
+  createDatabase,
+  PostgresAuthRepository,
+  PostgresPlatformIntegrationStore,
+} from '@isp/database';
 import { S3Client } from '@aws-sdk/client-s3';
 import { S3InvoiceDocumentStore } from './documents/invoice-store.js';
 import { buildApp } from './app.js';
@@ -16,6 +20,9 @@ import { decodeOperationsContextSecret, PostgresOperationsService } from './oper
 import { CollectApiService, PostgresCollectBackendRepository } from './collect-service.js';
 import { AuthService } from './auth-service.js';
 import { DevelopmentAuthDeliveryAdapter, RemoteAuthDeliveryAdapter } from './auth-delivery.js';
+import { DatabaseAuthDeliveryAdapter } from './integrations/auth-delivery.js';
+import { createIntegrationTransports } from './integrations/runtime.js';
+import { AesGcmSecretBox, decodeIntegrationSecretKey } from './integrations/secret-box.js';
 import {
   PostgresAuditWriter,
   PostgresFinanceWriter,
@@ -49,13 +56,62 @@ const operationsAuthority = {
   secret: decodeOperationsContextSecret(config.OPERATIONS_CONTEXT_SECRET_BASE64),
 };
 const sessionStatus = new PostgresSessionStatusReader(authControlDatabase.db);
-const authDelivery =
-  config.NODE_ENV === 'production'
+const tokenDigestSecret = decodeSecret(
+  required(config.AUTH_TOKEN_DIGEST_SECRET_BASE64, 'AUTH_TOKEN_DIGEST_SECRET_BASE64'),
+  'AUTH_TOKEN_DIGEST_SECRET_BASE64',
+);
+// Provider credentials configured in the product are sealed with this key. Without it the
+// integration screens stay unavailable and authentication mail uses the remote adapter
+// (production) or the inert development adapter.
+const integrationRuntime = config.INTEGRATION_SECRET_KEY_BASE64
+  ? {
+      secretBox: new AesGcmSecretBox(
+        decodeIntegrationSecretKey(config.INTEGRATION_SECRET_KEY_BASE64),
+        config.INTEGRATION_SECRET_KEY_ID,
+      ),
+      transports: createIntegrationTransports(),
+      production: config.NODE_ENV === 'production',
+    }
+  : undefined;
+const integrationStore = new PostgresPlatformIntegrationStore(controlDatabase.db);
+const remoteAuthDelivery =
+  config.AUTH_DELIVERY_BASE_URL && config.AUTH_DELIVERY_TOKEN
     ? new RemoteAuthDeliveryAdapter(
-        new URL(required(config.AUTH_DELIVERY_BASE_URL, 'AUTH_DELIVERY_BASE_URL')),
-        required(config.AUTH_DELIVERY_TOKEN, 'AUTH_DELIVERY_TOKEN'),
+        new URL(config.AUTH_DELIVERY_BASE_URL),
+        config.AUTH_DELIVERY_TOKEN,
       )
+    : undefined;
+const webOrigins = config.CORS_ORIGINS.split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const trimSlash = (value: string) => value.replace(/\/$/u, '');
+const authDelivery = integrationRuntime
+  ? new DatabaseAuthDeliveryAdapter(integrationStore, {
+      runtime: integrationRuntime,
+      digestSecret: tokenDigestSecret,
+      webUrls: {
+        tenant: trimSlash(config.PUBLIC_TENANT_WEB_URL ?? webOrigins[0] ?? 'http://localhost:5173'),
+        platform: trimSlash(
+          config.PUBLIC_PLATFORM_WEB_URL ??
+            webOrigins[1] ??
+            `${webOrigins[0] ?? 'http://localhost:5173'}/control`,
+        ),
+      },
+      ...(remoteAuthDelivery
+        ? { fallback: remoteAuthDelivery }
+        : config.NODE_ENV === 'production'
+          ? {}
+          : { fallback: new DevelopmentAuthDeliveryAdapter() }),
+    })
+  : config.NODE_ENV === 'production'
+    ? (remoteAuthDelivery ?? unavailableAuthDelivery())
     : new DevelopmentAuthDeliveryAdapter();
+
+function unavailableAuthDelivery(): never {
+  throw new Error(
+    'Production requires INTEGRATION_SECRET_KEY_BASE64 (product-managed SMTP) or AUTH_DELIVERY_BASE_URL.',
+  );
+}
 const app = await buildApp(config, {
   audit: new PostgresAuditWriter(authControlDatabase.db),
   finance: new PostgresFinanceWriter(tenantDatabase.db, operationsAuthority),
@@ -67,22 +123,25 @@ const app = await buildApp(config, {
   staff: new TenantStaffService(
     new PostgresTenantStaffRepository(authControlDatabase.db),
     authDelivery,
-    decodeSecret(
-      required(config.AUTH_TOKEN_DIGEST_SECRET_BASE64, 'AUTH_TOKEN_DIGEST_SECRET_BASE64'),
-      'AUTH_TOKEN_DIGEST_SECRET_BASE64',
-    ),
+    tokenDigestSecret,
   ),
   staffScopes: new PostgresTenantStaffScopeService(tenantDatabase.db, operationsAuthority),
-  controlCenter: new PostgresControlCenterService(controlDatabase.db, {
-    keyId: config.CONTROL_CONTEXT_KEY_ID,
-    secret: decodeControlContextSecret(config.CONTROL_CONTEXT_SECRET_BASE64),
-  }),
+  controlCenter: new PostgresControlCenterService(
+    controlDatabase.db,
+    {
+      keyId: config.CONTROL_CONTEXT_KEY_ID,
+      secret: decodeControlContextSecret(config.CONTROL_CONTEXT_SECRET_BASE64),
+    },
+    undefined,
+    integrationRuntime ? { runtime: integrationRuntime, store: integrationStore } : undefined,
+  ),
   operations: new PostgresOperationsService(
     tenantDatabase.db,
     operationsAuthority,
     undefined,
     undefined,
     documentStore,
+    integrationRuntime,
   ),
   collect: new CollectApiService(
     new PostgresCollectBackendRepository(tenantDatabase.db),
@@ -101,12 +160,7 @@ const app = await buildApp(config, {
       },
       authDelivery,
       authDelivery,
-      {
-        tokenDigestSecret: decodeSecret(
-          required(config.AUTH_TOKEN_DIGEST_SECRET_BASE64, 'AUTH_TOKEN_DIGEST_SECRET_BASE64'),
-          'AUTH_TOKEN_DIGEST_SECRET_BASE64',
-        ),
-      },
+      { tokenDigestSecret },
     ),
   readiness: async () => {
     await Promise.all([

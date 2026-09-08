@@ -173,7 +173,7 @@ interface ResultRow<T> {
   readonly result: T;
 }
 
-async function inControlTransaction<T>(
+export async function inControlTransaction<T>(
   database: Database,
   authorization: SignedControlDatabaseContext,
   work: (tx: ControlTransaction) => Promise<T>,
@@ -199,10 +199,17 @@ async function inControlTransaction<T>(
 }
 
 export function mapControlCenterDatabaseError(error: unknown): Error {
-  const details =
-    typeof error === 'object' && error !== null
-      ? (error as { code?: string; message?: string })
-      : {};
+  // The driver wraps PostgreSQL errors; the SQLSTATE lives on the innermost cause.
+  let details: { code?: string; message?: string; cause?: unknown } = {};
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === 'object'; depth += 1) {
+    const candidate = current as { code?: string; message?: string; cause?: unknown };
+    if (typeof candidate.code === 'string') {
+      details = candidate;
+      break;
+    }
+    current = candidate.cause;
+  }
   if (details.code === 'CI409') return new ControlCenterIdempotencyError();
   if (details.code === 'CC409') return new ControlCenterConflictError(details.message);
   if (details.code === 'CC404') return new ControlCenterNotFoundError(details.message);

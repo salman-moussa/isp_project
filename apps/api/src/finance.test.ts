@@ -20,6 +20,7 @@ const config = {
   TENANT_DATABASE_URL: 'postgres://test:test@localhost:5432/tenant_test',
   OPERATIONS_CONTEXT_KEY_ID: 'test-operations-v1',
   OPERATIONS_CONTEXT_SECRET_BASE64: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+  INTEGRATION_SECRET_KEY_ID: 'integration-1',
   CORS_ORIGINS: 'http://localhost:5173',
 };
 const tenantId = '00000000-0000-4000-8000-00000000000a';

@@ -18,6 +18,13 @@ const configSchema = z
     AUTH_TOKEN_DIGEST_SECRET_BASE64: z.string().min(44).max(512).optional(),
     AUTH_DELIVERY_BASE_URL: z.string().url().optional(),
     AUTH_DELIVERY_TOKEN: z.string().min(32).optional(),
+    INTEGRATION_SECRET_KEY_BASE64: z.string().min(44).max(64).optional(),
+    INTEGRATION_SECRET_KEY_ID: z
+      .string()
+      .regex(/^[a-zA-Z0-9._-]{3,64}$/)
+      .default('integration-1'),
+    PUBLIC_TENANT_WEB_URL: z.string().url().optional(),
+    PUBLIC_PLATFORM_WEB_URL: z.string().url().optional(),
     FINANCE_AUDIT_READINESS_URL: z.string().url().optional(),
     NETWORK_WORKER_READINESS_URL: z.string().url().optional(),
     DOCUMENT_S3_BUCKET: z.string().min(3).max(63).optional(),
@@ -38,7 +45,23 @@ const configSchema = z
         message: 'Production document storage requires HTTPS.',
       });
     }
-    for (const field of ['FINANCE_AUDIT_READINESS_URL', 'NETWORK_WORKER_READINESS_URL'] as const) {
+    if (
+      (configuration.AUTH_DELIVERY_BASE_URL === undefined) !==
+      (configuration.AUTH_DELIVERY_TOKEN === undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['AUTH_DELIVERY_BASE_URL'],
+        message: 'AUTH_DELIVERY_BASE_URL and AUTH_DELIVERY_TOKEN must be set together.',
+      });
+    }
+    for (const field of [
+      'FINANCE_AUDIT_READINESS_URL',
+      'NETWORK_WORKER_READINESS_URL',
+      'INTEGRATION_SECRET_KEY_BASE64',
+      'PUBLIC_TENANT_WEB_URL',
+      'PUBLIC_PLATFORM_WEB_URL',
+    ] as const) {
       if (!configuration[field]) {
         context.addIssue({
           code: 'custom',
@@ -52,5 +75,10 @@ const configSchema = z
 export type ApiConfig = z.infer<typeof configSchema>;
 
 export function readConfig(environment: NodeJS.ProcessEnv): ApiConfig {
-  return configSchema.parse(environment);
+  // Compose passes unset optional variables as empty strings; treat those as absent so optional
+  // URL/secret fields validate the same way whether the key is missing or blank.
+  const present = Object.fromEntries(
+    Object.entries(environment).filter(([, value]) => value !== undefined && value !== ''),
+  );
+  return configSchema.parse(present);
 }

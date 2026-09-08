@@ -179,6 +179,9 @@ function writerMocks() {
     readNetworkAlarms: vi.fn(async () => []),
     readOutages: vi.fn(async () => []),
     readQosReports: vi.fn(async () => []),
+    readIntegrationSettings: vi.fn(async () => ({ settings: [], events: [] })),
+    configureIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, replayed: false })),
+    testIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, status: 'passed' })),
   } satisfies OperationsWriter;
 }
 
@@ -1910,5 +1913,144 @@ describe('Warehouse custody routes', () => {
       }),
     );
     await withMfa.app.close();
+  });
+});
+
+describe('tenant integration settings routes', () => {
+  const integrationEvidence = {
+    reasonEn: 'Configure customer messaging providers',
+    reasonAr: 'تهيئة مزوّدي الرسائل للعملاء',
+    evidence: 'Change ticket CHG-2026-091 approved by the ISP owner.',
+  };
+  const integrationCommand = {
+    kind: 'smtp',
+    config: {
+      host: 'smtp.example.test',
+      port: 465,
+      security: 'tls',
+      username: 'mailer',
+      fromAddress: 'billing@example.test',
+    },
+    secrets: { password: 'mail-password' },
+    keepSecrets: false,
+    active: true,
+    ...integrationEvidence,
+  };
+
+  it('binds configuration and tests to tenant-wide secret authority', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.secret.manage', 'tenant.user.administer'] },
+      writer,
+    );
+    const configured = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+      headers: { 'idempotency-key': 'integration-configure-001' },
+      payload: { command: integrationCommand },
+    });
+    expect(configured.statusCode).toBe(201);
+    expect(writer.configureIntegration).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.secret.manage',
+        auditAction: 'tenant.integration.configure',
+        command: expect.objectContaining({
+          kind: 'smtp',
+          secrets: { password: 'mail-password' },
+        }) as unknown,
+      }),
+    );
+    const tested = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/integrations/test`,
+      headers: { 'idempotency-key': 'integration-test-001' },
+      payload: {
+        command: { kind: 'smtp', recipient: 'owner@example.test', ...integrationEvidence },
+      },
+    });
+    expect(tested.statusCode).toBe(201);
+    expect(writer.testIntegration).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ auditAction: 'tenant.integration.test' }),
+    );
+    const read = await administrator.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/integrations`,
+    });
+    expect(read.statusCode).toBe(200);
+    expect(writer.readIntegrationSettings).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.user.administer' }),
+    );
+    await administrator.app.close();
+
+    const withoutSecretAuthority = await makeApp(
+      { ...claims, permissions: ['tenant.user.administer'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutSecretAuthority.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-002' },
+          payload: { command: integrationCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutSecretAuthority.app.close();
+  });
+
+  it('rejects provider payloads that smuggle secrets into configuration or omit evidence', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.secret.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-003' },
+          payload: {
+            command: {
+              ...integrationCommand,
+              config: { ...integrationCommand.config, password: 'x' },
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-004' },
+          payload: { command: { ...integrationCommand, reasonAr: undefined } },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-005' },
+          payload: {
+            command: {
+              ...integrationCommand,
+              kind: 'sms',
+              config: { provider: 'http_json', endpointUrl: 'http://insecure.test/send' },
+              secrets: { authToken: 'bearer-token-1' },
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(writer.configureIntegration).not.toHaveBeenCalled();
+    await administrator.app.close();
   });
 });

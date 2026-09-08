@@ -14,3 +14,4 @@ export * from './subscriber-workspace.js';
 export * from './service-lifecycle.js';
 export * from './types.js';
 export * from './usage-rating.js';
+export * from './integrations.js';

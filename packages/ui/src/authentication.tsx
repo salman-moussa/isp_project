@@ -313,3 +313,169 @@ function readSession(key: string): SessionTokens | null {
     return null;
   }
 }
+
+/**
+ * Public password-recovery completion page, reached from the link in a recovery email
+ * (`#/recovery/<token>`). It posts the one-time token with the new password and never keeps the
+ * token in browser storage.
+ */
+export function RecoveryCompletion(props: {
+  readonly apiBaseUrl: string;
+  readonly token: string;
+  readonly onDone?: () => void;
+}) {
+  const [locale, setLocale] = useState<'en' | 'ar'>('en');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [state, setState] = useState<'ready' | 'busy' | 'success' | 'error'>('ready');
+  const [message, setMessage] = useState<string>();
+  const isEnglish = locale === 'en';
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.documentElement.dir = isEnglish ? 'ltr' : 'rtl';
+  }, [isEnglish, locale]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (password !== confirmation) {
+      setState('error');
+      setMessage(
+        isEnglish ? 'The password confirmation does not match.' : 'تأكيد كلمة المرور غير مطابق.',
+      );
+      return;
+    }
+    setState('busy');
+    setMessage(undefined);
+    try {
+      const response = await fetch(`${props.apiBaseUrl}/v1/auth/recovery/complete`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: props.token, newPassword: password }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        throw new Error(
+          payload.error?.message ??
+            (isEnglish
+              ? 'The recovery link is invalid or has expired.'
+              : 'رابط الاسترداد غير صالح أو انتهت صلاحيته.'),
+        );
+      }
+      setState('success');
+      window.history.replaceState(null, '', '#/recovery');
+    } catch (cause) {
+      setState('error');
+      setMessage(cause instanceof Error ? cause.message : 'Recovery failed.');
+    }
+  };
+
+  return (
+    <main className="auth-gate">
+      <section className="auth-layout" aria-label="Orvex ISP password recovery">
+        <aside className="auth-story" aria-label="Product information">
+          <div>
+            <span className="auth-story__mark" aria-hidden="true">
+              O
+            </span>
+            <p className="auth-story__brand">Orvex ISP · أورفكس</p>
+          </div>
+          <div className="auth-story__copy">
+            <p className="auth-story__kicker">
+              {isEnglish
+                ? 'Account recovery · استرداد الحساب'
+                : 'استرداد الحساب · Account recovery'}
+            </p>
+            <h2>{isEnglish ? 'Choose a new password.' : 'اختر كلمة مرور جديدة.'}</h2>
+            <p>
+              {isEnglish
+                ? 'The link works once and expires. Use at least 12 characters.'
+                : 'يعمل الرابط مرة واحدة وتنتهي صلاحيته. استخدم 12 حرفاً على الأقل.'}
+            </p>
+          </div>
+        </aside>
+        <form className="auth-card" onSubmit={(event) => void submit(event)}>
+          <div className="auth-card__heading">
+            <span className="auth-card__eyebrow">
+              {isEnglish ? 'Password recovery' : 'استرداد كلمة المرور'}
+            </span>
+            <h1>{isEnglish ? 'Set a new password' : 'تعيين كلمة مرور جديدة'}</h1>
+            <button
+              type="button"
+              className="auth-card__locale"
+              onClick={() => setLocale(isEnglish ? 'ar' : 'en')}
+              aria-label={isEnglish ? 'التبديل إلى العربية' : 'Switch to English'}
+            >
+              {isEnglish ? 'ع' : 'EN'}
+            </button>
+          </div>
+          {state === 'success' ? (
+            <div role="status" className="auth-card__fields">
+              <p>
+                {isEnglish
+                  ? 'Your password was updated. You can sign in now.'
+                  : 'تم تحديث كلمة المرور. يمكنك تسجيل الدخول الآن.'}
+              </p>
+              <button
+                className="auth-card__submit"
+                type="button"
+                onClick={() => {
+                  window.location.hash = '';
+                  props.onDone?.();
+                }}
+              >
+                {isEnglish ? 'Go to sign in' : 'الانتقال إلى تسجيل الدخول'}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="auth-card__fields">
+                <label>
+                  <span>{isEnglish ? 'New password' : 'كلمة المرور الجديدة'}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={128}
+                    required
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>{isEnglish ? 'Confirm password' : 'تأكيد كلمة المرور'}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={128}
+                    required
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.target.value)}
+                  />
+                </label>
+              </div>
+              {message ? (
+                <p role="alert" className="auth-card__error">
+                  {message}
+                </p>
+              ) : null}
+              <button className="auth-card__submit" type="submit" disabled={state === 'busy'}>
+                {state === 'busy'
+                  ? isEnglish
+                    ? 'Saving…'
+                    : 'جارٍ الحفظ…'
+                  : isEnglish
+                    ? 'Save password'
+                    : 'حفظ كلمة المرور'}
+              </button>
+            </>
+          )}
+        </form>
+      </section>
+    </main>
+  );
+}
+
+export const recoveryHashPattern = /^#\/recovery\/([A-Za-z0-9_-]{32,512})$/u;

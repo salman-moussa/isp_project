@@ -1,4 +1,9 @@
-import type { NocWorkspace, NocQuery, WarehouseWorkspace } from '@isp/contracts';
+import type {
+  NocWorkspace,
+  NocQuery,
+  TenantIntegrationWorkspace,
+  WarehouseWorkspace,
+} from '@isp/contracts';
 import type { CustomerStatementQuery, CustomerStatementResponse } from '@isp/contracts';
 import type {
   CustomerAccountsWorkspace,
@@ -953,4 +958,30 @@ export async function readWarehouseWorkspace(session: ApiSession): Promise<Wareh
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Warehouse workspace');
   return (await response.json()) as WarehouseWorkspace;
+}
+
+export class TenantApiError extends Error {
+  public constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'TenantApiError';
+  }
+}
+
+export async function readTenantIntegrations(
+  session: ApiSession,
+): Promise<TenantIntegrationWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/integrations`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) {
+    const failure = await staffError(response, 'Integration settings');
+    throw new TenantApiError(failure.message, response.status);
+  }
+  return (await response.json()) as TenantIntegrationWorkspace;
 }
