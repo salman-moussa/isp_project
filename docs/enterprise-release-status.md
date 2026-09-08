@@ -43,6 +43,32 @@ dispatcher, a home branch.
 Rollback boundary: `/opt/orvex-backups/20260908T081403Z-81d919f/source.tar` plus both database dumps
 and `env.backup`.
 
+## Production checkpoint deployed — 2026-09-08 (field service, `8f47a37`)
+
+Production promoted field service dispatch. The artifact was built from the commit then known as
+`81d919f`; the branch history was subsequently rewritten at the owner's request (author identity and
+trailers only, trees unchanged), so the same content is now commit `8f47a37` on
+`production-ui-completion`. Release id `20260908T081403Z-81d919f`.
+
+| Item                | Result                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------- |
+| Artifact            | sha256 `48728a5d3e8bd32e6eaafbe843af8c2d0162e6cd4c76e4dd3192efda2e268e17`, identical local and on-host   |
+| Backup              | `/opt/orvex-backups/20260908T081403Z-81d919f`, 7/7 entries verified with `sha256sum -c`                  |
+| Migrations promoted | `202609080100_tenant_field_service.sql` (tenant ledger 55 → 56); `execute_field_service_command` present |
+| Services            | all five `running (healthy)`                                                                             |
+| Endpoints           | `/health` 200, `/ready` 200, `/` 200, `/control/` 200                                                    |
+| Invariants          | invalid indexes 0                                                                                        |
+| Migration bytes     | 12 CRLF preserved, new migration 0 CR bytes                                                              |
+| Logs                | no error/fatal/panic lines after deployment                                                              |
+
+What is now live: the tenant "Installations" screen is the dispatch workspace (board, work orders,
+technician registry, detail drawer). Production has no branches, areas, routes or subscribers yet,
+so the first useful steps are creating the scope catalogue and registering technicians; the screen
+renders honest empty states until then.
+
+Rollback boundary: `/opt/orvex-backups/20260908T081403Z-81d919f/source.tar` plus both database
+dumps.
+
 ## Field service dispatch — 2026-09-08
 
 Installations could be moved through their lifecycle from a sales order, but nobody could see the
