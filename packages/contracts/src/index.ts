@@ -2,6 +2,7 @@ export * from './http.js';
 export * from './customer-accounts.js';
 export * from './accounting.js';
 export * from './dealers-vouchers.js';
+export * from './field-service.js';
 export * from './warehouse.js';
 export * from './radius-ipam.js';
 export * from './noc-qos.js';

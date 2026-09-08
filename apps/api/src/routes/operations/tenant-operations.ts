@@ -16,6 +16,9 @@ import {
   vendorQuoteCommandSchema,
   integrationConfigureCommandSchema,
   integrationTestCommandSchema,
+  fieldDispatchCommandSchema,
+  fieldExecutionCommandSchema,
+  fieldServiceQuerySchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -50,6 +53,8 @@ const procurementApprovalBody = z
 const warehouseAdminBody = z.object({ command: warehouseAdminCommandSchema }).strict();
 const integrationConfigureBody = z.object({ command: integrationConfigureCommandSchema }).strict();
 const integrationTestBody = z.object({ command: integrationTestCommandSchema }).strict();
+const fieldDispatchBody = z.object({ command: fieldDispatchCommandSchema }).strict();
+const fieldExecutionBody = z.object({ command: fieldExecutionCommandSchema }).strict();
 // Moving stock and writing its value off carry different authority, so they are separate routes.
 const stockTransferBody = z
   .object({
@@ -1178,6 +1183,24 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.executeVendorQuoteCommand(id, v as never),
     ),
     operation(
+      '/field-service/dispatch',
+      'dispatchFieldService',
+      'tenant.installation.manage',
+      'tenant.field.dispatch',
+      'work_order',
+      fieldDispatchBody,
+      (w, id, v) => w.executeFieldDispatchCommand(id, v as never),
+    ),
+    operation(
+      '/field-service/execute',
+      'executeFieldService',
+      'tenant.installation.manage',
+      'tenant.field.execute',
+      'work_order',
+      fieldExecutionBody,
+      (w, id, v) => w.executeFieldExecutionCommand(id, v as never),
+    ),
+    operation(
       '/integrations/configure',
       'configureTenantIntegration',
       'tenant.secret.manage',
@@ -1307,6 +1330,23 @@ export function registerTenantOperationsRoutes(
     'Tenant warehouse',
     'warehouse-read',
     'Read scoped serialized equipment custody',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/field-service/workspace',
+      operationId: 'readFieldServiceWorkspace',
+      permission: 'tenant.installation.view',
+      action: 'tenant.field.workspace.read',
+      resourceType: 'work_order',
+      schema: z.object({}).strict(),
+      querySchema: fieldServiceQuerySchema,
+      execute: (w, id, v) => w.readFieldServiceWorkspace(id, v as never),
+    },
+    'Tenant field service',
+    'field-read',
+    'Read scoped dispatch board and technicians',
   );
   registerWorkspaceRead(
     app,

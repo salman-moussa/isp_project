@@ -15,3 +15,4 @@ export * from './service-lifecycle.js';
 export * from './types.js';
 export * from './usage-rating.js';
 export * from './integrations.js';
+export * from './field-service.js';
