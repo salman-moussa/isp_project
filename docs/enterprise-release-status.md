@@ -16,6 +16,33 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Production checkpoint deployed — 2026-09-08 (field service dispatch)
+
+Production moved to the field service checkpoint (artifact built from the commit later rewritten as
+`8f47a37` when the branch history was cleaned and the branch renamed to `production-ui-completion`;
+the deployed tree is byte-identical). Release id `20260908T081403Z-81d919f`. The deploy script
+completed end to end with `Deployment complete.`
+
+| Item                | Result                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Artifact            | sha256 `48728a5d3e8bd32e6eaafbe843af8c2d0162e6cd4c76e4dd3192efda2e268e17`, identical local and on-host |
+| Backup              | `/opt/orvex-backups/20260908T081403Z-81d919f`, 7/7 entries verified with `sha256sum -c`                |
+| Preflight           | control 14/14 matched, 0 pending; tenant 55/55 matched, 1 pending — no blocking findings               |
+| Migrations promoted | `202609080100_tenant_field_service.sql` (tenant 55 → 56); `execute_field_service_command` present      |
+| Services            | all five `running (healthy)`                                                                           |
+| Endpoints           | `/ready` 200 after 10s, `/health` 200, `/` 200, `/control/` 200                                        |
+| Invariants          | invalid indexes 0                                                                                      |
+| Migration bytes     | 12 CRLF preserved, new migration 0 CR bytes                                                            |
+| Logs                | no error/fatal/panic lines after deployment                                                            |
+
+What is now live: tenant "Installations" is the dispatch workspace (board, work orders, technician
+registry). Production still has no branches/areas/routes, subscribers or installations, so the board
+opens empty by design; technician registration requires a workspace member and, for a scoped
+dispatcher, a home branch.
+
+Rollback boundary: `/opt/orvex-backups/20260908T081403Z-81d919f/source.tar` plus both database dumps
+and `env.backup`.
+
 ## Field service dispatch — 2026-09-08
 
 Installations could be moved through their lifecycle from a sales order, but nobody could see the
