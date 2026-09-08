@@ -179,6 +179,17 @@ function writerMocks() {
     readNetworkAlarms: vi.fn(async () => []),
     readOutages: vi.fn(async () => []),
     readQosReports: vi.fn(async () => []),
+    readFieldServiceWorkspace: vi.fn(async () => ({ technicians: [], workOrders: [], events: [] })),
+    executeFieldDispatchCommand: vi.fn(async () => ({
+      workOrderId: 'wo-1',
+      status: 'open',
+      version: 1,
+    })),
+    executeFieldExecutionCommand: vi.fn(async () => ({
+      workOrderId: 'wo-1',
+      status: 'on_site',
+      version: 2,
+    })),
     readIntegrationSettings: vi.fn(async () => ({ settings: [], events: [] })),
     configureIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, replayed: false })),
     testIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, status: 'passed' })),
@@ -2052,5 +2063,136 @@ describe('tenant integration settings routes', () => {
     ).toBe(400);
     expect(writer.configureIntegration).not.toHaveBeenCalled();
     await administrator.app.close();
+  });
+});
+
+describe('field service routes', () => {
+  const fieldEvidence = {
+    reasonEn: 'Dispatch acceptance for the northern branch',
+    reasonAr: 'إرسال قبول لفرع الشمال',
+    evidence: 'Dispatch board review 2026-09-08.',
+  };
+
+  it('separates dispatcher scheduling from technician execution by signed action', async () => {
+    const writer = writerMocks();
+    const dispatcher = await makeApp(
+      { ...claims, permissions: ['tenant.installation.view', 'tenant.installation.manage'] },
+      writer,
+    );
+    const created = await dispatcher.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+      headers: { 'idempotency-key': 'field-dispatch-001' },
+      payload: {
+        command: {
+          action: 'create_work_order',
+          kind: 'repair',
+          subscriberId: serviceId,
+          titleEn: 'Replace damaged drop wire',
+          titleAr: 'استبدال سلك التوصيل التالف',
+          requiredSkills: ['fiber'],
+          windowStart: '2026-09-09T08:00:00.000Z',
+          windowEnd: '2026-09-09T10:00:00.000Z',
+          ...fieldEvidence,
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(writer.executeFieldDispatchCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.field.dispatch',
+      }),
+    );
+    const started = await dispatcher.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/field-service/execute`,
+      headers: { 'idempotency-key': 'field-execute-001' },
+      payload: {
+        command: {
+          action: 'start_work_order',
+          workOrderId: serviceId,
+          expectedVersion: 2,
+          ...fieldEvidence,
+        },
+      },
+    });
+    expect(started.statusCode).toBe(201);
+    expect(writer.executeFieldExecutionCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ auditAction: 'tenant.field.execute' }),
+    );
+    // An execution command cannot travel through the dispatch route and vice versa.
+    expect(
+      (
+        await dispatcher.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+          headers: { 'idempotency-key': 'field-dispatch-002' },
+          payload: {
+            command: {
+              action: 'start_work_order',
+              workOrderId: serviceId,
+              expectedVersion: 2,
+              ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    // Installation work must reference its installation; windows must be complete.
+    expect(
+      (
+        await dispatcher.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+          headers: { 'idempotency-key': 'field-dispatch-003' },
+          payload: {
+            command: {
+              action: 'create_work_order',
+              kind: 'installation',
+              titleEn: 'Missing installation reference',
+              titleAr: 'مرجع تركيب مفقود',
+              windowStart: '2026-09-09T08:00:00.000Z',
+              ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const board = await dispatcher.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/field-service/workspace?day=2026-09-09&status=active`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readFieldServiceWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.view',
+        query: expect.objectContaining({ day: '2026-09-09', status: 'active' }) as unknown,
+      }),
+    );
+    await dispatcher.app.close();
+
+    const viewer = await makeApp({ ...claims, permissions: ['tenant.installation.view'] }, writer);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+          headers: { 'idempotency-key': 'field-dispatch-004' },
+          payload: {
+            command: {
+              action: 'cancel_work_order',
+              workOrderId: serviceId,
+              expectedVersion: 1,
+              ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
   });
 });

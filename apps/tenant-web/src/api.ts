@@ -1,4 +1,5 @@
 import type {
+  FieldServiceWorkspace,
   NocWorkspace,
   NocQuery,
   TenantIntegrationWorkspace,
@@ -984,4 +985,24 @@ export async function readTenantIntegrations(
     throw new TenantApiError(failure.message, response.status);
   }
   return (await response.json()) as TenantIntegrationWorkspace;
+}
+
+export async function readFieldServiceWorkspace(
+  session: ApiSession,
+  query: { readonly day?: string; readonly status?: string; readonly technicianId?: string } = {},
+): Promise<FieldServiceWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) if (value) search.set(name, value);
+  const suffix = search.size > 0 ? `?${search.toString()}` : '';
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/field-service/workspace${suffix}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) {
+    const failure = await staffError(response, 'Field service');
+    throw new TenantApiError(failure.message, response.status);
+  }
+  return (await response.json()) as FieldServiceWorkspace;
 }

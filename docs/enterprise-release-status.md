@@ -16,6 +16,55 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Field service dispatch — 2026-09-08
+
+Installations could be moved through their lifecycle from a sales order, but nobody could see the
+day's field work in one place, choose who does it, or prove what happened on site. Migration
+202609080100_tenant_field_service.sql adds a technician registry (skills, phone, home branch,
+territory areas) and work orders (installation, repair, relocation, maintenance, disconnection,
+survey) with priority, appointment window, SLA due time, required skills, a bilingual checklist and
+an outcome. `execute_field_service_command` runs under `tenant.installation.manage` with two signed
+actions: `tenant.field.dispatch` (register/update technician, create, schedule, assign, cancel) and
+`tenant.field.execute` (arrive on site, complete, fail). Execution is limited to the assigned
+technician or a tenant-wide dispatcher.
+
+Installation work orders drive the installation record through the existing event ledger
+(`field_service_transition_installation`): scheduling → `scheduled`, arrival → `in_progress`,
+completion → `ready_for_activation`, failure → `blocked` with the reason, and dispatching the
+revisit → `scheduled` again, so sales-order task synchronisation and network activation keep working
+unchanged. Completion refuses to close while a required checklist item is not done; a failure
+creates an unassigned revisit with the same checklist; only one live work order may exist per
+installation; a technician lacking a required skill cannot be assigned; a dispatched technician
+cannot be deactivated. Work order numbers are generated (`WO-YYYYMMDD-XXXXXX`) and every command is
+exact-replayable with a bilingual reason and evidence.
+
+Scope: work orders inherit branch/area/route from the subscriber (or installation) and follow the
+standard scope predicate, so a branch-scoped dispatcher sees only their branch; a technician always
+sees their own registry row. The read model returns the board for one day (unscheduled work plus
+everything whose window touches the day), technicians with active load, timelines, workspace members
+eligible for registration, open installations without live work, and scope catalogues.
+
+The tenant "Installations" screen is now a real bilingual, RTL-aware dispatch workspace: hero counts
+(waiting, dispatched, on site, overdue SLA), day/status/technician filters, a board with an
+unassigned column and one column per active technician, a work order table, the technician registry
+with register/update forms, and a detail drawer with facts, checklist, outcome, timeline and
+status-appropriate actions (schedule/reschedule, assign/unassign, arrive, complete with checklist
+and measurements, could-not-complete with revisit window, cancel).
+
+Live acceptance on PostgreSQL 18 (`test-live-field-service.ts`): registration with exact replay and
+changed-payload conflict, duplicate and non-member refusals, action/signature mismatch, duplicate
+live work per installation refused, missing-skill assignment refused, start-before-dispatch refused,
+schedule/dispatch synchronising the installation and installer, stale version refused,
+unassign/reassign, non-assigned scoped technician refused while the assigned scoped technician can
+start, incomplete checklist refused, failure creating a scheduled revisit and blocking the
+installation, revisit dispatch/start/complete with replay, the six-step installation event sequence,
+closed work not cancellable, board/day/status reads with subscriber, service, address, installation
+status, outcome and checklist, other-branch readers seeing nothing, technician self-visibility,
+support-grant and wrong-action refusals, eleven audit outbox rows and append-only events.
+
+Focused suites: api (field service route separation), tenant-web (4 dispatch workspace tests);
+typecheck, lint and formatting gates pass.
+
 ## Production checkpoint deployed — 2026-09-08 (`9f6e958`)
 
 Production moved from `e179b51` to `9f6e958`, promoting product-managed integration settings and
@@ -470,7 +519,7 @@ host was not modified.
 | Service inventory                    | `partial`    | Subscriber 360 reconciles current service and full plan-change, suspend, restore and terminate history through one guided bilingual workflow                                                                                                                | Subscriber edit + order authority; scoped service/plan/history FORCE-RLS; append-only changes; atomic network outbox and subscriber state    | Every service, subscriber, change-order and router-job mutation shares the signed audit context | Fresh PostgreSQL 18 proves plan upgrade replay plus active→suspended→active→terminated and subscriber closure                 | Add relocation, access-circuit/IP/CPE bindings and richer service dependency history                              |
 | Resource and outside-plant inventory | `partial`    | Bilingual scoped capacity register covers POPs, OLTs, fiber ports, wireless sectors, access nodes and capacity pools                                                                                                                                        | `tenant.network.job.create`; FORCE-RLS resource/reservation tables, hierarchy validation and capacity constraints                            | Atomic create/reserve audit                                                                     | API/UI/static plus clean PostgreSQL 18 eligibility, decrement and exact-replay proof                                          | Expand to racks/devices/links/fiber/VLAN topology, lifecycle and attachments                                      |
 | Warehouse and procurement            | `partial`    | Responsive bilingual workspace drives custody plus vendor registration, valued PO lines, finance approval and complete serialized receiving                                                                                                                 | Separate catalog/finance permissions; recent MFA approval; FORCE-RLS; optimistic versions; append-only bilingual evidence; exact retry keys  | Atomic procurement/custody events, Operations audit outbox, and balanced Inventory/AP journal   | API/UI/static plus fresh PostgreSQL 18 proof of approval, full serial receipt, retry/conflict and accounting balance          | SKU/warehouse administration, quote comparison, partial/non-serialized receipts, reservations, bins and transfers |
-| Installation and field service       | `partial`    | Accepted orders create linked service/field work; bilingual scheduling, work start and evidence capture drive the guarded installation lifecycle                                                                                                            | Installation + order permissions; versioned events; linked order; signal/equipment evidence guards                                           | Operations and order-task audit                                                                 | API/UI/static plus clean PostgreSQL 18 requested-to-completed transition and network-unlock proof                             | Dispatch board, offline technician, materials/stock consumption, photos and revisit workflow                      |
+| Installation and field service       | `partial`    | Dispatch board with technician registry (skills, territories), work orders with appointment windows, SLA, checklists, outcomes, failure/revisit; installation work orders drive the installation lifecycle                                                  | Installation view/manage split into signed dispatch and execute actions; assigned-technician or tenant-wide execution; versioned records     | Append-only work order events plus operations audit outbox                                      | API/UI/static plus PostgreSQL 18 dispatch-to-completion, revisit and scope proof (test-live-field-service.ts)                 | Offline technician app, materials/stock consumption on completion, photo capture, customer signature              |
 | AAA and access control               | `foundation` | NAS/session/IPAM records and a RouterOS worker boundary exist, but Orvex is not a RADIUS AAA service                                                                                                                                                        | Network permissions and tenant AAA/IPAM schema; DB-only disconnect now fails closed without an execution adapter                             | RouterOS worker with action-specific acknowledgement; no RADIUS CoA worker                      | 37 worker tests and safe-adapter proofs do not verify redundant AAA or a real NAS                                             | Implement redundant RADIUS, policy/accounting and acknowledged CoA/disconnect; accept real infrastructure         |
 | IPAM and network configuration       | `partial`    | Router bindings/jobs, plan profile references and order-side activation exist; IPAM and change-plan UI absent                                                                                                                                               | Network permissions; routers, bindings, durable jobs; worker-only terminal synchronization                                                   | Network Worker attempts/reconciliation and terminal result evidence                             | Fresh PostgreSQL 18 lead-to-verified-activation proof plus worker/API/UI/static evidence                                      | Conflict-safe pools/VLAN/IP allocation plus approved rollback-capable changes; RouterOS credentials/hardware      |
 | CPE lifecycle                        | `missing`    | No provisioning/diagnostics/firmware workflow                                                                                                                                                                                                               | Absent                                                                                                                                       | None                                                                                            | None                                                                                                                          | Models, firmware, provisioning and TR-069/USP adapter; ACS/hardware activation                                    |

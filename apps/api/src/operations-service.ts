@@ -1,6 +1,8 @@
 import { integrationConfigureCommandSchema, type VerifiedTenantId } from '@isp/contracts';
 import { createHash } from 'node:crypto';
 import {
+  executeFieldServiceCommand,
+  readFieldServiceWorkspace,
   executeIntegrationSettingsCommand,
   readTenantIntegrationDelivery,
   readTenantIntegrationSettings,
@@ -132,6 +134,8 @@ export interface OperationsRepositoryAdapter {
   readonly executeIntegrationSettingsCommand: typeof executeIntegrationSettingsCommand;
   readonly readTenantIntegrationSettings: typeof readTenantIntegrationSettings;
   readonly readTenantIntegrationDelivery: typeof readTenantIntegrationDelivery;
+  readonly executeFieldServiceCommand: typeof executeFieldServiceCommand;
+  readonly readFieldServiceWorkspace: typeof readFieldServiceWorkspace;
   readonly readNasClients: typeof readNasClients;
   readonly readRadiusSessions: typeof readRadiusSessions;
   readonly readIpPools: typeof readIpPools;
@@ -213,6 +217,8 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   executeIntegrationSettingsCommand,
   readTenantIntegrationSettings,
   readTenantIntegrationDelivery,
+  executeFieldServiceCommand,
+  readFieldServiceWorkspace,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -916,6 +922,36 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'executeVendorQuoteCommand'>,
   ) {
     return this.repository.executeVendorQuoteCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readFieldServiceWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readFieldServiceWorkspace'>,
+  ) {
+    return this.repository.readFieldServiceWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeFieldDispatchCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeFieldDispatchCommand'>,
+  ) {
+    return this.repository.executeFieldServiceCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeFieldExecutionCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeFieldExecutionCommand'>,
+  ) {
+    return this.repository.executeFieldServiceCommand(this.database, tenantId, {
       command: input.command,
       authorization: this.sign(tenantId, input),
     });

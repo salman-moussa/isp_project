@@ -21,6 +21,9 @@ import type {
   VendorQuoteCommand,
   IntegrationConfigureCommand,
   IntegrationTestCommand,
+  FieldDispatchCommand,
+  FieldExecutionCommand,
+  FieldServiceQuery,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -598,6 +601,18 @@ export interface OperationsWriter {
   executeVendorQuoteCommand(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly command: VendorQuoteCommand },
+  ): Promise<unknown>;
+  readFieldServiceWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<FieldServiceQuery> },
+  ): Promise<unknown>;
+  executeFieldDispatchCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: FieldDispatchCommand },
+  ): Promise<unknown>;
+  executeFieldExecutionCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: FieldExecutionCommand },
   ): Promise<unknown>;
   readIntegrationSettings(
     tenantId: VerifiedTenantId,
