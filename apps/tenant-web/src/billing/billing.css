@@ -12,10 +12,8 @@
   padding: clamp(1.4rem, 3vw, 2.4rem);
   border: 1px solid #cfe1df;
   border-radius: 1.5rem;
-  background:
-    radial-gradient(circle at 90% 10%, rgba(49, 174, 154, 0.2), transparent 32%),
-    linear-gradient(135deg, #f7fcfb, #eef7f5);
-  box-shadow: 0 18px 42px rgba(25, 61, 66, 0.08);
+  background: var(--color-surface, #fff);
+  box-shadow: none;
 }
 .billing-hero span,
 .billing-command > span,

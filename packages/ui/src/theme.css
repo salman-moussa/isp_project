@@ -1908,12 +1908,10 @@
   outline-offset: 2px;
 }
 .integration-panel__hero {
-  padding: clamp(1.3rem, 3vw, 2.2rem);
-  border: 1px solid #cfdcf0;
-  border-radius: 1.3rem;
-  background:
-    radial-gradient(circle at 90% 12%, #cfe6ff 0, transparent 30%),
-    linear-gradient(120deg, #f4f8ff, #fffaf1);
+  padding: clamp(1.2rem, 2.5vw, 1.8rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 .integration-panel__hero span {
   font-size: 0.72rem;

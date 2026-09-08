@@ -1,0 +1,1830 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orvex ISP Field Manual</title>
+    <meta
+      name="description"
+      content="Every module, screen, rule and permission in Orvex ISP, with what is live in production today and what is still being built."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f6f7f5;
+        --surface: #ffffff;
+        --surface-2: #eef1ee;
+        --ink: #172033;
+        --ink-2: #4d5a70;
+        --ink-3: #6b7890;
+        --line: #d8dee6;
+        --line-2: #c4ccd8;
+        --accent: #1d4fc9;
+        --accent-ink: #ffffff;
+        --live: #0b7367;
+        --live-soft: #dff3ee;
+        --partial: #b5690e;
+        --partial-soft: #fdf0d8;
+        --planned: #6b7890;
+        --planned-soft: #e9ecf1;
+        --human: #a3374a;
+        --human-soft: #fbe6ea;
+        --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+        --arabic: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', Tahoma, sans-serif;
+        --serif: 'IBM Plex Serif', Georgia, 'Times New Roman', serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          color-scheme: dark;
+          --paper: #0f141c;
+          --surface: #161d27;
+          --surface-2: #1f2836;
+          --ink: #e8edf4;
+          --ink-2: #b4bfcf;
+          --ink-3: #8c98ab;
+          --line: #2b3646;
+          --line-2: #3a4658;
+          --accent: #7ea2ff;
+          --accent-ink: #0f141c;
+          --live: #5fd0bd;
+          --live-soft: #123b36;
+          --partial: #f0b458;
+          --partial-soft: #3d2c10;
+          --planned: #a9b4c4;
+          --planned-soft: #2a3342;
+          --human: #f08ea0;
+          --human-soft: #45202a;
+        }
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --paper: #0f141c;
+        --surface: #161d27;
+        --surface-2: #1f2836;
+        --ink: #e8edf4;
+        --ink-2: #b4bfcf;
+        --ink-3: #8c98ab;
+        --line: #2b3646;
+        --line-2: #3a4658;
+        --accent: #7ea2ff;
+        --accent-ink: #0f141c;
+        --live: #5fd0bd;
+        --live-soft: #123b36;
+        --partial: #f0b458;
+        --partial-soft: #3d2c10;
+        --planned: #a9b4c4;
+        --planned-soft: #2a3342;
+        --human: #f08ea0;
+        --human-soft: #45202a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--paper);
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      html[dir='rtl'] body {
+        font-family: var(--arabic);
+      }
+      h1,
+      h2,
+      h3,
+      h4 {
+        font-family: var(--serif);
+        font-weight: 600;
+        line-height: 1.2;
+        margin: 0;
+        text-wrap: balance;
+        letter-spacing: -0.01em;
+      }
+      html[dir='rtl'] h1,
+      html[dir='rtl'] h2,
+      html[dir='rtl'] h3,
+      html[dir='rtl'] h4 {
+        font-family: var(--arabic);
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0;
+        max-width: 68ch;
+      }
+      a {
+        color: var(--accent);
+      }
+      code,
+      .mono {
+        font-family: var(--mono);
+        font-size: 0.86em;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .bar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.7rem clamp(1rem, 3vw, 2rem);
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+      }
+      .bar strong {
+        font-family: var(--serif);
+        font-size: 1.05rem;
+      }
+      html[dir='rtl'] .bar strong {
+        font-family: var(--arabic);
+      }
+      .bar .meta {
+        color: var(--ink-3);
+        font-size: 0.85rem;
+      }
+      .bar button {
+        font: inherit;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        padding: 0.4rem 0.8rem;
+        border: 1px solid var(--line-2);
+        border-radius: 0.4rem;
+        background: var(--surface-2);
+        color: var(--ink);
+      }
+      .bar button[aria-pressed='true'] {
+        background: var(--ink);
+        color: var(--paper);
+        border-color: var(--ink);
+      }
+
+      .frame {
+        display: grid;
+        grid-template-columns: 15.5rem minmax(0, 1fr);
+        gap: 2.5rem;
+        max-width: 84rem;
+        margin: 0 auto;
+        padding: 2rem clamp(1rem, 3vw, 2rem) 5rem;
+      }
+      nav.index {
+        position: sticky;
+        top: 4.2rem;
+        align-self: start;
+        font-size: 0.9rem;
+      }
+      nav.index ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.15rem;
+      }
+      nav.index a {
+        display: block;
+        padding: 0.35rem 0.6rem;
+        border-radius: 0.35rem;
+        color: var(--ink-2);
+        text-decoration: none;
+        border-inline-start: 2px solid transparent;
+      }
+      nav.index a:hover {
+        background: var(--surface-2);
+        color: var(--ink);
+      }
+      nav.index .group {
+        margin: 0.9rem 0 0.35rem;
+        padding: 0 0.6rem;
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 600;
+      }
+
+      main {
+        display: grid;
+        gap: 3rem;
+        min-width: 0;
+      }
+      .lede h1 {
+        font-size: clamp(2rem, 4vw, 3rem);
+        max-width: 22ch;
+      }
+      .lede p.sub {
+        margin-top: 1rem;
+        font-size: 1.15rem;
+        color: var(--ink-2);
+        max-width: 60ch;
+      }
+      .facts {
+        margin-top: 1.5rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 0.75rem;
+      }
+      .facts div {
+        padding: 0.8rem 0.95rem;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: var(--surface);
+      }
+      .facts dt {
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 600;
+      }
+      .facts dd {
+        margin: 0.2rem 0 0;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .facts dd small {
+        display: block;
+        font-weight: 400;
+        color: var(--ink-2);
+        font-size: 0.85rem;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin-top: 1.25rem;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.15rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+      .pill::before {
+        content: '';
+        inline-size: 0.5rem;
+        block-size: 0.5rem;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .pill.live {
+        background: var(--live-soft);
+        color: var(--live);
+      }
+      .pill.partial {
+        background: var(--partial-soft);
+        color: var(--partial);
+      }
+      .pill.planned {
+        background: var(--planned-soft);
+        color: var(--planned);
+      }
+      .pill.human {
+        background: var(--human-soft);
+        color: var(--human);
+      }
+
+      section.module {
+        display: grid;
+        gap: 1.1rem;
+        padding-top: 2rem;
+        border-top: 1px solid var(--line);
+        scroll-margin-top: 4.5rem;
+      }
+      section.module header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem 1.5rem;
+      }
+      section.module h2 {
+        font-size: 1.55rem;
+      }
+      .where {
+        color: var(--ink-3);
+        font-size: 0.85rem;
+      }
+      .where code {
+        color: var(--ink-2);
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+        gap: 1.25rem 2rem;
+      }
+      .cols h3 {
+        font-size: 0.78rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-family: var(--sans);
+        font-weight: 600;
+        margin-bottom: 0.45rem;
+      }
+      html[dir='rtl'] .cols h3 {
+        font-family: var(--arabic);
+        letter-spacing: 0;
+      }
+      ul.plain {
+        margin: 0;
+        padding-inline-start: 1.1rem;
+        display: grid;
+        gap: 0.3rem;
+        color: var(--ink-2);
+      }
+      ul.plain li::marker {
+        color: var(--ink-3);
+      }
+      ul.plain strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .rule {
+        padding: 0.75rem 0.95rem;
+        border-inline-start: 3px solid var(--accent);
+        background: var(--surface);
+        border-radius: 0 0.4rem 0.4rem 0;
+        color: var(--ink-2);
+        font-size: 0.95rem;
+      }
+      html[dir='rtl'] .rule {
+        border-radius: 0.4rem 0 0 0.4rem;
+      }
+
+      .table {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: var(--surface);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+        min-width: 40rem;
+      }
+      th,
+      td {
+        text-align: start;
+        padding: 0.55rem 0.8rem;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 600;
+        background: var(--surface-2);
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      td code {
+        white-space: nowrap;
+      }
+
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--ink-2);
+      }
+      .flow span {
+        padding: 0.25rem 0.55rem;
+        border: 1px solid var(--line-2);
+        border-radius: 0.35rem;
+        background: var(--surface);
+      }
+      .flow i {
+        font-style: normal;
+        color: var(--ink-3);
+      }
+
+      .checklist {
+        display: grid;
+        gap: 0.6rem;
+      }
+      .checklist div {
+        display: grid;
+        grid-template-columns: 1.6rem 1fr;
+        gap: 0.6rem;
+        padding: 0.7rem 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: var(--surface);
+      }
+      .checklist b {
+        font-family: var(--mono);
+        font-weight: 500;
+        color: var(--human);
+      }
+      .checklist p {
+        color: var(--ink-2);
+        font-size: 0.95rem;
+      }
+      .checklist p strong {
+        color: var(--ink);
+      }
+
+      [lang='ar'] {
+        display: none;
+      }
+      html[dir='rtl'] [lang='ar'] {
+        display: revert;
+      }
+      html[dir='rtl'] [lang='en'] {
+        display: none;
+      }
+      html[dir='rtl'] .bar [lang='en'],
+      html[dir='rtl'] .bar [lang='ar'] {
+        display: inline;
+      }
+      @media (max-width: 860px) {
+        .frame {
+          grid-template-columns: 1fr;
+        }
+        nav.index {
+          position: static;
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        html {
+          scroll-behavior: smooth;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <div>
+        <strong>Orvex ISP</strong>
+        <span class="meta">
+          <span lang="en">Field Manual · release 2026-09-08</span
+          ><span lang="ar">الدليل الميداني · إصدار 2026-09-08</span></span
+        >
+      </div>
+      <div role="group" aria-label="Language">
+        <button type="button" id="lang-en" aria-pressed="true" onclick="setLang('en')">
+          English
+        </button>
+        <button type="button" id="lang-ar" aria-pressed="false" onclick="setLang('ar')">
+          العربية
+        </button>
+      </div>
+    </div>
+
+    <div class="frame">
+      <nav class="index" aria-label="Sections">
+        <ol>
+          <li>
+            <a href="#overview"><span lang="en">Overview</span><span lang="ar">نظرة عامة</span></a>
+          </li>
+          <li>
+            <a href="#access"
+              ><span lang="en">Access &amp; security</span><span lang="ar">الوصول والأمان</span></a
+            >
+          </li>
+          <li>
+            <a href="#activation"
+              ><span lang="en">Activation checklist</span><span lang="ar">قائمة التفعيل</span></a
+            >
+          </li>
+          <li class="group">
+            <span lang="en">ISP workspace</span><span lang="ar">مساحة عمل المزوّد</span>
+          </li>
+          <li>
+            <a href="#dashboard"
+              ><span lang="en">Dashboard</span><span lang="ar">لوحة التشغيل</span></a
+            >
+          </li>
+          <li>
+            <a href="#sales"
+              ><span lang="en">Sales &amp; orders</span><span lang="ar">المبيعات والطلبات</span></a
+            >
+          </li>
+          <li>
+            <a href="#subscribers"
+              ><span lang="en">Subscribers</span><span lang="ar">المشتركون</span></a
+            >
+          </li>
+          <li>
+            <a href="#billing"
+              ><span lang="en">Billing &amp; invoices</span
+              ><span lang="ar">الفوترة والفواتير</span></a
+            >
+          </li>
+          <li>
+            <a href="#accounting"
+              ><span lang="en">Accounting &amp; ledger</span
+              ><span lang="ar">المحاسبة والدفاتر</span></a
+            >
+          </li>
+          <li>
+            <a href="#payments"
+              ><span lang="en">Payments &amp; collectors</span
+              ><span lang="ar">الدفعات والجباة</span></a
+            >
+          </li>
+          <li>
+            <a href="#network"
+              ><span lang="en">Network &amp; NOC</span><span lang="ar">الشبكة والمراقبة</span></a
+            >
+          </li>
+          <li>
+            <a href="#warehouse"
+              ><span lang="en">Warehouse &amp; procurement</span
+              ><span lang="ar">المستودع والمشتريات</span></a
+            >
+          </li>
+          <li>
+            <a href="#field"
+              ><span lang="en">Field service</span><span lang="ar">الخدمة الميدانية</span></a
+            >
+          </li>
+          <li>
+            <a href="#support"
+              ><span lang="en">Support &amp; reports</span><span lang="ar">الدعم والتقارير</span></a
+            >
+          </li>
+          <li>
+            <a href="#staff"
+              ><span lang="en">Staff &amp; access</span
+              ><span lang="ar">الموظفون والصلاحيات</span></a
+            >
+          </li>
+          <li>
+            <a href="#configuration"
+              ><span lang="en">Configuration &amp; integrations</span
+              ><span lang="ar">الإعدادات والتكاملات</span></a
+            >
+          </li>
+          <li class="group"><span lang="en">Platform</span><span lang="ar">المنصة</span></li>
+          <li>
+            <a href="#control"
+              ><span lang="en">Control Center</span><span lang="ar">مركز التحكم</span></a
+            >
+          </li>
+          <li>
+            <a href="#collect"
+              ><span lang="en">Collect mobile</span><span lang="ar">تطبيق التحصيل</span></a
+            >
+          </li>
+          <li>
+            <a href="#operations"
+              ><span lang="en">Deployment &amp; operations</span
+              ><span lang="ar">النشر والتشغيل</span></a
+            >
+          </li>
+          <li>
+            <a href="#roadmap"
+              ><span lang="en">What is still being built</span
+              ><span lang="ar">ما زال قيد البناء</span></a
+            >
+          </li>
+        </ol>
+      </nav>
+
+      <main>
+        <section class="lede" id="overview">
+          <h1>
+            <span lang="en">How Orvex ISP works, module by module</span
+            ><span lang="ar">كيف يعمل Orvex ISP، وحدةً وحدةً</span>
+          </h1>
+          <p class="sub">
+            <span lang="en"
+              >Orvex ISP is a multi-tenant operations platform for internet service providers in
+              Lebanon: one Control Center for the vendor, and one workspace per ISP covering sales,
+              subscribers, billing in USD and LBP, accounting, collections, network operations,
+              warehouse, field service and staff access. This manual describes every screen and rule
+              as it exists today, and marks plainly what is live, what is partially delivered, and
+              what still needs a human decision or a provider contract.</span
+            ><span lang="ar"
+              >‏Orvex ISP منصة تشغيل متعددة المستأجرين لمزوّدي الإنترنت في لبنان: مركز تحكم واحد
+              للمورّد، ومساحة عمل لكل مزوّد تغطي المبيعات والمشتركين والفوترة بالدولار والليرة
+              والمحاسبة والتحصيل وعمليات الشبكة والمستودع والخدمة الميدانية وصلاحيات الموظفين. يشرح
+              هذا الدليل كل شاشة وقاعدة كما هي اليوم، ويحدّد بوضوح ما هو مفعّل، وما هو منجز جزئياً،
+              وما ما زال يحتاج قراراً بشرياً أو عقد مزوّد.</span
+            >
+          </p>
+          <dl class="facts">
+            <div>
+              <dt><span lang="en">Tenant workspace</span><span lang="ar">مساحة المزوّد</span></dt>
+              <dd>
+                isp.mosesgr.com<small
+                  ><span lang="en">15 modules, EN/AR, RTL</span
+                  ><span lang="ar">15 وحدة، عربي/إنجليزي، RTL</span></small
+                >
+              </dd>
+            </div>
+            <div>
+              <dt><span lang="en">Control Center</span><span lang="ar">مركز التحكم</span></dt>
+              <dd>
+                isp.mosesgr.com/control/<small
+                  ><span lang="en">Vendor only, no subscriber data</span
+                  ><span lang="ar">للمورّد فقط، دون بيانات المشتركين</span></small
+                >
+              </dd>
+            </div>
+            <div>
+              <dt><span lang="en">Money</span><span lang="ar">المال</span></dt>
+              <dd>
+                USD · LBP<small
+                  ><span lang="en">Integer minor units, never mixed</span
+                  ><span lang="ar">وحدات صغرى صحيحة ولا تُخلط أبداً</span></small
+                >
+              </dd>
+            </div>
+            <div>
+              <dt><span lang="en">Evidence</span><span lang="ar">الأدلة</span></dt>
+              <dd>
+                <span lang="en">Every change</span><span lang="ar">كل تغيير</span
+                ><small
+                  ><span lang="en">Bilingual reason, immutable audit</span
+                  ><span lang="ar">سبب ثنائي اللغة وتدقيق ثابت</span></small
+                >
+              </dd>
+            </div>
+          </dl>
+          <div class="legend">
+            <span class="pill live"
+              ><span lang="en">Live in production</span
+              ><span lang="ar">مفعّل في الإنتاج</span></span
+            >
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+            <span class="pill human"
+              ><span lang="en">Needs your input</span><span lang="ar">يحتاج مدخلاتك</span></span
+            >
+            <span class="pill planned"
+              ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+            >
+          </div>
+        </section>
+
+        <section class="module" id="access">
+          <header>
+            <h2>
+              <span lang="en">Access &amp; security</span><span lang="ar">الوصول والأمان</span>
+            </h2>
+            <span class="pill live"
+              ><span lang="en">Live in production</span
+              ><span lang="ar">مفعّل في الإنتاج</span></span
+            >
+          </header>
+          <div class="cols">
+            <div>
+              <h3>
+                <span lang="en">How sign-in works</span><span lang="ar">كيف يعمل تسجيل الدخول</span>
+              </h3>
+              <ul class="plain">
+                <li lang="en">
+                  <strong>Two audiences.</strong> Platform staff sign in at <code>/control/</code>;
+                  ISP staff sign in at <code>/</code> with their workspace. A platform account never
+                  gets implicit access to an ISP workspace.
+                </li>
+                <li lang="ar">
+                  <strong>جمهوران.</strong> يدخل موظفو المنصة من <code>/control/</code>، وموظفو
+                  المزوّد من <code>/</code> ضمن مساحتهم. لا يحصل حساب المنصة على وصول ضمني إلى أي
+                  مساحة.
+                </li>
+                <li lang="en">
+                  <strong>MFA by email code.</strong> Accounts flagged for MFA receive a six-digit
+                  code (5 attempts, single use). Finance actions such as approving a purchase order
+                  or posting a write-off require a fresh code within 10 minutes.
+                </li>
+                <li lang="ar">
+                  <strong>تحقق ثنائي عبر البريد.</strong> تتلقى الحسابات المطلوب منها التحقق رمزاً
+                  من ستة أرقام (5 محاولات، استخدام واحد). تتطلب الإجراءات المالية مثل اعتماد أمر
+                  شراء أو ترحيل شطب رمزاً حديثاً خلال 10 دقائق.
+                </li>
+                <li lang="en">
+                  <strong>Recovery and invitations</strong> arrive by email with one-time links
+                  (<code>/#/recovery/…</code>, <code>/#/staff-invitation/…</code>).
+                </li>
+                <li lang="ar">
+                  <strong>الاسترداد والدعوات</strong> تصل بالبريد بروابط تُستخدم مرة واحدة.
+                </li>
+                <li lang="en">
+                  <strong>Sessions</strong> are revocable per device from Staff &amp; access; a
+                  permission change ends existing sessions.
+                </li>
+                <li lang="ar">
+                  <strong>الجلسات</strong> قابلة للإلغاء لكل جهاز من شاشة الموظفين؛ أي تغيير في
+                  الصلاحيات ينهي الجلسات الحالية.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Roles and scope</span><span lang="ar">الأدوار والنطاق</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  ISP roles: owner, administrator, branch manager, finance/billing, cashier,
+                  collector, network operator, customer service, installer, auditor. Each is a fixed
+                  permission preset; the API never accepts a free-form permission list.
+                </li>
+                <li lang="ar">
+                  أدوار المزوّد: مالك، مدير، مدير فرع، مالية/فوترة، أمين صندوق، جابٍ، مشغّل شبكة،
+                  خدمة عملاء، فني تركيب، مدقق. كل دور مجموعة صلاحيات ثابتة.
+                </li>
+                <li lang="en">
+                  Scope narrows a role to branches, areas, routes or specific records. Every
+                  database read and write is filtered by that scope with row-level security, not
+                  only by the screen.
+                </li>
+                <li lang="ar">
+                  يضيّق النطاق الدور إلى فروع أو مناطق أو مسارات أو سجلات محددة. تُرشَّح كل قراءة
+                  وكتابة في قاعدة البيانات بهذا النطاق على مستوى الصفوف، لا على مستوى الشاشة فقط.
+                </li>
+                <li lang="en">
+                  Support access to a workspace is granted per case, with an explicit permission
+                  list and expiry, and is audited separately.
+                </li>
+                <li lang="ar">
+                  يُمنح وصول الدعم لكل حالة على حدة بصلاحيات صريحة ومدة انتهاء، ويُدقَّق بشكل مستقل.
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="rule">
+            <span lang="en"
+              >Every mutation carries an idempotency key: retrying the same request returns the same
+              result, and retrying the key with different content is refused. Financial records are
+              append-only and corrected only by linked reversals.</span
+            ><span lang="ar"
+              >يحمل كل تعديل مفتاح عدم تكرار: إعادة الطلب نفسه تعيد النتيجة نفسها، وإعادة المفتاح
+              بمحتوى مختلف تُرفض. السجلات المالية تُلحق فقط ولا تُصحَّح إلا بعكس مرتبط.</span
+            >
+          </p>
+        </section>
+
+        <section class="module" id="activation">
+          <header>
+            <h2><span lang="en">Activation checklist</span><span lang="ar">قائمة التفعيل</span></h2>
+            <span class="pill human"
+              ><span lang="en">Needs your input</span><span lang="ar">يحتاج مدخلاتك</span></span
+            >
+          </header>
+          <p>
+            <span lang="en"
+              >The software is deployed. These steps need decisions, credentials or data that only
+              the business holds, in this order.</span
+            ><span lang="ar"
+              >البرمجية منشورة. هذه الخطوات تحتاج قرارات أو بيانات اعتماد أو بيانات لا يملكها إلا
+              العمل، بهذا الترتيب.</span
+            >
+          </p>
+          <div class="checklist">
+            <div>
+              <b>1</b>
+              <p>
+                <span lang="en"
+                  ><strong>Platform SMTP.</strong> Control Center → Administration → Integrations:
+                  enter host, port, security, username, password and from-address, save, send a
+                  test. Until then sign-in codes, recovery and invitations answer 503.</span
+                ><span lang="ar"
+                  ><strong>بريد المنصة (SMTP).</strong> مركز التحكم ← الإدارة ← التكاملات: أدخل
+                  الخادم والمنفذ والأمان واسم المستخدم وكلمة المرور وعنوان المرسل، احفظ وأرسل
+                  اختباراً. قبل ذلك تعيد رموز الدخول والاسترداد والدعوات خطأ 503.</span
+                >
+              </p>
+            </div>
+            <div>
+              <b>2</b>
+              <p>
+                <span lang="en"
+                  ><strong>Scope catalogue.</strong> Create branches, areas and routes
+                  (Configuration → Operations defaults). Subscribers, services, installations and
+                  dispatch all attach to them.</span
+                ><span lang="ar"
+                  ><strong>دليل النطاق.</strong> أنشئ الفروع والمناطق والمسارات. يرتبط بها المشتركون
+                  والخدمات والتركيبات والإرسال.</span
+                >
+              </p>
+            </div>
+            <div>
+              <b>3</b>
+              <p>
+                <span lang="en"
+                  ><strong>People.</strong> Invite staff with the right role and scope (Staff &amp;
+                  access), then register installers as technicians (Installations →
+                  Technicians).</span
+                ><span lang="ar"
+                  ><strong>الأشخاص.</strong> ادعُ الموظفين بالدور والنطاق الصحيحين، ثم سجّل فنيي
+                  التركيب كفنيين.</span
+                >
+              </p>
+            </div>
+            <div>
+              <b>4</b>
+              <p>
+                <span lang="en"
+                  ><strong>Catalogue and policy.</strong> Publish plans and offers, the legal
+                  invoice policy (VAT, rounding, stamp duty) and the dunning policy before the first
+                  billing run.</span
+                ><span lang="ar"
+                  ><strong>الفهرس والسياسة.</strong> انشر الباقات والعروض، وسياسة الفاتورة القانونية
+                  (الضريبة، التقريب، الطابع) وسياسة التحصيل قبل أول دورة فوترة.</span
+                >
+              </p>
+            </div>
+            <div>
+              <b>5</b>
+              <p>
+                <span lang="en"
+                  ><strong>Providers.</strong> Tenant SMS/WhatsApp credentials (Configuration →
+                  Integrations), RouterOS credentials for the Network Worker, and object storage for
+                  invoice PDFs are external contracts.</span
+                ><span lang="ar"
+                  ><strong>المزوّدون.</strong> بيانات SMS/واتساب للمزوّد، وبيانات RouterOS لعامل
+                  الشبكة، وتخزين الملفات لفواتير PDF عقود خارجية.</span
+                >
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="dashboard">
+          <header>
+            <h2><span lang="en">Dashboard</span><span lang="ar">لوحة التشغيل</span></h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en">Where: tenant navigation → Operations dashboard.</span
+            ><span lang="ar">أين: قائمة المزوّد ← لوحة التشغيل.</span>
+          </p>
+          <ul class="plain">
+            <li lang="en">
+              Shows the authenticated summary: active and online subscribers, collections split by
+              USD and LBP, and the snapshot time. Nothing is estimated; a value the API does not
+              provide is shown as a dash.
+            </li>
+            <li lang="ar">
+              تعرض الملخص الموثّق: المشتركون النشطون والمتصلون، والتحصيلات مفصولة بين الدولار
+              والليرة، ووقت اللقطة. لا شيء مقدّر؛ القيمة غير المتوفرة تظهر كشرطة.
+            </li>
+            <li lang="en">
+              Quick actions jump to the module that owns the work (add subscriber, record payment).
+            </li>
+            <li lang="ar">الإجراءات السريعة تنتقل إلى الوحدة المسؤولة عن العمل.</li>
+          </ul>
+        </section>
+
+        <section class="module" id="sales">
+          <header>
+            <h2>
+              <span lang="en">Sales &amp; orders</span><span lang="ar">المبيعات والطلبات</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Sales &amp; orders. Permissions: <code>tenant.sales.view</code>,
+              <code>tenant.sales.manage</code>, <code>tenant.catalog.manage</code>,
+              <code>tenant.order.manage</code>.</span
+            ><span lang="ar"
+              >أين: المبيعات والطلبات. الصلاحيات: عرض/إدارة المبيعات، إدارة الفهرس، إدارة
+              الطلبات.</span
+            >
+          </p>
+          <div class="flow">
+            <span>lead</span><i>→</i><span>qualified</span><i>→</i><span>quote</span><i>→</i
+            ><span>approved</span><i>→</i><span>accepted</span><i>→</i><span>order</span><i>→</i
+            ><span>subscriber</span><i>→</i><span>reservation</span><i>→</i><span>installation</span
+            ><i>→</i><span>activation</span><i>→</i><span>first invoice</span>
+          </div>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">What you can do</span><span lang="ar">ما يمكنك فعله</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Capture leads with contact, location and technology interest; qualify them with an
+                  explainable record (evidence, technology, scope).
+                </li>
+                <li lang="ar">
+                  تسجيل العملاء المحتملين مع جهة الاتصال والموقع والتقنية؛ تأهيلهم بسجل قابل
+                  للتفسير.
+                </li>
+                <li lang="en">
+                  Build versioned quotes from published offers; discounts beyond policy go through
+                  an approval step with a fresh MFA code.
+                </li>
+                <li lang="ar">
+                  إعداد عروض أسعار مؤرخة من العروض المنشورة؛ الخصومات خارج السياسة تمر بخطوة اعتماد
+                  مع رمز تحقق حديث.
+                </li>
+                <li lang="en">
+                  Acceptance opens a service order with six tracked tasks. Each task unlocks the
+                  next: subscriber creation, capacity reservation, installation work order, network
+                  activation, first invoice.
+                </li>
+                <li lang="ar">القبول يفتح طلب خدمة بست مهام متتابعة تفتح إحداها الأخرى.</li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Guardrails</span><span lang="ar">الضوابط</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  A quote is priced in one currency; USD and LBP are never summed into one figure.
+                </li>
+                <li lang="ar">عرض السعر بعملة واحدة؛ لا يُجمع الدولار مع الليرة في رقم واحد.</li>
+                <li lang="en">
+                  Capacity reservation decrements declared capacity atomically and replays exactly
+                  on retry.
+                </li>
+                <li lang="ar">
+                  حجز السعة يخصم من السعة المعلنة ذرّياً ويُعاد تشغيله تماماً عند إعادة المحاولة.
+                </li>
+                <li lang="en">
+                  Network activation stays locked until the installation is evidenced complete.
+                </li>
+                <li lang="ar">يبقى تفعيل الشبكة مقفلاً حتى يُثبت اكتمال التركيب بالأدلة.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="subscribers">
+          <header>
+            <h2><span lang="en">Subscribers</span><span lang="ar">المشتركون</span></h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Subscribers. Permissions: <code>tenant.subscriber.view</code>,
+              <code>tenant.subscriber.create</code>, <code>tenant.subscriber.edit</code>.</span
+            ><span lang="ar">أين: المشتركون. الصلاحيات: عرض/إنشاء/تعديل المشترك.</span>
+          </p>
+          <ul class="plain">
+            <li lang="en">
+              <strong>Subscriber 360:</strong> household, contacts, service location, current
+              service and plan, invoices, issues, add-on purchases and usage balance in one
+              bilingual view, filtered to your scope.
+            </li>
+            <li lang="ar">
+              <strong>ملف المشترك 360:</strong> الأسرة وجهات الاتصال وموقع الخدمة والخدمة الحالية
+              والباقة والفواتير والمشكلات والإضافات ورصيد الاستهلاك في عرض واحد ثنائي اللغة ضمن
+              نطاقك.
+            </li>
+            <li lang="en">
+              <strong>Service changes:</strong> plan change, suspend, restore and terminate through
+              one guided workflow with a reason code; each change queues the matching network action
+              and keeps a full history.
+            </li>
+            <li lang="ar">
+              <strong>تغييرات الخدمة:</strong> تغيير الباقة والتعليق والاستعادة والإنهاء عبر مسار
+              موجّه واحد برمز سبب؛ كل تغيير يضع إجراء الشبكة المطابق في قائمة الانتظار ويحتفظ
+              بالتاريخ الكامل.
+            </li>
+            <li lang="en">
+              <strong>No subscriber login.</strong> Subscribers never sign in; staff act on their
+              behalf with audit evidence.
+            </li>
+            <li lang="ar">
+              <strong>لا دخول للمشتركين.</strong> لا يسجّل المشتركون الدخول أبداً؛ يتصرف الموظفون
+              نيابة عنهم مع أدلة تدقيق.
+            </li>
+          </ul>
+        </section>
+
+        <section class="module" id="billing">
+          <header>
+            <h2>
+              <span lang="en">Billing &amp; invoices</span><span lang="ar">الفوترة والفواتير</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Billing &amp; invoices. Permissions: <code>tenant.billing.view</code>,
+              <code>tenant.invoice.create</code>, <code>tenant.invoice.post</code>,
+              <code>tenant.invoice.reverse</code>.</span
+            ><span lang="ar"
+              >أين: الفوترة والفواتير. الصلاحيات: عرض الفوترة، إنشاء/ترحيل/عكس الفاتورة.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">What you can do</span><span lang="ar">ما يمكنك فعله</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Prepare a recurring billing run for one period: eligible services are rated with
+                  daily proration, add-ons, overage and fair-use caps; the run is recoverable and
+                  keeps a per-service outcome.
+                </li>
+                <li lang="ar">
+                  تحضير دورة فوترة لفترة واحدة: تُسعَّر الخدمات المؤهلة بتناسب يومي وإضافات وتجاوزات
+                  وحدود الاستخدام العادل؛ الدورة قابلة للاستئناف وتحتفظ بنتيجة لكل خدمة.
+                </li>
+                <li lang="en">
+                  Post immutable invoices under the effective legal policy (VAT, rounding, stamp
+                  duty, retention) and generate the bilingual PDF, archived privately with retry and
+                  download.
+                </li>
+                <li lang="ar">
+                  ترحيل فواتير ثابتة وفق السياسة القانونية النافذة وإنشاء PDF ثنائي اللغة مؤرشف بشكل
+                  خاص.
+                </li>
+                <li lang="en">
+                  Run dunning: versioned reminder/suspension policy evaluated per account with a
+                  governed case.
+                </li>
+                <li lang="ar">
+                  تشغيل التحصيل المتدرج: سياسة تذكير/تعليق مؤرخة تُقيَّم لكل حساب ضمن حالة محكومة.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Guardrails</span><span lang="ar">الضوابط</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  A posted invoice is never edited; corrections are credit/reversal documents linked
+                  to the original.
+                </li>
+                <li lang="ar">
+                  الفاتورة المرحّلة لا تُعدَّل؛ التصحيحات مستندات عكس مرتبطة بالأصل.
+                </li>
+                <li lang="en">
+                  The platform subscription state of the ISP never suspends a subscriber.
+                </li>
+                <li lang="ar">حالة اشتراك المزوّد في المنصة لا تعلّق أي مشترك أبداً.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="accounting">
+          <header>
+            <h2>
+              <span lang="en">Accounting &amp; ledger</span><span lang="ar">المحاسبة والدفاتر</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Accounting &amp; ledger. Permissions: <code>tenant.accounting.view</code>,
+              <code>tenant.accounting.post</code>, <code>tenant.accounting.close</code>.</span
+            ><span lang="ar">أين: المحاسبة والدفاتر. الصلاحيات: عرض/ترحيل/إقفال المحاسبة.</span>
+          </p>
+          <ul class="plain">
+            <li lang="en">
+              Chart of accounts, journal entries, trial balance and customer statements, each per
+              currency. Source journals are generated automatically from invoices, payments, stock
+              receipts, consumption and write-offs; manual journals must balance and carry a
+              classification.
+            </li>
+            <li lang="ar">
+              دليل الحسابات وقيود اليومية وميزان المراجعة وكشوف العملاء، كلٌّ بعملته. تُنشأ القيود
+              المصدرية تلقائياً من الفواتير والدفعات واستلام المخزون والاستهلاك والشطب؛ القيود
+              اليدوية يجب أن تتوازن وتحمل تصنيفاً.
+            </li>
+            <li lang="en">
+              Periods close with a fresh MFA code; nothing posts into a closed period.
+            </li>
+            <li lang="ar">تُقفل الفترات برمز تحقق حديث؛ لا يُرحَّل شيء في فترة مقفلة.</li>
+          </ul>
+        </section>
+
+        <section class="module" id="payments">
+          <header>
+            <h2>
+              <span lang="en">Payments &amp; collectors</span><span lang="ar">الدفعات والجباة</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Payments &amp; cashier, Collectors. Permissions:
+              <code>tenant.payment.post</code>, <code>tenant.payment.reverse</code>,
+              <code>tenant.collection.view</code>, <code>tenant.collection.reconcile</code>.</span
+            ><span lang="ar"
+              >أين: الدفعات وأمين الصندوق، الجباة. الصلاحيات: ترحيل/عكس الدفعة، عرض/مطابقة
+              التحصيل.</span
+            >
+          </p>
+          <ul class="plain">
+            <li lang="en">
+              Office payments post against a customer account in one currency with a linear,
+              evidenced correction chain.
+            </li>
+            <li lang="ar">
+              دفعات المكتب تُرحَّل على حساب العميل بعملة واحدة مع سلسلة تصحيح خطية مدعومة بالأدلة.
+            </li>
+            <li lang="en">
+              Collector routes: assignments, collected evidence from the mobile app, and
+              reconciliation that derives expected versus collected per currency; any difference
+              needs an approver.
+            </li>
+            <li lang="ar">
+              مسارات الجباة: التعيينات وأدلة التحصيل من التطبيق والمطابقة التي تشتق المتوقع مقابل
+              المحصّل لكل عملة؛ أي فرق يحتاج معتمداً.
+            </li>
+          </ul>
+        </section>
+
+        <section class="module" id="network">
+          <header>
+            <h2><span lang="en">Network &amp; NOC</span><span lang="ar">الشبكة والمراقبة</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: MikroTik network, NOC incidents. Permissions:
+              <code>tenant.network.view</code>, <code>tenant.network.job.create</code>,
+              <code>tenant.network.bulk.approve</code>.</span
+            ><span lang="ar"
+              >أين: شبكة MikroTik، حوادث المراقبة. الصلاحيات: عرض الشبكة، إنشاء مهمة شبكة، اعتماد
+              الإجراءات الجماعية.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Explicit, idempotent service actions (activate, suspend, restore, terminate,
+                  change profile) queued to the Network Worker, which executes against RouterOS with
+                  action-specific acknowledgement and fails closed without credentials.
+                </li>
+                <li lang="ar">
+                  إجراءات خدمة صريحة وغير قابلة للتكرار (تفعيل، تعليق، استعادة، إنهاء، تغيير الملف)
+                  تُرسل إلى عامل الشبكة الذي ينفذها على RouterOS مع إقرار خاص بكل إجراء ويتوقف بأمان
+                  دون بيانات اعتماد.
+                </li>
+                <li lang="en">
+                  NOC incidents: queue, create, detail, service impact, root-cause note and a
+                  guarded investigating → identified → monitoring → resolved lifecycle.
+                </li>
+                <li lang="ar">
+                  حوادث المراقبة: قائمة وإنشاء وتفاصيل وأثر على الخدمة وملاحظة السبب الجذري ودورة
+                  حياة محكومة.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Orvex is not a RADIUS server; AAA accounting, IPAM allocation screens, CPE
+                  provisioning/diagnostics and live telemetry are next on the plan.
+                </li>
+                <li lang="ar">
+                  ‏Orvex ليس خادم RADIUS؛ محاسبة AAA وشاشات تخصيص العناوين وتهيئة/تشخيص أجهزة العميل
+                  والقياس الحي هي التالية في الخطة.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="warehouse">
+          <header>
+            <h2>
+              <span lang="en">Warehouse &amp; procurement</span
+              ><span lang="ar">المستودع والمشتريات</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Warehouse &amp; custody. Permissions:
+              <code>tenant.installation.manage</code> for operations,
+              <code>tenant.catalog.manage</code> for master data,
+              <code>tenant.accounting.post</code> + fresh MFA for anything that changes value.</span
+            ><span lang="ar"
+              >أين: المستودع والعهدة. الصلاحيات: إدارة التركيب للعمليات، إدارة الفهرس للبيانات
+              الأساسية، ترحيل المحاسبة مع تحقق حديث لكل ما يغيّر القيمة.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Master data</span><span lang="ar">البيانات الأساسية</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Catalogue items (serialized or bulk, category, standard cost per currency, reorder
+                  threshold), warehouses per branch with one primary, bins (stock, staging,
+                  quarantine, RMA, scrap). Serialization is immutable once stock exists.
+                </li>
+                <li lang="ar">
+                  أصناف الفهرس (بأرقام تسلسلية أو بالجملة، الفئة، التكلفة المعيارية لكل عملة، حد
+                  إعادة الطلب)، مستودعات لكل فرع مع مستودع رئيسي واحد، وأرفف. لا يتغير نوع التسلسل
+                  بعد وجود مخزون.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>
+                <span lang="en">Stock and custody</span><span lang="ar">المخزون والعهدة</span>
+              </h3>
+              <ul class="plain">
+                <li lang="en">
+                  Serialized assets move through custody (issue to installer, install at a service,
+                  return, RMA, scrap) with an immutable movement history.
+                </li>
+                <li lang="ar">
+                  تنتقل الأصول التسلسلية عبر العهدة (تسليم للفني، تركيب عند خدمة، إرجاع، صيانة
+                  مورّد، إتلاف) مع سجل حركات ثابت.
+                </li>
+                <li lang="en">
+                  Bulk stock: balances per bin, transfers, adjustments (finance authority),
+                  reservations for jobs, consumption that expenses material, and controlled counts
+                  that post one netted variance journal.
+                </li>
+                <li lang="ar">
+                  المخزون بالجملة: أرصدة لكل رف، تحويلات، تسويات (بسلطة مالية)، حجوزات للمهام،
+                  استهلاك يُحمَّل كمصروف، وجرد محكوم يرحّل قيد فرق واحد.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Procurement</span><span lang="ar">المشتريات</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Vendors, quote requests with side-by-side quotes (cheapest first, one currency
+                  each), award to a draft purchase order at the quoted price, approval with MFA,
+                  full or partial receiving with rejections, and reorder suggestions from thresholds
+                  and open orders.
+                </li>
+                <li lang="ar">
+                  المورّدون، طلبات عروض أسعار مع مقارنة جنباً إلى جنب (الأرخص أولاً، عملة واحدة لكل
+                  عرض)، ترسية إلى أمر شراء مسودة بالسعر المعروض، اعتماد بتحقق، استلام كلي أو جزئي مع
+                  الرفض، واقتراحات إعادة الطلب.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Accounting effect</span><span lang="ar">الأثر المحاسبي</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Receipts debit Inventory (1300 USD / 1310 LBP) and credit Accounts Payable;
+                  consumption debits Network Operating Expense (5000); scrap and count variance post
+                  to Inventory Variance &amp; Write-off (5200). Journals are single-currency and
+                  balanced.
+                </li>
+                <li lang="ar">
+                  الاستلام يدين المخزون (1300 دولار / 1310 ليرة) ويدائن الموردين؛ الاستهلاك يدين
+                  مصروف تشغيل الشبكة (5000)؛ الإتلاف وفروق الجرد تُرحَّل إلى فروق المخزون والشطب
+                  (5200). القيود بعملة واحدة ومتوازنة.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="field">
+          <header>
+            <h2><span lang="en">Field service</span><span lang="ar">الخدمة الميدانية</span></h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Installations. Permissions: <code>tenant.installation.view</code> to see the
+              board, <code>tenant.installation.manage</code> to dispatch or execute.</span
+            ><span lang="ar"
+              >أين: التركيبات. الصلاحيات: عرض التركيب لرؤية اللوحة، إدارة التركيب للإرسال أو
+              التنفيذ.</span
+            >
+          </p>
+          <div class="flow">
+            <span>open</span><i>→</i><span>scheduled</span><i>→</i><span>dispatched</span><i>→</i
+            ><span>on site</span><i>→</i><span>completed</span><i>|</i><span>failed → revisit</span>
+          </div>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Dispatcher</span><span lang="ar">المرسل</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Register technicians (skills: fiber, wireless, copper, CPE, survey, maintenance;
+                  phone; home branch; territory areas).
+                </li>
+                <li lang="ar">تسجيل الفنيين (المهارات، الهاتف، الفرع الأساسي، مناطق العمل).</li>
+                <li lang="en">
+                  Create work orders (installation, repair, relocation, maintenance, disconnection,
+                  survey) with priority, appointment window, SLA due time, required skills,
+                  instructions and a bilingual checklist; schedule, assign, reassign or cancel.
+                </li>
+                <li lang="ar">
+                  إنشاء أوامر عمل بأولوية ونافذة موعد وموعد اتفاقية خدمة ومهارات مطلوبة وتعليمات
+                  وقائمة تحقق ثنائية اللغة؛ جدولة وتعيين وإعادة تعيين وإلغاء.
+                </li>
+                <li lang="en">
+                  The board shows one column per active technician plus the unassigned queue for the
+                  chosen day; overdue SLA is flagged.
+                </li>
+                <li lang="ar">
+                  تعرض اللوحة عموداً لكل فني نشط وقائمة غير المعيّن لليوم المختار؛ يُعلَّم تجاوز
+                  اتفاقية الخدمة.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Technician</span><span lang="ar">الفني</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Confirm arrival, complete with every required checklist item plus measurements
+                  (signal dBm, speeds, serial numbers, customer acknowledgement), or record a
+                  failure with a reason and a revisit window. Only the assigned technician or a
+                  tenant-wide dispatcher can execute.
+                </li>
+                <li lang="ar">
+                  تأكيد الوصول، والإكمال مع كل بنود التحقق المطلوبة والقياسات، أو تسجيل فشل بسبب
+                  ونافذة إعادة زيارة. لا ينفذ إلا الفني المعيّن أو مرسل على مستوى المؤسسة.
+                </li>
+                <li lang="en">
+                  Installation work orders move the installation record automatically, so order
+                  tasks and network activation continue without re-entry.
+                </li>
+                <li lang="ar">
+                  أوامر عمل التركيب تحرّك سجل التركيب تلقائياً فتستمر مهام الطلب وتفعيل الشبكة دون
+                  إعادة إدخال.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="support">
+          <header>
+            <h2>
+              <span lang="en">Support &amp; reports</span><span lang="ar">الدعم والتقارير</span>
+            </h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Internal support, Reports. Permissions: <code>tenant.subscriber.edit</code>,
+              <code>tenant.report.view</code>, <code>tenant.report.export</code>.</span
+            ><span lang="ar"
+              >أين: الدعم الداخلي، التقارير. الصلاحيات: تعديل المشترك، عرض/تصدير التقارير.</span
+            >
+          </p>
+          <ul class="plain">
+            <li lang="en">
+              Internal issues link to a subscriber or service in scope, with priority and an
+              evidenced status history. A full complaint and knowledge workspace is planned.
+            </li>
+            <li lang="ar">
+              المشكلات الداخلية ترتبط بمشترك أو خدمة ضمن النطاق مع أولوية وتاريخ حالة مدعوم بالأدلة.
+              مساحة الشكاوى والمعرفة الكاملة مخططة.
+            </li>
+            <li lang="en">
+              Report exports (CSV/XLSX/PDF) apply the signed scope and expire; the drill-down
+              analytics catalogue is still being completed.
+            </li>
+            <li lang="ar">
+              تصدير التقارير يطبّق النطاق الموقّع وينتهي بعد مدة؛ فهرس التحليلات التفصيلية ما زال
+              قيد الإكمال.
+            </li>
+          </ul>
+        </section>
+
+        <section class="module" id="staff">
+          <header>
+            <h2>
+              <span lang="en">Staff &amp; access</span><span lang="ar">الموظفون والصلاحيات</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Staff &amp; access. Permission: <code>tenant.user.administer</code> with a
+              fresh MFA code for changes.</span
+            ><span lang="ar"
+              >أين: الموظفون والصلاحيات. الصلاحية: إدارة المستخدمين مع رمز تحقق حديث
+              للتغييرات.</span
+            >
+          </p>
+          <ul class="plain">
+            <li lang="en">
+              Directory of members with role, scope and MFA state; invitations with one-time
+              acceptance links and explicit revoke; role and scope editing; suspension; per-device
+              session revocation; administrator-triggered password recovery.
+            </li>
+            <li lang="ar">
+              دليل الأعضاء بالدور والنطاق وحالة التحقق؛ دعوات بروابط قبول لمرة واحدة وإلغاء صريح؛
+              تعديل الدور والنطاق؛ الإيقاف؛ إلغاء الجلسات لكل جهاز؛ استرداد كلمة المرور بتحفيز من
+              المدير.
+            </li>
+          </ul>
+        </section>
+
+        <section class="module" id="configuration">
+          <header>
+            <h2>
+              <span lang="en">Configuration &amp; integrations</span
+              ><span lang="ar">الإعدادات والتكاملات</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Configuration. Permissions: <code>tenant.user.administer</code> for defaults
+              and reads, <code>tenant.secret.manage</code> for provider credentials.</span
+            ><span lang="ar"
+              >أين: الإعدادات. الصلاحيات: إدارة المستخدمين للإعدادات والقراءة، إدارة الأسرار لبيانات
+              المزوّدين.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Integrations</span><span lang="ar">التكاملات</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  SMTP (host, port, STARTTLS/TLS, username, password, from), SMS (Twilio or a
+                  generic HTTPS JSON gateway) and WhatsApp (Twilio or Meta Cloud API). Credentials
+                  are sealed with AES-256-GCM before storage, never displayed again, and can be
+                  kept, replaced or cleared.
+                </li>
+                <li lang="ar">
+                  البريد (SMTP)، والرسائل النصية (Twilio أو بوابة HTTPS JSON عامة)، وواتساب (Twilio
+                  أو Meta Cloud API). تُختم بيانات الاعتماد بتشفير AES-256-GCM قبل التخزين ولا تُعرض
+                  مجدداً ويمكن الاحتفاظ بها أو استبدالها أو مسحها.
+                </li>
+                <li lang="en">
+                  Every save is a new version with a bilingual reason; "Send test" delivers a real
+                  bilingual message and records the result. Authenticated SMTP over a cleartext
+                  connection is refused.
+                </li>
+                <li lang="ar">
+                  كل حفظ نسخة جديدة بسبب ثنائي اللغة؛ «إرسال اختبار» يوصل رسالة حقيقية ثنائية اللغة
+                  ويسجل النتيجة. يُرفض البريد الموثّق عبر اتصال غير مشفّر.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>
+                <span lang="en">Operations defaults</span><span lang="ar">الإعدادات التشغيلية</span>
+              </h3>
+              <ul class="plain">
+                <li lang="en">
+                  Versioned, non-secret workflow defaults per tenant or branch (keys that look like
+                  secrets are refused). Scope master data (branches, areas, routes) lives here too.
+                </li>
+                <li lang="ar">
+                  إعدادات سير عمل مؤرخة غير سرية لكل مزوّد أو فرع (تُرفض المفاتيح التي تبدو كأسرار).
+                  بيانات النطاق الأساسية تقع هنا أيضاً.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="control">
+          <header>
+            <h2><span lang="en">Control Center</span><span lang="ar">مركز التحكم</span></h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: isp.mosesgr.com/control/. Platform permissions:
+              <code>platform.client.*</code>, <code>platform.subscription.manage</code>,
+              <code>platform.billing.*</code>, <code>platform.payment.*</code>,
+              <code>platform.deployment.manage</code>, <code>platform.support.*</code>,
+              <code>platform.audit.view</code>, <code>platform.integration.manage</code>.</span
+            ><span lang="ar"
+              >أين: isp.mosesgr.com/control/. صلاحيات المنصة: العملاء، الاشتراكات، الفوترة، الدفعات،
+              النشر، الدعم، التدقيق، التكاملات.</span
+            >
+          </p>
+          <div class="table">
+            <table>
+              <thead>
+                <tr>
+                  <th><span lang="en">Area</span><span lang="ar">القسم</span></th>
+                  <th><span lang="en">What it does</span><span lang="ar">ما يفعله</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span lang="en">ISP clients</span><span lang="ar">عملاء المزوّد</span></td>
+                  <td>
+                    <span lang="en"
+                      >Portfolio list with lifecycle state, package, deployment health and open
+                      tickets; create client and contacts. No subscriber data crosses into this
+                      view.</span
+                    ><span lang="ar"
+                      >قائمة العملاء مع حالة دورة الحياة والباقة وصحة النشر والتذاكر المفتوحة؛ إنشاء
+                      عميل وجهات اتصال. لا تعبر بيانات المشتركين إلى هنا.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Packages &amp; subscriptions</span
+                    ><span lang="ar">الباقات والاشتراكات</span>
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Effective-dated package versions with entitlements and price per currency;
+                      assignment and lifecycle transitions (trial, active, grace, restricted,
+                      terminated). Restrictions need a second person with a fresh MFA code.</span
+                    ><span lang="ar"
+                      >نسخ باقات مؤرخة بالمزايا والسعر لكل عملة؛ التعيين والانتقالات. القيود تحتاج
+                      شخصاً ثانياً برمز تحقق حديث.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Billing &amp; payments</span
+                    ><span lang="ar">الفوترة والدفعات</span>
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Platform invoices, payments, allocations and linked reversals, per currency,
+                      with server-side posting time.</span
+                    ><span lang="ar"
+                      >فواتير المنصة والدفعات والتخصيصات والعكوس المرتبطة لكل عملة بوقت ترحيل من
+                      الخادم.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td><span lang="en">Administration</span><span lang="ar">الإدارة</span></td>
+                  <td>
+                    <span lang="en"
+                      >Platform integrations (SMTP for sign-in codes, recovery and invitations; SMS;
+                      WhatsApp) with tests, change history and delivery evidence.</span
+                    ><span lang="ar"
+                      >تكاملات المنصة (البريد لرموز الدخول والاسترداد والدعوات؛ الرسائل؛ واتساب) مع
+                      اختبارات وسجل تغييرات وأدلة إرسال.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Deployments, support, reports</span
+                    ><span lang="ar">النشر والدعم والتقارير</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                    <span lang="en"
+                      >Deployment profiles and readiness exist; the full entitlement UI and support
+                      desk are being completed.</span
+                    ><span lang="ar"
+                      >ملفات النشر والجاهزية موجودة؛ واجهة المزايا الكاملة ومكتب الدعم قيد
+                      الإكمال.</span
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="module" id="collect">
+          <header>
+            <h2><span lang="en">Collect mobile</span><span lang="ar">تطبيق التحصيل</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <ul class="plain">
+            <li lang="en">
+              The collector app (Expo) authorizes a device with the canonical collection permission
+              and a fresh MFA code, records collections offline and syncs them as evidence for
+              reconciliation. Production acceptance with real devices, receipt printers and an OTP
+              provider is still pending.
+            </li>
+            <li lang="ar">
+              تطبيق الجابي يفوّض الجهاز بصلاحية التحصيل ورمز تحقق حديث، ويسجل التحصيلات دون اتصال
+              ويزامنها كأدلة للمطابقة. لا يزال القبول الإنتاجي بأجهزة وطابعات حقيقية معلّقاً.
+            </li>
+          </ul>
+        </section>
+
+        <section class="module" id="operations">
+          <header>
+            <h2>
+              <span lang="en">Deployment &amp; operations</span
+              ><span lang="ar">النشر والتشغيل</span>
+            </h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <div class="cols">
+            <div>
+              <h3>
+                <span lang="en">How a release ships</span><span lang="ar">كيف يُنشر الإصدار</span>
+              </h3>
+              <ul class="plain">
+                <li lang="en">
+                  Every checkpoint is a byte-safe artifact built from a clean commit. On the host
+                  the deploy script authorizes, runs a read-only migration preflight against the
+                  database ledger, stages the release, takes a verified backup (source, environment,
+                  historical migration bytes, both database dumps), applies only new migrations,
+                  rebuilds and recreates services, then verifies readiness, endpoints and
+                  invariants.
+                </li>
+                <li lang="ar">
+                  كل نقطة تفتيش أداة إصدار آمنة بايتياً من التزام نظيف. على الخادم يفوّض السكربت،
+                  ويجري فحصاً مسبقاً للتهجيرات للقراءة فقط، ويجهّز الإصدار، ويأخذ نسخة احتياطية
+                  موثقة، ويطبّق التهجيرات الجديدة فقط، ويعيد بناء الخدمات، ثم يتحقق من الجاهزية
+                  والنقاط والثوابت.
+                </li>
+                <li lang="en">
+                  Applied migrations are immutable: their stored bytes and checksums are never
+                  rewritten.
+                </li>
+                <li lang="ar">
+                  التهجيرات المطبّقة ثابتة: لا تُعاد كتابة بايتاتها ولا مجاميعها أبداً.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>
+                <span lang="en">Secrets and data</span><span lang="ar">الأسرار والبيانات</span>
+              </h3>
+              <ul class="plain">
+                <li lang="en">
+                  Environment secrets stay on the host; provider credentials entered in the product
+                  are encrypted with a key the API alone holds. Nothing secret is written to logs,
+                  audit rows or the interface.
+                </li>
+                <li lang="ar">
+                  تبقى أسرار البيئة على الخادم؛ وتُشفَّر بيانات المزوّدين المدخلة في المنتج بمفتاح
+                  لا يملكه إلا الخادم. لا يُكتب أي سر في السجلات أو التدقيق أو الواجهة.
+                </li>
+                <li lang="en">
+                  Two databases: a control plane (tenants, identity, Control Center) and a tenant
+                  plane (operations) with row-level security enforced for every role.
+                </li>
+                <li lang="ar">
+                  قاعدتا بيانات: مستوى تحكم (المستأجرون والهوية ومركز التحكم) ومستوى المزوّد
+                  (العمليات) مع أمان على مستوى الصفوف لكل دور.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="roadmap">
+          <header>
+            <h2>
+              <span lang="en">What is still being built</span
+              ><span lang="ar">ما زال قيد البناء</span>
+            </h2>
+            <span class="pill planned"
+              ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+            >
+          </header>
+          <div class="table">
+            <table>
+              <thead>
+                <tr>
+                  <th><span lang="en">Capability</span><span lang="ar">القدرة</span></th>
+                  <th><span lang="en">Status</span><span lang="ar">الحالة</span></th>
+                  <th><span lang="en">What it will add</span><span lang="ar">ما ستضيفه</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <span lang="en">AAA, IPAM, CPE</span
+                    ><span lang="ar">AAA، العناوين، أجهزة العميل</span>
+                  </td>
+                  <td>
+                    <span class="pill planned"
+                      ><span lang="en">Next</span><span lang="ar">التالي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >RADIUS accounting boundary, address pools and allocation screens, CPE
+                      provisioning and diagnostics.</span
+                    ><span lang="ar"
+                      >حدود محاسبة RADIUS، مجمّعات العناوين وشاشات التخصيص، تهيئة وتشخيص أجهزة
+                      العميل.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td><span lang="en">NOC telemetry</span><span lang="ar">قياس الشبكة</span></td>
+                  <td>
+                    <span class="pill planned"
+                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en">Alarms, topology, outage impact and SLA evidence.</span
+                    ><span lang="ar"
+                      >التنبيهات والطوبولوجيا وأثر الانقطاع وأدلة اتفاقية الخدمة.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Treasury, revenue assurance, dealers &amp; vouchers</span
+                    ><span lang="ar">الخزينة وضمان الإيراد والوكلاء والقسائم</span>
+                  </td>
+                  <td>
+                    <span class="pill planned"
+                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Cashboxes and settlements, leakage cases, dealer commissions and voucher
+                      batches.</span
+                    ><span lang="ar"
+                      >الصناديق والتسويات، حالات التسرب، عمولات الوكلاء ودفعات القسائم.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Customer communications</span
+                    ><span lang="ar">تواصل العملاء</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Providers are configurable and tested today; approved templates, consent and
+                      the delivery worker follow.</span
+                    ><span lang="ar"
+                      >المزوّدون قابلون للإعداد والاختبار اليوم؛ القوالب المعتمدة والموافقة وعامل
+                      الإرسال تالية.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Regulatory, analytics, people operations, LearnISP</span
+                    ><span lang="ar">التنظيم والتحليلات وشؤون الموظفين وLearnISP</span>
+                  </td>
+                  <td>
+                    <span class="pill planned"
+                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Obligation reporting, executive analytics, scheduling and skills, and the
+                      generated reference site.</span
+                    ><span lang="ar"
+                      >تقارير الالتزامات والتحليلات التنفيذية والجدولة والمهارات وموقع المرجع
+                      المولّد.</span
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script>
+      function setLang(lang) {
+        var root = document.documentElement;
+        root.lang = lang;
+        root.dir = lang === 'ar' ? 'rtl' : 'ltr';
+        document.getElementById('lang-en').setAttribute('aria-pressed', String(lang === 'en'));
+        document.getElementById('lang-ar').setAttribute('aria-pressed', String(lang === 'ar'));
+        try {
+          localStorage.setItem('orvex-guide-lang', lang);
+        } catch (e) {}
+      }
+      try {
+        var saved = localStorage.getItem('orvex-guide-lang');
+        if (saved === 'ar' || (!saved && /^ar\b/.test(navigator.language || ''))) setLang('ar');
+      } catch (e) {}
+    </script>
+  </body>
+</html>

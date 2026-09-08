@@ -1,8 +1,8 @@
 .field-shell {
-  --fs-ink: #17263a;
-  --fs-accent: #0b5f9e;
-  --fs-line: #d4dfee;
-  --fs-muted: #5f7188;
+  --fs-ink: var(--color-ink, #14213a);
+  --fs-accent: var(--color-primary, #2458e6);
+  --fs-line: var(--color-border, #dfe5ed);
+  --fs-muted: var(--color-ink-muted, #5d6b82);
   display: grid;
   gap: 1.1rem;
   color: var(--fs-ink);
@@ -22,22 +22,20 @@
   gap: 2rem;
   align-items: center;
   flex-wrap: wrap;
-  padding: clamp(1.3rem, 3vw, 2.2rem);
+  padding: clamp(1.2rem, 2.5vw, 1.8rem);
   border: 1px solid var(--fs-line);
-  border-radius: 1.3rem;
-  background:
-    radial-gradient(circle at 90% 10%, #cfe3ff 0, transparent 30%),
-    linear-gradient(120deg, #f3f8ff, #fff8ee);
+  border-radius: var(--radius-lg, 0.875rem);
+  background: var(--color-surface, #fff);
 }
 .field-hero > div:first-child {
   max-width: 68ch;
 }
 .field-hero span {
   font-size: 0.72rem;
-  font-weight: 850;
-  letter-spacing: 0.12em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #3f5f8f;
+  color: var(--fs-muted);
 }
 .field-hero h1 {
   margin: 0.4rem 0 0.6rem;

@@ -20,12 +20,10 @@
   justify-content: space-between;
   gap: 2rem;
   align-items: center;
-  padding: clamp(1.4rem, 3vw, 2.3rem);
+  padding: clamp(1.2rem, 2.5vw, 1.8rem);
   border: 1px solid var(--wh-line);
-  border-radius: 1.35rem;
-  background:
-    radial-gradient(circle at 88% 10%, #bfe7dc 0, transparent 28%),
-    linear-gradient(120deg, #eff8f4, #fff9ef);
+  border-radius: var(--radius-lg, 0.875rem);
+  background: var(--color-surface, #fff);
 }
 .warehouse-hero > div:first-child {
   max-width: 72ch;
@@ -50,14 +48,14 @@
 }
 .warehouse-score {
   min-width: 9rem;
-  aspect-ratio: 1;
-  border-radius: 50%;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-md, 0.625rem);
   display: grid;
-  place-content: center;
+  gap: 0.15rem;
   text-align: center;
-  background: #0b756a;
-  color: #fff;
-  box-shadow: 0 18px 38px #0b756a35;
+  background: var(--color-surface-raised, #f8fafc);
+  border: 1px solid var(--wh-line);
+  color: var(--wh-ink);
 }
 .warehouse-score strong {
   font-size: 2.25rem;
