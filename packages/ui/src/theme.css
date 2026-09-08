@@ -1891,3 +1891,176 @@
     padding: 1.5rem;
   }
 }
+
+/* Integration settings panel (shared by Control Center administration and tenant configuration) */
+.integration-panel {
+  display: grid;
+  gap: 1.15rem;
+  max-width: 1400px;
+  margin: auto;
+  color: #17263a;
+}
+.integration-panel :is(button, input, select, textarea) {
+  font: inherit;
+}
+.integration-panel :is(input, select, textarea):focus-visible {
+  outline: 3px solid #ef9b19;
+  outline-offset: 2px;
+}
+.integration-panel__hero {
+  padding: clamp(1.3rem, 3vw, 2.2rem);
+  border: 1px solid #cfdcf0;
+  border-radius: 1.3rem;
+  background:
+    radial-gradient(circle at 90% 12%, #cfe6ff 0, transparent 30%),
+    linear-gradient(120deg, #f4f8ff, #fffaf1);
+}
+.integration-panel__hero span {
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #3f5f8f;
+}
+.integration-panel__hero h1 {
+  margin: 0.45rem 0 0.6rem;
+  font-size: clamp(1.5rem, 2.6vw, 2.3rem);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+.integration-panel__hero p,
+.integration-panel__note {
+  margin: 0;
+  color: #566a86;
+  max-width: 72ch;
+}
+.integration-panel__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.integration-panel__tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.95rem;
+  border: 1px solid #cfdcf0;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+.integration-panel__tabs button[aria-current='page'] {
+  border-color: #17263a;
+  background: #17263a;
+  color: #fff;
+}
+.integration-panel__message {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid #cfdcf0;
+  background: #f4f8ff;
+}
+.integration-panel__message--positive {
+  border-color: #9ad6c3;
+  background: #ecfaf4;
+}
+.integration-panel__message--negative {
+  border-color: #f0b4b4;
+  background: #fff1f1;
+}
+.integration-panel__grid {
+  display: grid;
+  gap: 1.15rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+}
+.integration-panel__card {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+  padding: clamp(1rem, 2.4vw, 1.5rem);
+  border: 1px solid #cfdcf0;
+  border-radius: 1.1rem;
+  background: #fff;
+  box-shadow: 0 0.6rem 2rem rgb(23 38 58 / 6%);
+}
+.integration-panel__card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.integration-panel__facts {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  margin: 0;
+}
+.integration-panel__facts dt {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7d97;
+}
+.integration-panel__facts dd {
+  margin: 0.15rem 0 0;
+}
+.integration-panel__fields {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+.integration-field,
+.integration-field label {
+  display: grid;
+  gap: 0.3rem;
+}
+.integration-field--wide {
+  grid-column: 1 / -1;
+}
+.integration-field span {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.integration-field small {
+  color: #6b7d97;
+}
+.integration-field :is(input, select) {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #b9c7dc;
+  border-radius: 0.65rem;
+  background: #fff;
+  min-inline-size: 0;
+}
+.integration-check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.integration-table {
+  display: grid;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+.integration-table [role='row'] {
+  display: grid;
+  grid-template-columns: 10rem 8rem 12rem minmax(12rem, 1fr) minmax(10rem, 1fr);
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.6rem;
+  background: #f7f9fd;
+  min-inline-size: 52rem;
+}
+.integration-table__head {
+  background: transparent !important;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7d97;
+}
+@media (max-width: 720px) {
+  .integration-panel__grid {
+    grid-template-columns: 1fr;
+  }
+}

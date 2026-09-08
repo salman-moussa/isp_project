@@ -18,9 +18,36 @@ Migrations and signing-key provisioning run as one-shot prerequisites. Public re
 API databases, finance audit relay, and durable Network Worker. The worker starts fail-closed with
 no RouterOS credential mapping; activate a router only after mounting secret files below
 `/run/secrets`, setting its allowed HTTPS origin, and completing the RouterOS acceptance checklist.
-Authentication delivery is deliberately fail-closed until an approved HTTPS OTP/recovery provider
-replaces the placeholder URL. Bootstrap user credentials must be created through the DBA-controlled
-release procedure and must not be committed.
+Authentication delivery (sign-in codes, password recovery, staff invitations) is fail-closed until
+platform SMTP settings exist; see below. Bootstrap user credentials must be created through the
+DBA-controlled release procedure and must not be committed.
+
+## Integration settings and verification mail
+
+Provider settings are configured inside the product, not in `.env`:
+
+- **Platform SMTP** (Control Center → Administration → Integrations, permission
+  `platform.integration.manage`) delivers OTP codes, recovery links and staff invitations for every
+  workspace. Until it is saved and tested, MFA step-up and recovery return `503` and the login of an
+  MFA-required account cannot complete.
+- **Tenant SMTP / SMS / WhatsApp** (tenant Configuration → Integrations, permission
+  `tenant.secret.manage`) are each ISP's own customer-messaging providers.
+
+Credentials are sealed with AES-256-GCM under `INTEGRATION_SECRET_KEY_BASE64` before they reach
+PostgreSQL; the database stores ciphertext plus `INTEGRATION_SECRET_KEY_ID`, reads never return
+them, and change history records only the field names that changed. Generate the key on the host
+without echoing it, for example:
+
+```sh
+umask 077
+printf 'INTEGRATION_SECRET_KEY_BASE64=%s\n' "$(openssl rand -base64 32)" >> /opt/orvex-isp/.env
+printf 'INTEGRATION_SECRET_KEY_ID=production-1\n' >> /opt/orvex-isp/.env
+```
+
+Rotating the key requires re-entering every stored credential under the new key id; settings sealed
+with a key the API no longer holds fail their tests with a clear message instead of decrypting.
+`AUTH_DELIVERY_BASE_URL`/`AUTH_DELIVERY_TOKEN` are optional and used only while no SMTP settings
+exist. Authenticated SMTP over a cleartext connection is refused in production.
 
 ## Deploying one checkpoint
 

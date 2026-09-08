@@ -14,6 +14,8 @@ import {
   stockCountCommandSchema,
   rmaCommandSchema,
   vendorQuoteCommandSchema,
+  integrationConfigureCommandSchema,
+  integrationTestCommandSchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -46,6 +48,8 @@ const procurementApprovalBody = z
   })
   .strict();
 const warehouseAdminBody = z.object({ command: warehouseAdminCommandSchema }).strict();
+const integrationConfigureBody = z.object({ command: integrationConfigureCommandSchema }).strict();
+const integrationTestBody = z.object({ command: integrationTestCommandSchema }).strict();
 // Moving stock and writing its value off carry different authority, so they are separate routes.
 const stockTransferBody = z
   .object({
@@ -1174,6 +1178,24 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.executeVendorQuoteCommand(id, v as never),
     ),
     operation(
+      '/integrations/configure',
+      'configureTenantIntegration',
+      'tenant.secret.manage',
+      'tenant.integration.configure',
+      'integration_setting',
+      integrationConfigureBody,
+      (w, id, v) => w.configureIntegration(id, v as never),
+    ),
+    operation(
+      '/integrations/test',
+      'testTenantIntegration',
+      'tenant.secret.manage',
+      'tenant.integration.test',
+      'integration_setting',
+      integrationTestBody,
+      (w, id, v) => w.testIntegration(id, v as never),
+    ),
+    operation(
       '/warehouse/rma',
       'commandOperationsRma',
       'tenant.installation.manage',
@@ -1285,6 +1307,22 @@ export function registerTenantOperationsRoutes(
     'Tenant warehouse',
     'warehouse-read',
     'Read scoped serialized equipment custody',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/integrations',
+      operationId: 'readTenantIntegrationSettings',
+      permission: 'tenant.user.administer',
+      action: 'tenant.integration.read',
+      resourceType: 'integration_setting',
+      schema: z.object({}).strict(),
+      execute: (w, id, v) => w.readIntegrationSettings(id, v as never),
+    },
+    'Tenant integrations',
+    'integrations-read',
+    'Read tenant provider settings without secrets',
   );
   registerWorkspaceRead(
     app,

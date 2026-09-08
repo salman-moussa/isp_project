@@ -57,6 +57,11 @@ const WarehouseWorkspace = lazy(() =>
     default: module.WarehouseWorkspace,
   })),
 );
+const ConfigurationWorkspace = lazy(() =>
+  import('./configuration/ConfigurationWorkspace').then((module) => ({
+    default: module.ConfigurationWorkspace,
+  })),
+);
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -440,6 +445,10 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       ) : activeNavigationId === 'warehouse' ? (
         <WorkspaceBoundary locale={locale}>
           <WarehouseWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'configuration' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <ConfigurationWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
       ) : activeNavigationId === 'sales' ? (
         <StatePanel

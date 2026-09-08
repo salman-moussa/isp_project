@@ -1,0 +1,29 @@
+.configuration-shell {
+  display: grid;
+  gap: 1.15rem;
+}
+.configuration-shell :is(button) {
+  font: inherit;
+}
+.configuration-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.configuration-tabs button {
+  padding: 0.55rem 1rem;
+  border: 1px solid #d8e4e2;
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.configuration-tabs button[aria-current='page'] {
+  border-color: #0b756a;
+  background: #0b756a;
+  color: #fff;
+}
+.configuration-tabs button:focus-visible {
+  outline: 3px solid #ef9b19;
+  outline-offset: 2px;
+}

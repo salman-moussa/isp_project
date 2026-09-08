@@ -6,6 +6,7 @@ export * from './warehouse.js';
 export * from './radius-ipam.js';
 export * from './noc-qos.js';
 export * from './identity.js';
+export * from './integrations.js';
 export * from './money.js';
 export * from './permissions.js';
 export * from './tenant-roles.js';

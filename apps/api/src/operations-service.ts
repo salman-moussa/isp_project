@@ -1,6 +1,9 @@
-import type { VerifiedTenantId } from '@isp/contracts';
+import { integrationConfigureCommandSchema, type VerifiedTenantId } from '@isp/contracts';
 import { createHash } from 'node:crypto';
 import {
+  executeIntegrationSettingsCommand,
+  readTenantIntegrationDelivery,
+  readTenantIntegrationSettings,
   readNocWorkspace,
   createOutageIncident,
   transitionOutageIncident,
@@ -82,6 +85,12 @@ import {
   type SignedOperationsDatabaseContext,
 } from '@isp/database';
 import type { OperationsMutationContext, OperationsWriter } from './routes/operations/contracts.js';
+import { integrationTestMail, integrationTestText } from './integrations/mail-templates.js';
+import {
+  performIntegrationTest,
+  prepareIntegrationConfiguration,
+  type IntegrationRuntime,
+} from './integrations/runtime.js';
 import { renderInvoicePdf } from './documents/invoice-pdf.js';
 import { invoiceStorageKey, type InvoiceDocumentStore } from './documents/invoice-store.js';
 
@@ -120,6 +129,9 @@ export interface OperationsRepositoryAdapter {
   readonly executeStockCountCommand: typeof executeStockCountCommand;
   readonly executeRmaCommand: typeof executeRmaCommand;
   readonly executeVendorQuoteCommand: typeof executeVendorQuoteCommand;
+  readonly executeIntegrationSettingsCommand: typeof executeIntegrationSettingsCommand;
+  readonly readTenantIntegrationSettings: typeof readTenantIntegrationSettings;
+  readonly readTenantIntegrationDelivery: typeof readTenantIntegrationDelivery;
   readonly readNasClients: typeof readNasClients;
   readonly readRadiusSessions: typeof readRadiusSessions;
   readonly readIpPools: typeof readIpPools;
@@ -198,6 +210,9 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   executeStockCountCommand,
   executeRmaCommand,
   executeVendorQuoteCommand,
+  executeIntegrationSettingsCommand,
+  readTenantIntegrationSettings,
+  readTenantIntegrationDelivery,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -272,6 +287,7 @@ export class PostgresOperationsService implements OperationsWriter {
     private readonly now: () => Date = () => new Date(),
     private readonly repository: OperationsRepositoryAdapter = postgresOperationsRepository,
     private readonly documentStore?: InvoiceDocumentStore,
+    private readonly integrations?: IntegrationRuntime,
   ) {}
 
   public postCustomerAccountEntry(
@@ -903,6 +919,101 @@ export class PostgresOperationsService implements OperationsWriter {
       command: input.command,
       authorization: this.sign(tenantId, input),
     });
+  }
+
+  public readIntegrationSettings(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readIntegrationSettings'>,
+  ) {
+    return this.repository.readTenantIntegrationSettings(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
+  }
+
+  public configureIntegration(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'configureIntegration'>,
+  ) {
+    const runtime = this.requireIntegrations();
+    const command = integrationConfigureCommandSchema.parse(input.command);
+    const prepared = prepareIntegrationConfiguration(runtime, {
+      kind: command.kind,
+      config: command.config,
+      ...(command.secrets ? { secrets: command.secrets } : {}),
+      keepSecrets: command.keepSecrets,
+      active: command.active,
+      ...(command.expectedVersion !== undefined
+        ? { expectedVersion: command.expectedVersion }
+        : {}),
+    });
+    // The replayable payload carries a keyed fingerprint instead of the credential itself.
+    return this.repository.executeIntegrationSettingsCommand(this.database, tenantId, {
+      payload: {
+        action: 'configure',
+        kind: prepared.kind,
+        config: prepared.config,
+        active: prepared.active,
+        keepProtected: prepared.keepSecrets,
+        protectedFields: prepared.protectedFields,
+        ...(prepared.cipherKeyId ? { cipherKeyId: prepared.cipherKeyId } : {}),
+        ...(prepared.cipherFingerprint ? { cipherFingerprint: prepared.cipherFingerprint } : {}),
+        ...(prepared.expectedVersion !== undefined
+          ? { expectedVersion: prepared.expectedVersion }
+          : {}),
+        reasonEn: command.reasonEn,
+        reasonAr: command.reasonAr,
+        evidence: command.evidence,
+      },
+      ...(prepared.secretCiphertext ? { secretCiphertext: prepared.secretCiphertext } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public async testIntegration(tenantId: VerifiedTenantId, input: WriterInput<'testIntegration'>) {
+    const runtime = this.requireIntegrations();
+    const command = input.command;
+    const stored = await this.repository.readTenantIntegrationDelivery(
+      this.database,
+      tenantId,
+      this.sign(tenantId, { ...input, idempotencyKey: `${input.idempotencyKey}:read` }),
+      command.kind,
+    );
+    const occurredAt = this.now();
+    const outcome = stored
+      ? await performIntegrationTest(runtime, stored, command.recipient, {
+          mail: integrationTestMail({ scope: 'tenant', requestedBy: input.actorId, occurredAt }),
+          text: integrationTestText({ scope: 'tenant', occurredAt }),
+        })
+      : {
+          status: 'failed' as const,
+          message: `No active ${command.kind} settings are configured for this workspace.`,
+          recipientMasked: command.recipient,
+          errorCode: 'NOT_CONFIGURED',
+        };
+    return this.repository.executeIntegrationSettingsCommand(this.database, tenantId, {
+      payload: {
+        action: 'record_test',
+        kind: command.kind,
+        status: outcome.status,
+        message: outcome.message,
+        recipientMasked: outcome.recipientMasked,
+        ...(outcome.providerReference ? { providerReference: outcome.providerReference } : {}),
+        ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+        reasonEn: command.reasonEn,
+        reasonAr: command.reasonAr,
+        evidence: command.evidence,
+      },
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  private requireIntegrations(): IntegrationRuntime {
+    if (!this.integrations) {
+      throw new Error('Integration settings are not available in this Operations runtime.');
+    }
+    return this.integrations;
   }
 
   public readNasClients(tenantId: VerifiedTenantId, input: WriterInput<'readNasClients'>) {

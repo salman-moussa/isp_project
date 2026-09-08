@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@isp/ui/theme.css';
 import './app.css';
-import { AuthenticationGate } from '@isp/ui';
+import { AuthenticationGate, RecoveryCompletion, recoveryHashPattern } from '@isp/ui';
 import { App } from './App';
 import { InvitationAcceptance } from './staff/InvitationAcceptance';
 
@@ -17,11 +17,18 @@ const apiBaseUrl = (runtimeWindow.__ORVEX_CONFIG__?.apiBaseUrl ?? window.locatio
 const invitationMatch = /^#\/staff-invitation\/([A-Za-z0-9_-]{32,512})$/u.exec(
   window.location.hash,
 );
+const recoveryMatch = recoveryHashPattern.exec(window.location.hash);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {invitationMatch ? (
       <InvitationAcceptance apiBaseUrl={apiBaseUrl} token={invitationMatch[1]} />
+    ) : recoveryMatch ? (
+      <RecoveryCompletion
+        apiBaseUrl={apiBaseUrl}
+        token={recoveryMatch[1]}
+        onDone={() => window.location.reload()}
+      />
     ) : (
       <AuthenticationGate audience="tenant" apiBaseUrl={apiBaseUrl}>
         {(session) => <App session={session} />}

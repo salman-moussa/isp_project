@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@isp/ui/theme.css';
 import './app.css';
-import { AuthenticationGate } from '@isp/ui';
+import { AuthenticationGate, RecoveryCompletion, recoveryHashPattern } from '@isp/ui';
 import { App } from './App';
 
 const runtimeWindow = window as typeof window & {
@@ -13,10 +13,20 @@ const apiBaseUrl = (runtimeWindow.__ORVEX_CONFIG__?.apiBaseUrl ?? window.locatio
   '',
 );
 
+const recoveryMatch = recoveryHashPattern.exec(window.location.hash);
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthenticationGate audience="platform" apiBaseUrl={apiBaseUrl}>
-      {(session) => <App session={session} />}
-    </AuthenticationGate>
+    {recoveryMatch ? (
+      <RecoveryCompletion
+        apiBaseUrl={apiBaseUrl}
+        token={recoveryMatch[1]}
+        onDone={() => window.location.reload()}
+      />
+    ) : (
+      <AuthenticationGate audience="platform" apiBaseUrl={apiBaseUrl}>
+        {(session) => <App session={session} />}
+      </AuthenticationGate>
+    )}
   </StrictMode>,
 );

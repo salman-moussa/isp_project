@@ -19,6 +19,8 @@ import type {
   StockCountCommand,
   RmaCommand,
   VendorQuoteCommand,
+  IntegrationConfigureCommand,
+  IntegrationTestCommand,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -596,6 +598,18 @@ export interface OperationsWriter {
   executeVendorQuoteCommand(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly command: VendorQuoteCommand },
+  ): Promise<unknown>;
+  readIntegrationSettings(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  configureIntegration(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: IntegrationConfigureCommand },
+  ): Promise<unknown>;
+  testIntegration(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: IntegrationTestCommand },
   ): Promise<unknown>;
   readNasClients(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readRadiusSessions(

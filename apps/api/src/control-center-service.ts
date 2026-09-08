@@ -1,6 +1,14 @@
-import type { Permission } from '@isp/contracts';
+import {
+  integrationTestCommandSchema,
+  platformIntegrationConfigureBodySchema,
+  type IntegrationKind,
+  type Permission,
+} from '@isp/contracts';
 import {
   allocatePlatformPayment,
+  configurePlatformIntegration,
+  readPlatformIntegrationSettings,
+  recordPlatformIntegrationTest,
   approveControlSubscriptionTransition,
   assignControlSubscription,
   createControlClient,
@@ -18,9 +26,26 @@ import {
   type Database,
   type DrilldownQuery,
   type SignedControlDatabaseContext,
+  type StoredIntegrationDelivery,
 } from '@isp/database';
 import { createHash } from 'node:crypto';
+import { integrationTestMail, integrationTestText } from './integrations/mail-templates.js';
+import {
+  performIntegrationTest,
+  prepareIntegrationConfiguration,
+  type IntegrationRuntime,
+} from './integrations/runtime.js';
 import type { ControlCenterApiService } from './routes/control-center/index.js';
+
+/** Runtime-role reader for the stored provider settings the platform tests against. */
+export interface PlatformIntegrationReader {
+  readIntegration(kind: IntegrationKind): Promise<StoredIntegrationDelivery | null>;
+}
+
+export interface ControlCenterIntegrationDependencies {
+  readonly runtime: IntegrationRuntime;
+  readonly store: PlatformIntegrationReader;
+}
 
 interface RequestContext extends Record<string, unknown> {
   readonly actorId: string;
@@ -61,6 +86,7 @@ export class PostgresControlCenterService implements ControlCenterApiService {
     private readonly database: Database,
     private readonly authority: ControlContextAuthorityConfig,
     private readonly now: () => Date = () => new Date(),
+    private readonly integrations?: ControlCenterIntegrationDependencies,
   ) {}
 
   public listClients(input: Record<string, unknown>, context: Record<string, unknown>) {
@@ -203,6 +229,107 @@ export class PostgresControlCenterService implements ControlCenterApiService {
         originalId: text(input, 'originalId'),
       }),
     );
+  }
+
+  public readIntegrations(context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readPlatformIntegrationSettings(
+      this.database,
+      this.sign(request, {
+        idempotencyKey: `read-${request.requestId}`,
+        requestHash: hashCanonical({}),
+        reason: 'Read platform integration settings.',
+      }),
+    );
+  }
+
+  public configureIntegration(input: Record<string, unknown>) {
+    const request = readMutationContext(input);
+    const runtime = this.requireIntegrations().runtime;
+    const body = platformIntegrationConfigureBodySchema.parse({
+      kind: input.kind,
+      config: input.config,
+      ...(input.secrets !== undefined ? { secrets: input.secrets } : {}),
+      keepSecrets: input.keepSecrets ?? false,
+      active: input.active ?? true,
+      ...(typeof input.expectedVersion === 'number'
+        ? { expectedVersion: input.expectedVersion }
+        : {}),
+      reason: request.reason,
+    });
+    const prepared = prepareIntegrationConfiguration(runtime, {
+      kind: body.kind,
+      config: body.config,
+      ...(body.secrets ? { secrets: body.secrets } : {}),
+      keepSecrets: body.keepSecrets,
+      active: body.active,
+      ...(body.expectedVersion !== undefined ? { expectedVersion: body.expectedVersion } : {}),
+    });
+    // The route hashed the body without secrets; bind the keyed credential fingerprint into the
+    // signed request identity so a retry with different credentials is a different request.
+    const bound: MutationContext = {
+      ...request,
+      requestHash: hashCanonical({
+        base: request.requestHash,
+        fingerprint: prepared.cipherFingerprint ?? null,
+      }),
+    };
+    return configurePlatformIntegration(this.database, {
+      ...bound,
+      authorization: this.sign(bound),
+      kind: prepared.kind,
+      config: prepared.config,
+      active: prepared.active,
+      ...(prepared.secretCiphertext ? { secretCiphertext: prepared.secretCiphertext } : {}),
+      ...(prepared.cipherKeyId ? { cipherKeyId: prepared.cipherKeyId } : {}),
+      protectedFields: prepared.protectedFields,
+      keepSecrets: prepared.keepSecrets,
+      ...(prepared.expectedVersion !== undefined
+        ? { expectedVersion: prepared.expectedVersion }
+        : {}),
+    });
+  }
+
+  public async testIntegration(input: Record<string, unknown>) {
+    const request = readMutationContext(input);
+    const { runtime, store } = this.requireIntegrations();
+    const body = integrationTestCommandSchema
+      .pick({ kind: true, recipient: true })
+      .parse({ kind: input.kind, recipient: input.recipient });
+    const stored = await store.readIntegration(body.kind);
+    const occurredAt = this.now();
+    const outcome = stored
+      ? await performIntegrationTest(runtime, stored, body.recipient, {
+          mail: integrationTestMail({
+            scope: 'platform',
+            requestedBy: request.actorId,
+            occurredAt,
+          }),
+          text: integrationTestText({ scope: 'platform', occurredAt }),
+        })
+      : {
+          status: 'failed' as const,
+          message: `No active ${body.kind} settings are configured.`,
+          recipientMasked: body.recipient,
+          errorCode: 'NOT_CONFIGURED',
+        };
+    return recordPlatformIntegrationTest(this.database, {
+      ...request,
+      authorization: this.sign(request),
+      kind: body.kind,
+      status: outcome.status,
+      message: outcome.message,
+      recipientMasked: outcome.recipientMasked,
+      ...(outcome.providerReference ? { providerReference: outcome.providerReference } : {}),
+      ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    });
+  }
+
+  private requireIntegrations(): ControlCenterIntegrationDependencies {
+    if (!this.integrations) {
+      throw new Error('Integration settings are not available in this Control Center runtime.');
+    }
+    return this.integrations;
   }
 
   private postDocument(
