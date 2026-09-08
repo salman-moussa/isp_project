@@ -67,7 +67,7 @@ jobs:
           BUILD_CONTEXT: ${{ matrix.context }}
         run: docker build --pull --tag "$IMAGE_NAME" --file "$DOCKERFILE" "$BUILD_CONTEXT"
       - name: Block critical/high image vulnerabilities
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: isp-ci-${{ matrix.name }}:${{ github.sha }}
           severity: CRITICAL,HIGH
@@ -75,7 +75,7 @@ jobs:
           exit-code: '1'
           format: table
       - name: Generate image SBOM
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: isp-ci-${{ matrix.name }}:${{ github.sha }}
           format: cyclonedx

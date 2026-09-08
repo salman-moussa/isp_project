@@ -1,6 +1,7 @@
 import type { SessionClaims } from '@isp/contracts';
 import { AuthorizationDeniedError } from '@isp/domain';
 import Fastify from 'fastify';
+import { ZodError } from 'zod';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryAuditWriter } from './audit.js';
 import { MemorySecurityAuditWriter } from './security-audit.js';
@@ -13,6 +14,7 @@ const serviceId = '10000000-0000-4000-8000-000000000001';
 const branchId = '20000000-0000-4000-8000-000000000001';
 const areaId = '30000000-0000-4000-8000-000000000001';
 const routeId = '40000000-0000-4000-8000-000000000001';
+const itemId = '60000000-0000-4000-8000-000000000009';
 const claims: SessionClaims = {
   sub: 'operations-user-a',
   sessionId: 'operations-session-a',
@@ -39,6 +41,27 @@ const claims: SessionClaims = {
 
 function writerMocks() {
   return {
+    readNocWorkspace: vi.fn(async () => ({
+      incidents: [],
+      routes: [],
+      services: [],
+      page: 1,
+      pageSize: 25,
+      totalCount: 0,
+      serviceDirectoryTruncated: false,
+    })),
+    createOutageIncident: vi.fn(async () => ({
+      id: serviceId,
+      status: 'investigating',
+      version: 1,
+    })),
+    transitionOutageIncident: vi.fn(async () => ({
+      id: serviceId,
+      status: 'identified',
+      version: 2,
+    })),
+    postCustomerAccountEntry: vi.fn(async () => ({ id: serviceId })),
+    readCustomerAccounts: vi.fn(async () => ({ subscribers: [], invoices: [], entries: [] })),
     generateInvoiceDocument: vi.fn(async () => ({ id: serviceId, status: 'ready' })),
     downloadInvoiceDocument: vi.fn(async () => ({
       bytes: Buffer.from('%PDF-test'),
@@ -82,6 +105,94 @@ function writerMocks() {
     requestExport: vi.fn(async () => ({ id: 'export-a' })),
     configure: vi.fn(async () => ({ key: 'billing' })),
     enqueueNetworkAction: vi.fn(async () => ({ id: 'network-action-a' })),
+    readChartOfAccounts: vi.fn(async () => []),
+    postJournalEntry: vi.fn(async () => ({ id: 'entry-a', entryNumber: 'JE-001' })),
+    readJournalEntries: vi.fn(async () => []),
+    readCustomerStatement: vi.fn(async () => ({ entries: [] })),
+    readTrialBalance: vi.fn(async () => ({ accounts: [] })),
+    readAccountingPeriods: vi.fn(async () => []),
+    closeAccountingPeriod: vi.fn(async () => ({ id: 'period-a', status: 'soft_closed' })),
+    readDealers: vi.fn(async () => []),
+    generateVoucherBatch: vi.fn(async () => ({ batchId: 'batch-a', count: 10 })),
+    redeemVoucher: vi.fn(async () => ({ voucherId: 'voucher-a', status: 'redeemed' })),
+    readWarehouses: vi.fn(async () => []),
+    readInventoryItems: vi.fn(async () => []),
+    readSerializedAssets: vi.fn(async () => []),
+    readWarehouseWorkspace: vi.fn(async () => ({
+      warehouses: [],
+      items: [],
+      assets: [],
+      installations: [],
+      vendors: [],
+      purchaseOrders: [],
+    })),
+    transitionInventoryCustody: vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'issued',
+      version: 2,
+    })),
+    executeProcurementCommand: vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'draft',
+      version: 1,
+    })),
+    executeWarehouseAdminCommand: vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'active',
+      version: 1,
+    })),
+    executeStockCommand: vi.fn(async () => ({
+      action: 'transfer_stock',
+      quantity: 5,
+      fromQuantityOnHand: 5,
+      toQuantityOnHand: 5,
+    })),
+    executeStockReservationCommand: vi.fn(async () => ({
+      action: 'reserve_stock',
+      reservationId: '11111111-1111-4111-8111-111111111111',
+      status: 'held',
+      version: 1,
+    })),
+    executeRmaCommand: vi.fn(async () => ({
+      action: 'open_case',
+      caseId: '11111111-1111-4111-8111-111111111111',
+      status: 'open',
+      version: 1,
+    })),
+    executeVendorQuoteCommand: vi.fn(async () => ({
+      action: 'create_quote_request',
+      requestId: '11111111-1111-4111-8111-111111111111',
+      status: 'open',
+      version: 1,
+    })),
+    executeStockCountCommand: vi.fn(async () => ({
+      action: 'open_count',
+      countId: '11111111-1111-4111-8111-111111111111',
+      status: 'open',
+      version: 1,
+      lines: 3,
+    })),
+    readNasClients: vi.fn(async () => []),
+    readRadiusSessions: vi.fn(async () => []),
+    readIpPools: vi.fn(async () => []),
+    readCpeDevices: vi.fn(async () => []),
+    readNetworkAlarms: vi.fn(async () => []),
+    readOutages: vi.fn(async () => []),
+    readQosReports: vi.fn(async () => []),
+    readFieldServiceWorkspace: vi.fn(async () => ({ technicians: [], workOrders: [], events: [] })),
+    executeFieldDispatchCommand: vi.fn(async () => ({
+      workOrderId: 'wo-1',
+      status: 'open',
+      version: 1,
+    })),
+    executeFieldExecutionCommand: vi.fn(async () => ({
+      workOrderId: 'wo-1',
+      status: 'on_site',
+      version: 2,
+    })),
+    readIntegrationSettings: vi.fn(async () => ({ settings: [], events: [] })),
+    configureIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, replayed: false })),
+    testIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, status: 'passed' })),
   } satisfies OperationsWriter;
 }
 
@@ -97,11 +208,22 @@ async function makeApp(activeClaims: SessionClaims, writer: OperationsWriter) {
     writer,
     now: () => new Date('2026-08-11T12:00:00.000Z'),
   });
+  // Mirrors the production handler in app.ts so contract violations surface as 400 here too;
+  // otherwise every rejected payload would look like a server fault in these tests.
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AuthorizationDeniedError) {
       return reply
         .code(403)
         .send({ error: { code: error.code, message: error.message, requestId: request.id } });
+    }
+    if (error instanceof ZodError) {
+      return reply.code(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'The request did not match the expected contract.',
+          requestId: request.id,
+        },
+      });
     }
     return reply.code(500).send({
       error: { code: 'INTERNAL_ERROR', message: 'Request failed.', requestId: request.id },
@@ -116,6 +238,145 @@ describe('tenant operations API route plugin', () => {
 
   beforeEach(() => {
     writer = writerMocks();
+  });
+
+  it('serializes real accounting arrays and registers periods', async () => {
+    const { app } = await makeApp({ ...claims, permissions: ['tenant.accounting.view'] }, writer);
+    for (const name of ['chart-of-accounts', 'journal-entries', 'periods']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/v1/tenants/${tenantId}/accounting/${name}`,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([]);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+    }
+    await app.close();
+    const nonempty = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.view'] },
+      { ...writer, readChartOfAccounts: async () => [{ id: serviceId, accountCode: '1010' }] },
+    );
+    expect(
+      (
+        await nonempty.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/accounting/chart-of-accounts`,
+        })
+      ).json(),
+    ).toEqual([{ id: serviceId, accountCode: '1010' }]);
+    await nonempty.app.close();
+  });
+
+  it('forwards accounting dates and statement pagination from validated queries', async () => {
+    const { app } = await makeApp({ ...claims, permissions: ['tenant.accounting.view'] }, writer);
+    const balance = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/accounting/trial-balance?asOfDate=2026-08-01`,
+    });
+    expect(balance.statusCode).toBe(200);
+    expect(writer.readTrialBalance).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ asOfDate: '2026-08-01' }),
+    );
+    const statement = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/accounting/customer-statement?subscriberId=${serviceId}&currency=LBP&startDate=2026-01-01&endDate=2026-08-01&page=2&pageSize=10`,
+    });
+    expect(statement.statusCode).toBe(200);
+    expect(writer.readCustomerStatement).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.view',
+        auditAction: 'tenant.accounting.statement.read',
+        query: {
+          subscriberId: serviceId,
+          currency: 'LBP',
+          startDate: '2026-01-01',
+          endDate: '2026-08-01',
+          page: 2,
+          pageSize: 10,
+        },
+      }),
+    );
+    await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/accounting/trial-balance?asOfDate=2026-02-30`,
+    });
+    expect(writer.readTrialBalance).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it('denies accounting reads without permission and across tenants', async () => {
+    const denied = await makeApp(claims, writer);
+    expect(
+      (
+        await denied.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/accounting/periods`,
+        })
+      ).statusCode,
+    ).toBe(403);
+    await denied.app.close();
+    const { app } = await makeApp({ ...claims, permissions: ['tenant.accounting.view'] }, writer);
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${otherTenantId}/accounting/chart-of-accounts`,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(writer.readChartOfAccounts).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('requires recent MFA and the correct permission for manual journals', async () => {
+    const command = {
+      entryNumber: 'MAN-001',
+      entryDate: '2026-08-11',
+      descriptionEn: 'Manual accounting entry',
+      descriptionAr: 'قيد محاسبة يدوي موثق',
+      sourceType: 'manual',
+      lines: [
+        { accountId: serviceId, debitMinor: 100, creditMinor: 0, currency: 'USD' },
+        { accountId: branchId, debitMinor: 0, creditMinor: 100, currency: 'USD' },
+      ],
+    };
+    const payload = { command };
+    const url = `/v1/tenants/${tenantId}/operations/accounting/journals`;
+    const headers = { 'idempotency-key': 'accounting-manual-001' };
+    const denied = await makeApp({ ...claims, permissions: ['tenant.accounting.post'] }, writer);
+    expect((await denied.app.inject({ method: 'POST', url, headers, payload })).statusCode).toBe(
+      403,
+    );
+    expect(writer.postJournalEntry).not.toHaveBeenCalled();
+    await denied.app.close();
+    const { app } = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    const response = await app.inject({ method: 'POST', url, headers, payload });
+    expect(response.statusCode).toBe(201);
+    expect(writer.postJournalEntry).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command,
+        idempotencyKey: 'accounting-manual-001',
+        auditAction: 'tenant.accounting.journal.post',
+      }),
+    );
+    await app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { command: { ...command, sourceType: 'invoice' } },
+    });
+    expect(writer.postJournalEntry).toHaveBeenCalledTimes(1);
+    await app.close();
   });
 
   it('forwards the verified tenant, actor, and idempotency key for subscriber creation', async () => {
@@ -614,7 +875,9 @@ describe('tenant operations API route plugin', () => {
       headers: { 'idempotency-key': 'billing-rate-001' },
       payload: { periodStart: '2026-08-01', periodEnd: '2026-09-01', vatRateBasisPoints: 1100 },
     });
-    expect(billing.statusCode).toBe(500);
+    // A caller-supplied VAT rate is not part of the contract, so the request is rejected as a
+    // contract violation before any billing work is attempted.
+    expect(billing.statusCode).toBe(400);
     expect(writer.prepareBilling).not.toHaveBeenCalled();
     const reconciliation = await app.inject({
       method: 'POST',
@@ -629,7 +892,7 @@ describe('tenant operations API route plugin', () => {
         declaredMinor: 100,
       },
     });
-    expect(reconciliation.statusCode).toBe(500);
+    expect(reconciliation.statusCode).toBe(400);
     expect(writer.reconcileCollector).not.toHaveBeenCalled();
     await app.close();
   });
@@ -814,5 +1077,1122 @@ describe('invoice document authorization and download evidence', () => {
     expect(response.statusCode).toBe(403);
     expect(writer.downloadInvoiceDocument).not.toHaveBeenCalled();
     await app.close();
+  });
+});
+describe('customer account authority', () => {
+  const payload = {
+    subscriberId: serviceId,
+    currency: 'USD',
+    amountMinor: 1000,
+    documentNumber: 'DEP-100',
+    sourceReference: 'BANK-100',
+    reasonEn: 'Verified deposit receipt',
+    reasonAr: 'دفعة مقدمة مثبتة بالإيصال',
+  };
+  it('requires payment permission and recent MFA, and signs context separately from the command', async () => {
+    const writer = writerMocks();
+    const url = '/v1/tenants/' + tenantId + '/operations/customer-accounts/deposit_received';
+    const request = {
+      method: 'POST' as const,
+      url,
+      headers: { 'idempotency-key': 'account-deposit-001' },
+      payload,
+    };
+    const denied = await makeApp(claims, writer);
+    expect((await denied.app.inject(request)).statusCode).toBe(403);
+    await denied.app.close();
+    const noMfa = await makeApp({ ...claims, permissions: ['tenant.payment.post'] }, writer);
+    expect((await noMfa.app.inject(request)).statusCode).toBe(403);
+    await noMfa.app.close();
+    const allowed = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.payment.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect((await allowed.app.inject(request)).statusCode).toBe(201);
+    expect(writer.postCustomerAccountEntry).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command: { ...payload, kind: 'deposit_received' },
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.customer_account.deposit_received',
+        branchIds: [branchId],
+        actorId: claims.sub,
+        idempotencyKey: 'account-deposit-001',
+      }),
+    );
+    expect(writer.postCustomerAccountEntry).toHaveBeenCalledTimes(1);
+    // Unknown body fields cannot replace the server-chosen operation or authority.
+    expect(
+      (await allowed.app.inject({ ...request, payload: { ...payload, kind: 'credit_note' } }))
+        .statusCode,
+    ).not.toBe(201);
+    expect(writer.postCustomerAccountEntry).toHaveBeenCalledTimes(1);
+    expect(
+      (await allowed.app.inject({ ...request, url: url.replace(tenantId, otherTenantId) }))
+        .statusCode,
+    ).toBe(403);
+    await allowed.app.close();
+  });
+  it('requires billing view for the scoped account workspace', async () => {
+    const writer = writerMocks();
+    const url = '/v1/tenants/' + tenantId + '/operations/customer-accounts/workspace';
+    const denied = await makeApp(claims, writer);
+    expect((await denied.app.inject({ method: 'GET', url })).statusCode).toBe(403);
+    await denied.app.close();
+    const allowed = await makeApp({ ...claims, permissions: ['tenant.billing.view'] }, writer);
+    expect((await allowed.app.inject({ method: 'GET', url })).statusCode).toBe(200);
+    expect(writer.readCustomerAccounts).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.billing.view',
+        auditAction: 'tenant.customer_account.read',
+        branchIds: [branchId],
+      }),
+    );
+    await allowed.app.close();
+  });
+});
+describe('NOC incident routes', () => {
+  it('serves scoped paged data and records a validated incident command', async () => {
+    const writer = writerMocks(),
+      { app } = await makeApp(
+        { ...claims, permissions: ['tenant.network.view', 'tenant.network.job.create'] },
+        writer,
+      );
+    const result = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/noc/workspace?page=2&status=resolved`,
+    });
+    expect(result.statusCode).toBe(200);
+    expect(writer.readNocWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        branchIds: [branchId],
+        routeIds: [routeId],
+        query: { page: 2, pageSize: 25, status: 'resolved' },
+      }),
+    );
+    const command = {
+      routeId,
+      serviceIds: [serviceId],
+      severity: 'major',
+      titleEn: 'Circuit interruption',
+      titleAr: 'انقطاع الدارة الرئيسية',
+      reasonEn: 'Confirmed by the operator',
+      reasonAr: 'تم التحقق من الانقطاع بواسطة المشغل',
+    };
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents`,
+      headers: { 'idempotency-key': 'noc-create-test' },
+      payload: { command },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(writer.createOutageIncident).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command,
+        permission: 'tenant.network.job.create',
+        auditAction: 'tenant.noc.incident.create',
+        idempotencyKey: 'noc-create-test',
+      }),
+    );
+    await app.close();
+  });
+  it('denies missing authority/cross-tenant reads and does not accept invented impact counts', async () => {
+    const writer = writerMocks(),
+      { app } = await makeApp({ ...claims, permissions: ['tenant.network.view'] }, writer);
+    const denied = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents`,
+      headers: { 'idempotency-key': 'noc-denied-test' },
+      payload: {
+        command: {
+          routeId,
+          serviceIds: [serviceId],
+          severity: 'major',
+          titleEn: 'Circuit interruption',
+          titleAr: 'انقطاع الدارة الرئيسية',
+          reasonEn: 'Confirmed by operator',
+          reasonAr: 'تم التحقق بواسطة المشغل',
+        },
+      },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(writer.createOutageIncident).not.toHaveBeenCalled();
+    const crossed = await app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${otherTenantId}/operations/noc/workspace`,
+    });
+    expect(crossed.statusCode).toBe(403);
+    expect(writer.readNocWorkspace).not.toHaveBeenCalled();
+    await app.close();
+    const allowed = await makeApp(claims, writer);
+    const bad = await allowed.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents`,
+      headers: { 'idempotency-key': 'noc-invalid-test' },
+      payload: {
+        command: {
+          routeId,
+          serviceIds: [serviceId],
+          severity: 'major',
+          titleEn: 'Circuit interruption',
+          titleAr: 'انقطاع الدارة الرئيسية',
+          reasonEn: 'Confirmed by operator',
+          reasonAr: 'تم التحقق بواسطة المشغل',
+          impactedSubscribersCount: 9000,
+        },
+      },
+    });
+    expect(bad.statusCode).not.toBe(201);
+    expect(writer.createOutageIncident).not.toHaveBeenCalled();
+    await allowed.app.close();
+  });
+  it('requires expected version and resolution evidence before invoking the writer', async () => {
+    const writer = writerMocks(),
+      { app } = await makeApp(claims, writer);
+    const base = {
+      method: 'POST' as const,
+      url: `/v1/tenants/${tenantId}/operations/noc/incidents/transition`,
+      headers: { 'idempotency-key': 'noc-transition-test' },
+    };
+    const command = {
+      outageId: serviceId,
+      expectedVersion: 3,
+      status: 'resolved',
+      reasonEn: 'Recovery observed at customer',
+      reasonAr: 'تم التحقق من استعادة الخدمة لدى العميل',
+    };
+    const bad = await app.inject({ ...base, payload: { command } });
+    expect(bad.statusCode).not.toBe(201);
+    expect(writer.transitionOutageIncident).not.toHaveBeenCalled();
+    const good = await app.inject({
+      ...base,
+      payload: {
+        command: {
+          ...command,
+          rootCauseEn: 'Power supply was interrupted',
+          rootCauseAr: 'انقطاع الطاقة في موقع الشبكة',
+          resolutionEvidence: 'Power restored and service verified.',
+        },
+      },
+    });
+    expect(good.statusCode).toBe(201);
+    expect(writer.transitionOutageIncident).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+});
+
+describe('Warehouse custody routes', () => {
+  it('requires scoped installation view authority for the workspace', async () => {
+    const writer = writerMocks();
+    const url = `/v1/tenants/${tenantId}/operations/warehouse/workspace`;
+    const denied = await makeApp({ ...claims, permissions: [] }, writer);
+    expect((await denied.app.inject({ method: 'GET', url })).statusCode).toBe(403);
+    expect(writer.readWarehouseWorkspace).not.toHaveBeenCalled();
+    await denied.app.close();
+    const allowed = await makeApp({ ...claims, permissions: ['tenant.installation.view'] }, writer);
+    expect((await allowed.app.inject({ method: 'GET', url })).statusCode).toBe(200);
+    expect(writer.readWarehouseWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.view',
+        auditAction: 'tenant.warehouse.workspace.read',
+        branchIds: [branchId],
+      }),
+    );
+    await allowed.app.close();
+  });
+
+  it('validates and forwards versioned bilingual custody evidence', async () => {
+    const writer = writerMocks();
+    const { app } = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    const command = {
+      assetId: serviceId,
+      expectedVersion: 1,
+      action: 'issue' as const,
+      installationId: '50000000-0000-4000-8000-000000000001',
+      custodianUserId: '60000000-0000-4000-8000-000000000001',
+      reasonEn: 'Assigned to customer installation',
+      reasonAr: 'تم التسليم لتركيب خدمة العميل',
+      evidence: 'Serial and equipment seal were verified.',
+    };
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/custody`,
+      headers: { 'idempotency-key': 'warehouse-custody-001' },
+      payload: { command },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(writer.transitionInventoryCustody).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        command,
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.custody.transition',
+        idempotencyKey: 'warehouse-custody-001',
+      }),
+    );
+    const invalid = await app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/custody`,
+      headers: { 'idempotency-key': 'warehouse-custody-002' },
+      payload: { command: { ...command, custodianUserId: undefined } },
+    });
+    expect(invalid.statusCode).not.toBe(201);
+    expect(writer.transitionInventoryCustody).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it('separates catalog procurement from MFA-protected finance approval', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Approved for controlled warehouse replenishment',
+      reasonAr: 'تم الاعتماد لتجديد المخزون بشكل مضبوط',
+      evidence: 'Supplier quotation and approval record verified.',
+    };
+    const catalog = await makeApp({ ...claims, permissions: ['tenant.catalog.manage'] }, writer);
+    const create = await catalog.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/procurement`,
+      headers: { 'idempotency-key': 'procurement-vendor-001' },
+      payload: {
+        command: {
+          action: 'create_vendor',
+          vendorCode: 'V-001',
+          nameEn: 'Fiber supplier',
+          nameAr: 'مورد الألياف',
+          ...evidence,
+        },
+      },
+    });
+    expect(create.statusCode).toBe(201);
+    expect(writer.executeProcurementCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.catalog.manage',
+        auditAction: 'tenant.warehouse.procurement.manage',
+      }),
+    );
+    await catalog.app.close();
+
+    const approvalCommand = {
+      action: 'approve_purchase_order' as const,
+      purchaseOrderId: serviceId,
+      expectedVersion: 1,
+      ...evidence,
+    };
+    const withoutMfa = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.post'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/procurement/approve`,
+          headers: { 'idempotency-key': 'procurement-approve-001' },
+          payload: { command: approvalCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutMfa.app.close();
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/procurement/approve`,
+          headers: { 'idempotency-key': 'procurement-approve-002' },
+          payload: { command: approvalCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeProcurementCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.procurement.approve',
+      }),
+    );
+    await withMfa.app.close();
+  });
+
+  it('signs warehouse administration with its own action and rejects unscoped callers', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'New fiber ONT stocked for the northern branch rollout',
+      reasonAr: 'تم إدخال وحدة الألياف الجديدة لمخزون فرع الشمال',
+      evidence: 'Catalog change request CR-2026-114 approved by operations.',
+    };
+    const createItem = {
+      action: 'create_item' as const,
+      sku: 'ONT-2100',
+      nameEn: 'GPON ONT 2100',
+      nameAr: 'وحدة ألياف 2100',
+      category: 'ont_onu' as const,
+      unitCostMinorUsd: 4200,
+      unitCostMinorLbp: 0,
+      serializedFlag: true,
+      reorderThreshold: 25,
+      ...evidence,
+    };
+
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.catalog.manage'] },
+      writer,
+    );
+    const created = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+      headers: { 'idempotency-key': 'warehouse-admin-item-001' },
+      payload: { command: createItem },
+    });
+    expect(created.statusCode).toBe(201);
+    // Administration carries a different signed action than procurement, so a procurement
+    // operator's signed context cannot be replayed to reshape the catalog.
+    expect(writer.executeWarehouseAdminCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.catalog.manage',
+        auditAction: 'tenant.warehouse.administration.manage',
+      }),
+    );
+    await administrator.app.close();
+
+    const withoutCatalog = await makeApp(
+      { ...claims, permissions: ['tenant.installation.view'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutCatalog.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+          headers: { 'idempotency-key': 'warehouse-admin-item-002' },
+          payload: { command: createItem },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutCatalog.app.close();
+  });
+
+  it('rejects a warehouse administration payload with unknown or missing fields', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.catalog.manage'] },
+      writer,
+    );
+    const evidence = {
+      reasonEn: 'Attempted catalog change without complete attributes',
+      reasonAr: 'محاولة تغيير الفهرس بدون سمات كاملة',
+      evidence: 'Rejected before reaching the database command.',
+    };
+
+    // An update is a full replacement: omitting `active` must be refused rather than
+    // silently leaving the previous value in place.
+    const missingField = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+      headers: { 'idempotency-key': 'warehouse-admin-item-003' },
+      payload: {
+        command: {
+          action: 'update_item',
+          itemId: serviceId,
+          expectedVersion: 1,
+          nameEn: 'GPON ONT 2100',
+          nameAr: 'وحدة ألياف 2100',
+          category: 'ont_onu',
+          unitCostMinorUsd: 4200,
+          unitCostMinorLbp: 0,
+          serializedFlag: true,
+          reorderThreshold: 25,
+          ...evidence,
+        },
+      },
+    });
+    expect(missingField.statusCode).toBe(400);
+
+    const unknownField = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/administration`,
+      headers: { 'idempotency-key': 'warehouse-admin-item-004' },
+      payload: {
+        command: {
+          action: 'create_bin',
+          warehouseId: serviceId,
+          binCode: 'A-01',
+          nameEn: 'Aisle A shelf 1',
+          nameAr: 'الممر أ الرف ١',
+          binKind: 'stock',
+          capacity: 40,
+          ...evidence,
+        },
+      },
+    });
+    expect(unknownField.statusCode).toBe(400);
+    expect(writer.executeWarehouseAdminCommand).not.toHaveBeenCalled();
+    await administrator.app.close();
+  });
+
+  it('separates moving stock from writing its value off', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Rebalancing drop wire between the depot and the field store',
+      reasonAr: 'إعادة توزيع أسلاك التوصيل بين المستودع ومخزن الميدان',
+      evidence: 'Stock movement note SM-2026-311.',
+    };
+    const transferCommand = {
+      action: 'transfer_stock' as const,
+      itemId,
+      quantity: 20,
+      fromWarehouseId: serviceId,
+      toWarehouseId: routeId,
+      ...evidence,
+    };
+
+    // Moving stock is an operations action and needs no step-up.
+    const operations = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await operations.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/transfer`,
+          headers: { 'idempotency-key': 'stock-transfer-001' },
+          payload: { command: transferCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.stock.transfer',
+      }),
+    );
+    // An adjustment posts to the variance account, so the transfer route must refuse it.
+    expect(
+      (
+        await operations.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/transfer`,
+          headers: { 'idempotency-key': 'stock-transfer-002' },
+          payload: {
+            command: {
+              action: 'adjust_stock',
+              itemId,
+              quantity: 3,
+              warehouseId: serviceId,
+              direction: 'decrease',
+              currency: 'USD',
+              ...evidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await operations.app.close();
+
+    const adjustCommand = {
+      action: 'adjust_stock' as const,
+      itemId,
+      quantity: 3,
+      warehouseId: serviceId,
+      direction: 'decrease' as const,
+      currency: 'USD' as const,
+      ...evidence,
+    };
+    const withoutMfa = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.post'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/adjust`,
+          headers: { 'idempotency-key': 'stock-adjust-001' },
+          payload: { command: adjustCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutMfa.app.close();
+
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/adjust`,
+          headers: { 'idempotency-key': 'stock-adjust-002' },
+          payload: { command: adjustCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.stock.adjust',
+      }),
+    );
+    await withMfa.app.close();
+  });
+
+  it('rejects a transfer whose source and destination are the same location', async () => {
+    const writer = writerMocks();
+    const operations = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    const response = await operations.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/warehouse/stock/transfer`,
+      headers: { 'idempotency-key': 'stock-transfer-003' },
+      payload: {
+        command: {
+          action: 'transfer_stock',
+          itemId,
+          quantity: 5,
+          fromWarehouseId: serviceId,
+          toWarehouseId: serviceId,
+          reasonEn: 'Attempted no-op transfer between identical locations',
+          reasonAr: 'محاولة نقل بين موقعين متطابقين',
+          evidence: 'Rejected before reaching the database command.',
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(writer.executeStockCommand).not.toHaveBeenCalled();
+    await operations.app.close();
+  });
+
+  it('signs stock reservations with their own action and refuses a finance-only session', async () => {
+    const writer = writerMocks();
+    const reserveCommand = {
+      action: 'reserve_stock' as const,
+      itemId,
+      quantity: 4,
+      warehouseId: serviceId,
+      installationId: routeId,
+      reference: 'JP-2026-778',
+      reasonEn: 'Material held for the scheduled customer installation',
+      reasonAr: 'مواد محجوزة للتركيب المجدول للعميل',
+      evidence: 'Job pack JP-2026-778 issued to the field team.',
+    };
+
+    const operations = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await operations.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/reservations`,
+          headers: { 'idempotency-key': 'stock-reserve-001' },
+          payload: { command: reserveCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockReservationCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.stock.reserve',
+      }),
+    );
+    await operations.app.close();
+
+    // Holding stock for a job is field authority; a finance-only session has none.
+    const finance = await makeApp({ ...claims, permissions: ['tenant.accounting.post'] }, writer);
+    expect(
+      (
+        await finance.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/reservations`,
+          headers: { 'idempotency-key': 'stock-reserve-002' },
+          payload: { command: reserveCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await finance.app.close();
+  });
+
+  it('separates counting stock from posting its variance', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Quarterly physical count of the receiving bay',
+      reasonAr: 'الجرد الفعلي الربعي لساحة الاستلام',
+      evidence: 'Count sheet CS-2026-042 signed by the warehouse supervisor.',
+    };
+    const openCommand = {
+      action: 'open_count' as const,
+      countNumber: 'CS-2026-042',
+      warehouseId: serviceId,
+      currency: 'USD' as const,
+      ...evidence,
+    };
+    const closeCommand = {
+      action: 'close_count' as const,
+      countId: serviceId,
+      expectedVersion: 2,
+      ...evidence,
+    };
+
+    const warehouse = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts`,
+          headers: { 'idempotency-key': 'stock-count-001' },
+          payload: { command: openCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCountCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.stock.count',
+      }),
+    );
+    // Closing posts variance, so the warehouse route must refuse it outright.
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts`,
+          headers: { 'idempotency-key': 'stock-count-002' },
+          payload: { command: closeCommand },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await warehouse.app.close();
+
+    const withoutMfa = await makeApp(
+      { ...claims, permissions: ['tenant.accounting.post'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts/close`,
+          headers: { 'idempotency-key': 'stock-count-003' },
+          payload: { command: closeCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutMfa.app.close();
+
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/stock/counts/close`,
+          headers: { 'idempotency-key': 'stock-count-004' },
+          payload: { command: closeCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeStockCountCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.stock.count.close',
+      }),
+    );
+    await withMfa.app.close();
+  });
+
+  it('separates repair handling from writing a device off', async () => {
+    const writer = writerMocks();
+    const evidence = {
+      reasonEn: 'Device failed acceptance testing after return from the field',
+      reasonAr: 'فشل الجهاز في اختبار القبول بعد إرجاعه من الميدان',
+      evidence: 'Fault report FR-2026-091 attached to the vendor claim.',
+    };
+    const openCommand = {
+      action: 'open_case' as const,
+      caseNumber: 'RMA-2026-011',
+      assetId: itemId,
+      faultSummary: 'Optical transmit power below the acceptance threshold on both ports.',
+      ...evidence,
+    };
+    const scrapCommand = {
+      action: 'scrap_asset' as const,
+      caseId: serviceId,
+      expectedVersion: 1,
+      ...evidence,
+    };
+
+    const warehouse = await makeApp(
+      { ...claims, permissions: ['tenant.installation.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/rma`,
+          headers: { 'idempotency-key': 'rma-open-001' },
+          payload: { command: openCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeRmaCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.warehouse.rma.manage',
+      }),
+    );
+    // Writing a device off destroys value, so the warehouse route must refuse it.
+    expect(
+      (
+        await warehouse.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/rma`,
+          headers: { 'idempotency-key': 'rma-open-002' },
+          payload: { command: scrapCommand },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await warehouse.app.close();
+
+    const withMfa = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.accounting.post'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await withMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/warehouse/rma/scrap`,
+          headers: { 'idempotency-key': 'rma-scrap-001' },
+          payload: { command: scrapCommand },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.executeRmaCommand).toHaveBeenLastCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.accounting.post',
+        auditAction: 'tenant.warehouse.rma.scrap',
+      }),
+    );
+    await withMfa.app.close();
+  });
+});
+
+describe('tenant integration settings routes', () => {
+  const integrationEvidence = {
+    reasonEn: 'Configure customer messaging providers',
+    reasonAr: 'تهيئة مزوّدي الرسائل للعملاء',
+    evidence: 'Change ticket CHG-2026-091 approved by the ISP owner.',
+  };
+  const integrationCommand = {
+    kind: 'smtp',
+    config: {
+      host: 'smtp.example.test',
+      port: 465,
+      security: 'tls',
+      username: 'mailer',
+      fromAddress: 'billing@example.test',
+    },
+    secrets: { password: 'mail-password' },
+    keepSecrets: false,
+    active: true,
+    ...integrationEvidence,
+  };
+
+  it('binds configuration and tests to tenant-wide secret authority', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.secret.manage', 'tenant.user.administer'] },
+      writer,
+    );
+    const configured = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+      headers: { 'idempotency-key': 'integration-configure-001' },
+      payload: { command: integrationCommand },
+    });
+    expect(configured.statusCode).toBe(201);
+    expect(writer.configureIntegration).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.secret.manage',
+        auditAction: 'tenant.integration.configure',
+        command: expect.objectContaining({
+          kind: 'smtp',
+          secrets: { password: 'mail-password' },
+        }) as unknown,
+      }),
+    );
+    const tested = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/integrations/test`,
+      headers: { 'idempotency-key': 'integration-test-001' },
+      payload: {
+        command: { kind: 'smtp', recipient: 'owner@example.test', ...integrationEvidence },
+      },
+    });
+    expect(tested.statusCode).toBe(201);
+    expect(writer.testIntegration).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ auditAction: 'tenant.integration.test' }),
+    );
+    const read = await administrator.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/integrations`,
+    });
+    expect(read.statusCode).toBe(200);
+    expect(writer.readIntegrationSettings).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.user.administer' }),
+    );
+    await administrator.app.close();
+
+    const withoutSecretAuthority = await makeApp(
+      { ...claims, permissions: ['tenant.user.administer'] },
+      writer,
+    );
+    expect(
+      (
+        await withoutSecretAuthority.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-002' },
+          payload: { command: integrationCommand },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await withoutSecretAuthority.app.close();
+  });
+
+  it('rejects provider payloads that smuggle secrets into configuration or omit evidence', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.secret.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-003' },
+          payload: {
+            command: {
+              ...integrationCommand,
+              config: { ...integrationCommand.config, password: 'x' },
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-004' },
+          payload: { command: { ...integrationCommand, reasonAr: undefined } },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/integrations/configure`,
+          headers: { 'idempotency-key': 'integration-configure-005' },
+          payload: {
+            command: {
+              ...integrationCommand,
+              kind: 'sms',
+              config: { provider: 'http_json', endpointUrl: 'http://insecure.test/send' },
+              secrets: { authToken: 'bearer-token-1' },
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(writer.configureIntegration).not.toHaveBeenCalled();
+    await administrator.app.close();
+  });
+});
+
+describe('field service routes', () => {
+  const fieldEvidence = {
+    reasonEn: 'Dispatch acceptance for the northern branch',
+    reasonAr: 'إرسال قبول لفرع الشمال',
+    evidence: 'Dispatch board review 2026-09-08.',
+  };
+
+  it('separates dispatcher scheduling from technician execution by signed action', async () => {
+    const writer = writerMocks();
+    const dispatcher = await makeApp(
+      { ...claims, permissions: ['tenant.installation.view', 'tenant.installation.manage'] },
+      writer,
+    );
+    const created = await dispatcher.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+      headers: { 'idempotency-key': 'field-dispatch-001' },
+      payload: {
+        command: {
+          action: 'create_work_order',
+          kind: 'repair',
+          subscriberId: serviceId,
+          titleEn: 'Replace damaged drop wire',
+          titleAr: 'استبدال سلك التوصيل التالف',
+          requiredSkills: ['fiber'],
+          windowStart: '2026-09-09T08:00:00.000Z',
+          windowEnd: '2026-09-09T10:00:00.000Z',
+          ...fieldEvidence,
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(writer.executeFieldDispatchCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.manage',
+        auditAction: 'tenant.field.dispatch',
+      }),
+    );
+    const started = await dispatcher.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/field-service/execute`,
+      headers: { 'idempotency-key': 'field-execute-001' },
+      payload: {
+        command: {
+          action: 'start_work_order',
+          workOrderId: serviceId,
+          expectedVersion: 2,
+          ...fieldEvidence,
+        },
+      },
+    });
+    expect(started.statusCode).toBe(201);
+    expect(writer.executeFieldExecutionCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ auditAction: 'tenant.field.execute' }),
+    );
+    // An execution command cannot travel through the dispatch route and vice versa.
+    expect(
+      (
+        await dispatcher.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+          headers: { 'idempotency-key': 'field-dispatch-002' },
+          payload: {
+            command: {
+              action: 'start_work_order',
+              workOrderId: serviceId,
+              expectedVersion: 2,
+              ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    // Installation work must reference its installation; windows must be complete.
+    expect(
+      (
+        await dispatcher.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+          headers: { 'idempotency-key': 'field-dispatch-003' },
+          payload: {
+            command: {
+              action: 'create_work_order',
+              kind: 'installation',
+              titleEn: 'Missing installation reference',
+              titleAr: 'مرجع تركيب مفقود',
+              windowStart: '2026-09-09T08:00:00.000Z',
+              ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const board = await dispatcher.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/field-service/workspace?day=2026-09-09&status=active`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readFieldServiceWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.installation.view',
+        query: expect.objectContaining({ day: '2026-09-09', status: 'active' }) as unknown,
+      }),
+    );
+    await dispatcher.app.close();
+
+    const viewer = await makeApp({ ...claims, permissions: ['tenant.installation.view'] }, writer);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/field-service/dispatch`,
+          headers: { 'idempotency-key': 'field-dispatch-004' },
+          payload: {
+            command: {
+              action: 'cancel_work_order',
+              workOrderId: serviceId,
+              expectedVersion: 1,
+              ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
   });
 });

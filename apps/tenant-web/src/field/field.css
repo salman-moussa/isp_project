@@ -1,0 +1,369 @@
+.field-shell {
+  --fs-ink: #17263a;
+  --fs-accent: #0b5f9e;
+  --fs-line: #d4dfee;
+  --fs-muted: #5f7188;
+  display: grid;
+  gap: 1.1rem;
+  color: var(--fs-ink);
+  max-width: 1600px;
+  margin: auto;
+}
+.field-shell :is(button, input, select, textarea) {
+  font: inherit;
+}
+.field-shell :is(input, select, textarea, button):focus-visible {
+  outline: 3px solid #ef9b19;
+  outline-offset: 2px;
+}
+.field-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: clamp(1.3rem, 3vw, 2.2rem);
+  border: 1px solid var(--fs-line);
+  border-radius: 1.3rem;
+  background:
+    radial-gradient(circle at 90% 10%, #cfe3ff 0, transparent 30%),
+    linear-gradient(120deg, #f3f8ff, #fff8ee);
+}
+.field-hero > div:first-child {
+  max-width: 68ch;
+}
+.field-hero span {
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #3f5f8f;
+}
+.field-hero h1 {
+  margin: 0.4rem 0 0.6rem;
+  font-size: clamp(1.5rem, 2.8vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+.field-hero p,
+.field-note {
+  margin: 0;
+  color: var(--fs-muted);
+}
+.field-hero__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(6rem, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+.field-hero__stats div {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.9rem;
+  background: #fff;
+  border: 1px solid var(--fs-line);
+}
+.field-hero__stats div.is-alert {
+  border-color: #f0b4b4;
+  background: #fff1f1;
+}
+.field-hero__stats dt {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fs-muted);
+}
+.field-hero__stats dd {
+  margin: 0.2rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+.field-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: end;
+}
+.field-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.field-tabs button {
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--fs-line);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.field-tabs button[aria-current='page'] {
+  background: var(--fs-ink);
+  border-color: var(--fs-ink);
+  color: #fff;
+}
+.field-filters {
+  display: flex;
+  gap: 0.7rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.field-filters label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.field-filters :is(input, select),
+.field-field :is(input, select, textarea) {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #b9c7dc;
+  border-radius: 0.65rem;
+  background: #fff;
+  min-inline-size: 0;
+}
+.field-panel {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--fs-line);
+  background: #f4f8ff;
+}
+.field-panel--positive {
+  border-color: #9ad6c3;
+  background: #ecfaf4;
+}
+.field-panel--negative {
+  border-color: #f0b4b4;
+  background: #fff1f1;
+}
+.field-card,
+.field-detail,
+.field-column {
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+  padding: clamp(0.9rem, 2vw, 1.4rem);
+  border: 1px solid var(--fs-line);
+  border-radius: 1.1rem;
+  background: #fff;
+  box-shadow: 0 0.5rem 1.8rem rgb(23 38 58 / 6%);
+}
+.field-card h2,
+.field-detail h2,
+.field-column h3 {
+  margin: 0;
+}
+.field-column h3 small {
+  font-weight: 600;
+  color: var(--fs-muted);
+}
+.field-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+}
+.field-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(16rem, 1fr);
+  gap: 0.9rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+}
+.field-column--empty {
+  justify-items: start;
+}
+.field-ticket {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  text-align: start;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--fs-line);
+  border-inline-start: 4px solid var(--fs-accent);
+  border-radius: 0.8rem;
+  background: #f8fbff;
+  cursor: pointer;
+}
+.field-ticket.is-selected {
+  border-color: var(--fs-ink);
+  background: #eef4ff;
+}
+.field-ticket.is-overdue {
+  border-inline-start-color: #c62828;
+}
+.field-ticket__number,
+.field-ticket__time {
+  font-size: 0.78rem;
+  color: var(--fs-muted);
+}
+.field-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+.field-field {
+  display: grid;
+  gap: 0.3rem;
+}
+.field-field > span,
+.field-field legend {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.field-field--wide {
+  grid-column: 1 / -1;
+}
+.field-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  border: 1px solid var(--fs-line);
+  border-radius: 0.8rem;
+  padding: 0.7rem 0.9rem;
+}
+.field-skills label,
+.field-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.field-form {
+  display: grid;
+  gap: 0.9rem;
+}
+.field-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.field-table {
+  display: grid;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+.field-table [role='row'] {
+  display: grid;
+  grid-template-columns:
+    11rem minmax(14rem, 1.4fr) minmax(10rem, 1fr) minmax(14rem, 1fr) minmax(9rem, 1fr)
+    minmax(9rem, 1fr);
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  background: #f7f9fd;
+  text-align: start;
+  min-inline-size: 68rem;
+}
+.field-table button[role='row'] {
+  cursor: pointer;
+}
+.field-table button[role='row'].is-selected {
+  border-color: var(--fs-ink);
+  background: #eef4ff;
+}
+.field-table__head {
+  background: transparent !important;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fs-muted);
+}
+.field-table__head--technicians,
+.field-table__row--technicians {
+  grid-template-columns: minmax(12rem, 1.2fr) minmax(12rem, 1.4fr) 10rem 8rem 8rem !important;
+  min-inline-size: 52rem !important;
+}
+.field-detail {
+  border-color: #b9cff4;
+}
+.field-detail__close {
+  border: 1px solid var(--fs-line);
+  background: #fff;
+  border-radius: 999px;
+  inline-size: 2.2rem;
+  block-size: 2.2rem;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+.field-facts {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  margin: 0;
+}
+.field-facts dt {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fs-muted);
+}
+.field-facts dd {
+  margin: 0.15rem 0 0;
+}
+.field-checklist {
+  display: grid;
+  gap: 0.5rem;
+}
+.field-checklist__item {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 1fr);
+  gap: 0.6rem;
+  align-items: center;
+}
+.field-checklist__item input[type='text'],
+.field-checklist__item input:not([type='checkbox']) {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #b9c7dc;
+  border-radius: 0.55rem;
+}
+.field-checklist-view {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+.field-checklist-view li span {
+  color: var(--fs-muted);
+  margin-inline-end: 0.3rem;
+}
+.field-checklist-view li.is-done span {
+  color: #0b756a;
+}
+.field-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+.field-timeline li {
+  display: grid;
+  grid-template-columns: 11rem auto auto 1fr;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.6rem;
+  background: #f7f9fd;
+}
+.field-timeline time {
+  font-size: 0.8rem;
+  color: var(--fs-muted);
+}
+@media (max-width: 720px) {
+  .field-hero__stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .field-timeline li {
+    grid-template-columns: 1fr;
+  }
+  .field-checklist__item {
+    grid-template-columns: 1fr;
+  }
+}

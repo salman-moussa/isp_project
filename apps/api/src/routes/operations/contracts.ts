@@ -1,4 +1,30 @@
-import type { Permission, SupportedCurrency, VerifiedTenantId } from '@isp/contracts';
+import type {
+  CreateOutageCommand,
+  TransitionOutageCommand,
+  NocQuery,
+  CustomerAccountCommand,
+  Permission,
+  SupportedCurrency,
+  VerifiedTenantId,
+  JournalEntryInput,
+  CustomerStatementQuery,
+  PeriodCloseRequest,
+  VoucherBatchInput,
+  VoucherRedeemInput,
+  InventoryCustodyCommand,
+  ProcurementCommand,
+  WarehouseAdminCommand,
+  StockCommand,
+  StockReservationCommand,
+  StockCountCommand,
+  RmaCommand,
+  VendorQuoteCommand,
+  IntegrationConfigureCommand,
+  IntegrationTestCommand,
+  FieldDispatchCommand,
+  FieldExecutionCommand,
+  FieldServiceQuery,
+} from '@isp/contracts';
 
 export interface OperationsMutationContext {
   readonly actorId: string;
@@ -20,6 +46,28 @@ export interface OperationsMutationContext {
 }
 
 export interface OperationsWriter {
+  readNocWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<NocQuery> },
+  ): Promise<unknown>;
+  createOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { command: CreateOutageCommand },
+  ): Promise<unknown>;
+  transitionOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { command: TransitionOutageCommand },
+  ): Promise<unknown>;
+  postCustomerAccountEntry(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: CustomerAccountCommand;
+    },
+  ): Promise<unknown>;
+  readCustomerAccounts(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
   generateInvoiceDocument(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly invoiceId: string },
@@ -462,6 +510,132 @@ export interface OperationsWriter {
           }
       ),
   ): Promise<unknown>;
+  readChartOfAccounts(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  postJournalEntry(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: JournalEntryInput;
+    },
+  ): Promise<unknown>;
+  readJournalEntries(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readCustomerStatement(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly query: CustomerStatementQuery;
+    },
+  ): Promise<unknown>;
+  readTrialBalance(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly asOfDate?: string },
+  ): Promise<unknown>;
+  readAccountingPeriods(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  closeAccountingPeriod(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly request: PeriodCloseRequest;
+    },
+  ): Promise<unknown>;
+  readDealers(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  generateVoucherBatch(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: VoucherBatchInput;
+    },
+  ): Promise<unknown>;
+  redeemVoucher(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: VoucherRedeemInput;
+    },
+  ): Promise<unknown>;
+  readWarehouses(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readInventoryItems(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readSerializedAssets(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readWarehouseWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  transitionInventoryCustody(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: InventoryCustodyCommand },
+  ): Promise<unknown>;
+  executeProcurementCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: ProcurementCommand },
+  ): Promise<unknown>;
+  executeWarehouseAdminCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: WarehouseAdminCommand },
+  ): Promise<unknown>;
+  executeStockCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: StockCommand },
+  ): Promise<unknown>;
+  executeStockReservationCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: StockReservationCommand },
+  ): Promise<unknown>;
+  executeStockCountCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: StockCountCommand },
+  ): Promise<unknown>;
+  executeRmaCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: RmaCommand },
+  ): Promise<unknown>;
+  executeVendorQuoteCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: VendorQuoteCommand },
+  ): Promise<unknown>;
+  readFieldServiceWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<FieldServiceQuery> },
+  ): Promise<unknown>;
+  executeFieldDispatchCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: FieldDispatchCommand },
+  ): Promise<unknown>;
+  executeFieldExecutionCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: FieldExecutionCommand },
+  ): Promise<unknown>;
+  readIntegrationSettings(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  configureIntegration(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: IntegrationConfigureCommand },
+  ): Promise<unknown>;
+  testIntegration(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: IntegrationTestCommand },
+  ): Promise<unknown>;
+  readNasClients(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readRadiusSessions(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readIpPools(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readCpeDevices(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readNetworkAlarms(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readOutages(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readQosReports(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
 }
 
 export interface OperationsDefinition {

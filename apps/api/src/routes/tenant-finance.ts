@@ -1,5 +1,5 @@
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
-import { assertPermission, assertTenantContext } from '@isp/domain';
+import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AuditWriter } from '../audit.js';
@@ -366,6 +366,10 @@ async function executeMutation(
     ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
     permission: definition.permission,
     reason: request.auth.supportGrant?.reason ?? 'Authorized tenant finance mutation.',
+    ...(request.auth.branchIds !== undefined ? { branchIds: request.auth.branchIds } : {}),
+    ...(request.auth.areaIds !== undefined ? { areaIds: request.auth.areaIds } : {}),
+    ...(request.auth.routeIds !== undefined ? { routeIds: request.auth.routeIds } : {}),
+    ...(request.auth.recordIds !== undefined ? { recordIds: request.auth.recordIds } : {}),
   };
   const commonAudit = {
     tenantId: context.tenantId,
@@ -412,6 +416,9 @@ async function authorizeMutation(
 ) {
   try {
     const context = assertTenantContext(request.auth, requestedTenantId, options.now());
+    if (context.supportGrantId) {
+      throw new AuthorizationDeniedError('Support grants cannot mutate tenant financial records.');
+    }
     assertPermission(request.auth, definition.permission);
     return context;
   } catch (error) {

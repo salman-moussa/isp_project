@@ -10,6 +10,7 @@ export const permissions = [
   'platform.support.request',
   'platform.support.approve',
   'platform.audit.view',
+  'platform.integration.manage',
   'tenant.dashboard.view',
   'tenant.subscriber.view',
   'tenant.subscriber.create',
@@ -36,6 +37,9 @@ export const permissions = [
   'tenant.report.export',
   'tenant.user.administer',
   'tenant.secret.manage',
+  'tenant.accounting.view',
+  'tenant.accounting.post',
+  'tenant.accounting.close',
   'tenant.audit.view',
 ] as const;
 

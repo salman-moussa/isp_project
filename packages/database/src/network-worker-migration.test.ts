@@ -6,6 +6,12 @@ const migration = readFileSync(
   fileURLToPath(new URL('../migrations/202608112500_tenant_network_worker.sql', import.meta.url)),
   'utf8',
 );
+const resultScopeMigration = readFileSync(
+  fileURLToPath(
+    new URL('../migrations/202609021809_tenant_network_result_scope.sql', import.meta.url),
+  ),
+  'utf8',
+);
 
 describe('Network Worker migration contract', () => {
   it('uses a dedicated runtime with function-only queue access', () => {
@@ -28,5 +34,12 @@ describe('Network Worker migration contract', () => {
     expect(migration).toContain('subscriber service has no active network binding');
     expect(migration).toContain('NEW.delivered_at:=clock_timestamp()');
     expect(migration).not.toMatch(/GRANT .*service_bindings.*orvex_runtime/);
+  });
+
+  it('persists terminal non-order work without treating it as an order activation result', () => {
+    expect(resultScopeMigration).toContain("request_value->>'origin'<>'tenant-service-lifecycle'");
+    expect(resultScopeMigration).toContain("request_value->'action'->>'kind'<>'pppoe.create'");
+    expect(resultScopeMigration).toContain('THEN RETURN; END IF');
+    expect(resultScopeMigration).toContain('invalid network result request');
   });
 });

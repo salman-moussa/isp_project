@@ -60,6 +60,13 @@ describe('Control Center API routes', () => {
       reversePayment: vi.fn(async () => ({ id: 'payment-reversal' })),
       allocatePayment: vi.fn(async () => ({ id: 'allocation-a' })),
       reverseAllocation: vi.fn(async () => ({ id: 'allocation-reversal' })),
+      readIntegrations: vi.fn(async () => ({
+        settings: [],
+        recentEvents: [],
+        recentDeliveries: [],
+      })),
+      configureIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, replay: false })),
+      testIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, status: 'passed' })),
     };
   });
   async function build() {
@@ -210,6 +217,161 @@ describe('Control Center API routes', () => {
       ).statusCode,
     ).toBe(403);
     expect(approveTransition).not.toHaveBeenCalled();
+    await app.close();
+  });
+});
+
+describe('Control Center integration routes', () => {
+  const integrationClaims: SessionClaims = {
+    ...claims,
+    permissions: ['platform.integration.manage'],
+  };
+  type ServiceMocks = {
+    [K in keyof ControlCenterApiService]: ReturnType<typeof vi.fn<ControlCenterApiService[K]>>;
+  };
+  function integrationService(): ServiceMocks {
+    return {
+      listClients: vi.fn(async () => []),
+      createClient: vi.fn(),
+      createContact: vi.fn(),
+      createPackageVersion: vi.fn(),
+      assignSubscription: vi.fn(),
+      transitionSubscription: vi.fn(),
+      approveTransition: vi.fn(),
+      postInvoice: vi.fn(),
+      postPayment: vi.fn(),
+      reverseInvoice: vi.fn(),
+      reversePayment: vi.fn(),
+      allocatePayment: vi.fn(),
+      reverseAllocation: vi.fn(),
+      readIntegrations: vi.fn(async () => ({
+        settings: [],
+        recentEvents: [],
+        recentDeliveries: [],
+      })),
+      configureIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, replay: false })),
+      testIntegration: vi.fn(async () => ({ kind: 'smtp', version: 1, status: 'passed' })),
+    };
+  }
+  async function buildWith(activeClaims: SessionClaims, target: ControlCenterApiService) {
+    const app = Fastify();
+    app.decorateRequest('auth');
+    app.decorate('authenticate', async (request: Parameters<typeof app.authenticate>[0]) => {
+      request.auth = activeClaims;
+    });
+    registerControlCenterRoutes(app, { service: target, now: () => now });
+    app.setErrorHandler((error, _request, reply) => {
+      if (error instanceof ZodError) return reply.code(400).send({ code: 'VALIDATION_FAILED' });
+      if (error instanceof AuthorizationDeniedError)
+        return reply.code(403).send({ code: error.code });
+      return reply.code(500).send({ code: 'INTERNAL_ERROR' });
+    });
+    await app.ready();
+    return app;
+  }
+  const smtpBody = {
+    config: {
+      host: 'smtp.example.test',
+      port: 587,
+      security: 'starttls',
+      username: 'mailer',
+      fromAddress: 'noreply@example.test',
+    },
+    secrets: { password: 'mail-password' },
+    keepSecrets: false,
+    active: true,
+    reason: 'Configure platform verification mail',
+  };
+
+  it('requires the integration permission for reads and writes', async () => {
+    const target = integrationService();
+    const app = await buildWith(claims, target);
+    expect(
+      (await app.inject({ method: 'GET', url: '/v1/control-center/integrations' })).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: '/v1/control-center/integrations/smtp',
+          headers: { 'idempotency-key': 'integration-smtp-001' },
+          payload: smtpBody,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(target.configureIntegration).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('keeps secrets out of the hashed envelope but hands them to the service', async () => {
+    const target = integrationService();
+    const app = await buildWith(integrationClaims, target);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/v1/control-center/integrations/smtp',
+      headers: { 'idempotency-key': 'integration-smtp-002' },
+      payload: smtpBody,
+    });
+    expect(response.statusCode).toBe(200);
+    const [input] = vi.mocked(target.configureIntegration).mock.calls[0] ?? [];
+    expect(input).toMatchObject({
+      kind: 'smtp',
+      permission: 'platform.integration.manage',
+      action: 'integration.configure',
+      secrets: { password: 'mail-password' },
+      idempotencyKey: 'integration-smtp-002',
+    });
+    const withoutSecret = await app.inject({
+      method: 'PUT',
+      url: '/v1/control-center/integrations/smtp',
+      headers: { 'idempotency-key': 'integration-smtp-003' },
+      payload: { ...smtpBody, secrets: undefined, keepSecrets: true },
+    });
+    expect(withoutSecret.statusCode).toBe(200);
+    const [second] = vi.mocked(target.configureIntegration).mock.calls[1] ?? [];
+    // The request hash covers everything except the credential itself.
+    expect(second?.requestHash).not.toBe(input?.requestHash);
+    expect(second?.secrets).toBeUndefined();
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: '/v1/control-center/integrations/smtp',
+          headers: { 'idempotency-key': 'integration-smtp-004' },
+          payload: { ...smtpBody, config: { ...smtpBody.config, password: 'inline' } },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await app.close();
+  });
+
+  it('records provider tests through the signed test action', async () => {
+    const target = integrationService();
+    const app = await buildWith(integrationClaims, target);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/control-center/integrations/smtp/tests',
+      headers: { 'idempotency-key': 'integration-test-001' },
+      payload: { recipient: 'ops@example.test', reason: 'Verify SMTP after rotation' },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(target.testIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'smtp',
+        recipient: 'ops@example.test',
+        action: 'integration.test',
+      }),
+    );
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/control-center/integrations/pager/tests',
+          headers: { 'idempotency-key': 'integration-test-002' },
+          payload: { recipient: 'ops@example.test', reason: 'Verify SMTP after rotation' },
+        })
+      ).statusCode,
+    ).toBe(400);
     await app.close();
   });
 });

@@ -30,6 +30,7 @@ import {
   ControlActionWorkspace,
   type ControlActionTask,
 } from './control-center/ControlActionWorkspace';
+import { AdministrationWorkspace } from './administration/AdministrationWorkspace';
 import { createControlClient, readControlClients } from './api';
 
 const platformNavigationIds = platformCopy.en.navigation.map((item) => item.id);
@@ -448,6 +449,8 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           }}
           onOpenAudit={() => navigate('administration')}
         />
+      ) : session && activeNavigationId === 'administration' ? (
+        <AdministrationWorkspace session={session} locale={locale} />
       ) : session && controlActionRoutes[activeNavigationId] ? (
         <ControlActionWorkspace
           session={session}

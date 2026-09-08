@@ -391,3 +391,227 @@
     gap: 0.4rem;
   }
 }
+.customer-accounts {
+  grid-column: 1 / -1;
+}
+.account-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+.account-safety {
+  padding: 0.9rem 1rem;
+  border-inline-start: 3px solid #2b8b79;
+  background: #f0f8f5;
+  color: #365f56;
+  line-height: 1.65;
+  font-size: 0.88rem;
+}
+.account-customer {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 36rem;
+}
+.account-customer select {
+  padding: 0.8rem;
+  border: 1px solid #a7c5be;
+  border-radius: 0.7rem;
+  background: #fff;
+  color: #173e36;
+}
+.account-caption {
+  color: #586e68;
+  font-size: 0.8rem;
+}
+.account-form fieldset {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  border: 1px solid #d4e5df;
+  border-radius: 1rem;
+  padding: 1.1rem;
+}
+.account-form legend {
+  padding-inline: 0.4rem;
+  font-weight: 700;
+}
+.account-form textarea {
+  min-height: 5rem;
+  resize: vertical;
+  border: 1px solid #b7cbc7;
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+}
+.account-amounts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.account-confirm {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.88rem;
+}
+.account-confirm input {
+  width: auto !important;
+  margin-top: 0.2rem;
+}
+.account-history {
+  min-width: 0;
+  max-height: 65rem;
+  overflow: auto;
+}
+.account-history article {
+  padding: 1rem;
+  border: 1px solid #d4e5df;
+  border-radius: 0.8rem;
+  margin-bottom: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.account-history article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.account-history article > span {
+  display: block;
+  color: #246d5e;
+  margin-top: 0.4rem;
+}
+.account-history small {
+  color: #566d65;
+}
+.account-history details {
+  margin-top: 0.6rem;
+}
+.account-history summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+@media (max-width: 800px) {
+  .account-layout {
+    grid-template-columns: 1fr;
+  }
+  .account-amounts {
+    grid-template-columns: 1fr;
+  }
+}
+/* Real accounting workflows: readable forms, keyboard focus and small-screen tables. */
+.customer-accounts-workspace {
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.customer-accounts-workspace .tab-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.customer-accounts-workspace .tab-navigation button[aria-pressed='true'] {
+  background: var(--color-teal, #147363);
+  color: #fff;
+}
+.customer-accounts-workspace .account-panel {
+  min-width: 0;
+  overflow-x: auto;
+}
+.customer-accounts-workspace .account-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.customer-accounts-workspace .account-table :is(th, td) {
+  padding: 0.8rem;
+  text-align: start;
+  border-bottom: 1px solid var(--color-border, #d7e3e5);
+}
+.customer-accounts-workspace .account-table th {
+  color: var(--color-ink-muted, #526a72);
+  font-size: 0.78rem;
+}
+.customer-accounts-workspace .journal-entry-card {
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border, #d7e3e5);
+  border-radius: 1rem;
+}
+.accounting-editor form,
+.accounting-statement form {
+  margin-block: 1rem;
+}
+.accounting-editor fieldset,
+.accounting-statement fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border, #d7e3e5);
+  border-radius: 0.8rem;
+}
+.accounting-editor fieldset fieldset {
+  grid-column: 1/-1;
+  background: var(--color-surface, #fff);
+}
+.accounting-editor legend,
+.accounting-statement legend {
+  padding-inline: 0.35rem;
+  font-weight: 700;
+}
+.accounting-editor label,
+.accounting-statement label {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+.accounting-editor :is(input:not([type='checkbox']), select, textarea),
+.accounting-statement :is(input, select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--color-border, #c9d9d6);
+  border-radius: 0.5rem;
+  background: var(--color-surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+.accounting-editor textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+.accounting-editor :is(button, input, select, textarea):focus-visible,
+.accounting-statement :is(button, input, select):focus-visible {
+  outline: 3px solid #248575;
+  outline-offset: 3px;
+}
+.accounting-editor fieldset > p {
+  grid-column: 1/-1;
+}
+.accounting-editor [role='alert'],
+.accounting-statement [role='alert'] {
+  color: #8a331f;
+}
+.account-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border, #d7e3e5);
+  border-radius: 0.7rem;
+}
+.accounting-statement nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-block-start: 1rem;
+}
+@media (max-width: 640px) {
+  .accounting-editor fieldset,
+  .accounting-statement fieldset {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.75rem;
+  }
+  .customer-accounts-workspace .account-table {
+    min-width: 36rem;
+  }
+}

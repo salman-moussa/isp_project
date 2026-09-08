@@ -1,4 +1,10 @@
-import type { ApiSession } from '@isp/ui';
+import type {
+  ApiSession,
+  IntegrationDeliveryView,
+  IntegrationEventView,
+  IntegrationKindView,
+  IntegrationSettingView,
+} from '@isp/ui';
 import type { ControlCenterClientRow } from './control-center/ControlCenterWorkspace';
 
 interface ClientResponse {
@@ -90,4 +96,70 @@ async function safeMessage(response: Response): Promise<string> {
   } catch {
     return `Request failed (${response.status}).`;
   }
+}
+
+export class ControlApiError extends Error {
+  public constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ControlApiError';
+  }
+}
+
+export interface ControlIntegrationWorkspace {
+  readonly settings: readonly IntegrationSettingView[];
+  readonly recentEvents: readonly IntegrationEventView[];
+  readonly recentDeliveries: readonly IntegrationDeliveryView[];
+}
+
+export async function readControlIntegrations(
+  session: ApiSession,
+): Promise<ControlIntegrationWorkspace> {
+  const response = await fetch(`${session.apiBaseUrl}/v1/control-center/integrations`, {
+    headers: { authorization: `Bearer ${session.accessToken}` },
+  });
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw new ControlApiError(await safeMessage(response), response.status);
+  return (await response.json()) as ControlIntegrationWorkspace;
+}
+
+export type ControlIntegrationConfigureBody = {
+  readonly config: Readonly<Record<string, unknown>>;
+  readonly secrets?: Readonly<Record<string, string>>;
+  readonly keepSecrets: boolean;
+  readonly active: boolean;
+  readonly expectedVersion?: number;
+  readonly reason: string;
+};
+
+export function configureControlIntegration(
+  session: ApiSession,
+  kind: IntegrationKindView,
+  body: ControlIntegrationConfigureBody,
+  idempotencyKey: string,
+): Promise<Record<string, unknown>> {
+  return submitControlAction(
+    session,
+    'PUT',
+    `integrations/${encodeURIComponent(kind)}`,
+    body,
+    idempotencyKey,
+  );
+}
+
+export function testControlIntegration(
+  session: ApiSession,
+  kind: IntegrationKindView,
+  body: { readonly recipient: string; readonly reason: string },
+  idempotencyKey: string,
+): Promise<Record<string, unknown>> {
+  return submitControlAction(
+    session,
+    'POST',
+    `integrations/${encodeURIComponent(kind)}/tests`,
+    body,
+    idempotencyKey,
+  );
 }

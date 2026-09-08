@@ -1,6 +1,45 @@
-import type { VerifiedTenantId } from '@isp/contracts';
+import { integrationConfigureCommandSchema, type VerifiedTenantId } from '@isp/contracts';
 import { createHash } from 'node:crypto';
 import {
+  executeFieldServiceCommand,
+  readFieldServiceWorkspace,
+  executeIntegrationSettingsCommand,
+  readTenantIntegrationDelivery,
+  readTenantIntegrationSettings,
+  readNocWorkspace,
+  createOutageIncident,
+  transitionOutageIncident,
+  postCustomerAccountEntry,
+  readCustomerAccounts,
+  readChartOfAccounts,
+  postJournalEntry,
+  readJournalEntries,
+  readCustomerStatement,
+  readTrialBalance,
+  readAccountingPeriods,
+  closeAccountingPeriod,
+  readDealers,
+  generateVoucherBatch,
+  redeemVoucher,
+  readWarehouses,
+  readInventoryItems,
+  readSerializedAssets,
+  readWarehouseWorkspace,
+  transitionInventoryCustody,
+  executeProcurementCommand,
+  executeWarehouseAdminCommand,
+  executeStockCommand,
+  executeStockReservationCommand,
+  executeStockCountCommand,
+  executeRmaCommand,
+  executeVendorQuoteCommand,
+  readNasClients,
+  readRadiusSessions,
+  readIpPools,
+  readCpeDevices,
+  readNetworkAlarms,
+  readOutages,
+  readQosReports,
   assignCollectorInvoice,
   applyServiceChangeOrder,
   acceptSalesQuote,
@@ -48,6 +87,12 @@ import {
   type SignedOperationsDatabaseContext,
 } from '@isp/database';
 import type { OperationsMutationContext, OperationsWriter } from './routes/operations/contracts.js';
+import { integrationTestMail, integrationTestText } from './integrations/mail-templates.js';
+import {
+  performIntegrationTest,
+  prepareIntegrationConfiguration,
+  type IntegrationRuntime,
+} from './integrations/runtime.js';
 import { renderInvoicePdf } from './documents/invoice-pdf.js';
 import { invoiceStorageKey, type InvoiceDocumentStore } from './documents/invoice-store.js';
 
@@ -59,6 +104,45 @@ export interface OperationsContextAuthorityConfig {
 }
 
 export interface OperationsRepositoryAdapter {
+  readonly readNocWorkspace: typeof readNocWorkspace;
+  readonly createOutageIncident: typeof createOutageIncident;
+  readonly transitionOutageIncident: typeof transitionOutageIncident;
+  readonly postCustomerAccountEntry: typeof postCustomerAccountEntry;
+  readonly readCustomerAccounts: typeof readCustomerAccounts;
+  readonly readChartOfAccounts: typeof readChartOfAccounts;
+  readonly postJournalEntry: typeof postJournalEntry;
+  readonly readJournalEntries: typeof readJournalEntries;
+  readonly readCustomerStatement: typeof readCustomerStatement;
+  readonly readTrialBalance: typeof readTrialBalance;
+  readonly readAccountingPeriods: typeof readAccountingPeriods;
+  readonly closeAccountingPeriod: typeof closeAccountingPeriod;
+  readonly readDealers: typeof readDealers;
+  readonly generateVoucherBatch: typeof generateVoucherBatch;
+  readonly redeemVoucher: typeof redeemVoucher;
+  readonly readWarehouses: typeof readWarehouses;
+  readonly readInventoryItems: typeof readInventoryItems;
+  readonly readSerializedAssets: typeof readSerializedAssets;
+  readonly readWarehouseWorkspace: typeof readWarehouseWorkspace;
+  readonly transitionInventoryCustody: typeof transitionInventoryCustody;
+  readonly executeProcurementCommand: typeof executeProcurementCommand;
+  readonly executeWarehouseAdminCommand: typeof executeWarehouseAdminCommand;
+  readonly executeStockCommand: typeof executeStockCommand;
+  readonly executeStockReservationCommand: typeof executeStockReservationCommand;
+  readonly executeStockCountCommand: typeof executeStockCountCommand;
+  readonly executeRmaCommand: typeof executeRmaCommand;
+  readonly executeVendorQuoteCommand: typeof executeVendorQuoteCommand;
+  readonly executeIntegrationSettingsCommand: typeof executeIntegrationSettingsCommand;
+  readonly readTenantIntegrationSettings: typeof readTenantIntegrationSettings;
+  readonly readTenantIntegrationDelivery: typeof readTenantIntegrationDelivery;
+  readonly executeFieldServiceCommand: typeof executeFieldServiceCommand;
+  readonly readFieldServiceWorkspace: typeof readFieldServiceWorkspace;
+  readonly readNasClients: typeof readNasClients;
+  readonly readRadiusSessions: typeof readRadiusSessions;
+  readonly readIpPools: typeof readIpPools;
+  readonly readCpeDevices: typeof readCpeDevices;
+  readonly readNetworkAlarms: typeof readNetworkAlarms;
+  readonly readOutages: typeof readOutages;
+  readonly readQosReports: typeof readQosReports;
   readonly prepareInvoiceDocument: typeof prepareInvoiceDocument;
   readonly completeInvoiceDocument: typeof completeInvoiceDocument;
   readonly readInvoiceDocument: typeof readInvoiceDocument;
@@ -103,6 +187,45 @@ export interface OperationsRepositoryAdapter {
 }
 
 const postgresOperationsRepository: OperationsRepositoryAdapter = {
+  readNocWorkspace,
+  createOutageIncident,
+  transitionOutageIncident,
+  postCustomerAccountEntry,
+  readCustomerAccounts,
+  readChartOfAccounts,
+  postJournalEntry,
+  readJournalEntries,
+  readCustomerStatement,
+  readTrialBalance,
+  readAccountingPeriods,
+  closeAccountingPeriod,
+  readDealers,
+  generateVoucherBatch,
+  redeemVoucher,
+  readWarehouses,
+  readInventoryItems,
+  readSerializedAssets,
+  readWarehouseWorkspace,
+  transitionInventoryCustody,
+  executeProcurementCommand,
+  executeWarehouseAdminCommand,
+  executeStockCommand,
+  executeStockReservationCommand,
+  executeStockCountCommand,
+  executeRmaCommand,
+  executeVendorQuoteCommand,
+  executeIntegrationSettingsCommand,
+  readTenantIntegrationSettings,
+  readTenantIntegrationDelivery,
+  executeFieldServiceCommand,
+  readFieldServiceWorkspace,
+  readNasClients,
+  readRadiusSessions,
+  readIpPools,
+  readCpeDevices,
+  readNetworkAlarms,
+  readOutages,
+  readQosReports,
   prepareInvoiceDocument,
   completeInvoiceDocument,
   readInvoiceDocument,
@@ -170,7 +293,27 @@ export class PostgresOperationsService implements OperationsWriter {
     private readonly now: () => Date = () => new Date(),
     private readonly repository: OperationsRepositoryAdapter = postgresOperationsRepository,
     private readonly documentStore?: InvoiceDocumentStore,
+    private readonly integrations?: IntegrationRuntime,
   ) {}
+
+  public postCustomerAccountEntry(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'postCustomerAccountEntry'>,
+  ) {
+    return this.repository.postCustomerAccountEntry(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readCustomerAccounts(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCustomerAccounts'>,
+  ) {
+    return this.repository.readCustomerAccounts(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
 
   public async generateInvoiceDocument(
     tenantId: VerifiedTenantId,
@@ -596,6 +739,371 @@ export class PostgresOperationsService implements OperationsWriter {
     });
   }
 
+  public readChartOfAccounts(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readChartOfAccounts'>,
+  ) {
+    return this.repository.readChartOfAccounts(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public postJournalEntry(tenantId: VerifiedTenantId, input: WriterInput<'postJournalEntry'>) {
+    return this.repository.postJournalEntry(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readJournalEntries(tenantId: VerifiedTenantId, input: WriterInput<'readJournalEntries'>) {
+    return this.repository.readJournalEntries(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readCustomerStatement(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCustomerStatement'>,
+  ) {
+    return this.repository.readCustomerStatement(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+      input.query,
+    );
+  }
+
+  public readTrialBalance(tenantId: VerifiedTenantId, input: WriterInput<'readTrialBalance'>) {
+    return this.repository.readTrialBalance(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+      input.asOfDate,
+    );
+  }
+
+  public readAccountingPeriods(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readAccountingPeriods'>,
+  ) {
+    return this.repository.readAccountingPeriods(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
+  }
+
+  public closeAccountingPeriod(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'closeAccountingPeriod'>,
+  ) {
+    return this.repository.closeAccountingPeriod(this.database, tenantId, {
+      request: input.request,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readDealers(tenantId: VerifiedTenantId, input: WriterInput<'readDealers'>) {
+    return this.repository.readDealers(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public generateVoucherBatch(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'generateVoucherBatch'>,
+  ) {
+    return this.repository.generateVoucherBatch(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public redeemVoucher(tenantId: VerifiedTenantId, input: WriterInput<'redeemVoucher'>) {
+    return this.repository.redeemVoucher(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readWarehouses(tenantId: VerifiedTenantId, input: WriterInput<'readWarehouses'>) {
+    return this.repository.readWarehouses(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readInventoryItems(tenantId: VerifiedTenantId, input: WriterInput<'readInventoryItems'>) {
+    return this.repository.readInventoryItems(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readSerializedAssets(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readSerializedAssets'>,
+  ) {
+    return this.repository.readSerializedAssets(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
+  }
+
+  public readWarehouseWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readWarehouseWorkspace'>,
+  ) {
+    return this.repository.readWarehouseWorkspace(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
+  }
+
+  public transitionInventoryCustody(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'transitionInventoryCustody'>,
+  ) {
+    return this.repository.transitionInventoryCustody(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeProcurementCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeProcurementCommand'>,
+  ) {
+    return this.repository.executeProcurementCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeWarehouseAdminCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeWarehouseAdminCommand'>,
+  ) {
+    return this.repository.executeWarehouseAdminCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeStockCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeStockCommand'>,
+  ) {
+    return this.repository.executeStockCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeStockReservationCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeStockReservationCommand'>,
+  ) {
+    return this.repository.executeStockReservationCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeStockCountCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeStockCountCommand'>,
+  ) {
+    return this.repository.executeStockCountCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeRmaCommand(tenantId: VerifiedTenantId, input: WriterInput<'executeRmaCommand'>) {
+    return this.repository.executeRmaCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeVendorQuoteCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeVendorQuoteCommand'>,
+  ) {
+    return this.repository.executeVendorQuoteCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readFieldServiceWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readFieldServiceWorkspace'>,
+  ) {
+    return this.repository.readFieldServiceWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeFieldDispatchCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeFieldDispatchCommand'>,
+  ) {
+    return this.repository.executeFieldServiceCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeFieldExecutionCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeFieldExecutionCommand'>,
+  ) {
+    return this.repository.executeFieldServiceCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readIntegrationSettings(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readIntegrationSettings'>,
+  ) {
+    return this.repository.readTenantIntegrationSettings(
+      this.database,
+      tenantId,
+      this.sign(tenantId, input),
+    );
+  }
+
+  public configureIntegration(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'configureIntegration'>,
+  ) {
+    const runtime = this.requireIntegrations();
+    const command = integrationConfigureCommandSchema.parse(input.command);
+    const prepared = prepareIntegrationConfiguration(runtime, {
+      kind: command.kind,
+      config: command.config,
+      ...(command.secrets ? { secrets: command.secrets } : {}),
+      keepSecrets: command.keepSecrets,
+      active: command.active,
+      ...(command.expectedVersion !== undefined
+        ? { expectedVersion: command.expectedVersion }
+        : {}),
+    });
+    // The replayable payload carries a keyed fingerprint instead of the credential itself.
+    return this.repository.executeIntegrationSettingsCommand(this.database, tenantId, {
+      payload: {
+        action: 'configure',
+        kind: prepared.kind,
+        config: prepared.config,
+        active: prepared.active,
+        keepProtected: prepared.keepSecrets,
+        protectedFields: prepared.protectedFields,
+        ...(prepared.cipherKeyId ? { cipherKeyId: prepared.cipherKeyId } : {}),
+        ...(prepared.cipherFingerprint ? { cipherFingerprint: prepared.cipherFingerprint } : {}),
+        ...(prepared.expectedVersion !== undefined
+          ? { expectedVersion: prepared.expectedVersion }
+          : {}),
+        reasonEn: command.reasonEn,
+        reasonAr: command.reasonAr,
+        evidence: command.evidence,
+      },
+      ...(prepared.secretCiphertext ? { secretCiphertext: prepared.secretCiphertext } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public async testIntegration(tenantId: VerifiedTenantId, input: WriterInput<'testIntegration'>) {
+    const runtime = this.requireIntegrations();
+    const command = input.command;
+    const stored = await this.repository.readTenantIntegrationDelivery(
+      this.database,
+      tenantId,
+      this.sign(tenantId, { ...input, idempotencyKey: `${input.idempotencyKey}:read` }),
+      command.kind,
+    );
+    const occurredAt = this.now();
+    const outcome = stored
+      ? await performIntegrationTest(runtime, stored, command.recipient, {
+          mail: integrationTestMail({ scope: 'tenant', requestedBy: input.actorId, occurredAt }),
+          text: integrationTestText({ scope: 'tenant', occurredAt }),
+        })
+      : {
+          status: 'failed' as const,
+          message: `No active ${command.kind} settings are configured for this workspace.`,
+          recipientMasked: command.recipient,
+          errorCode: 'NOT_CONFIGURED',
+        };
+    return this.repository.executeIntegrationSettingsCommand(this.database, tenantId, {
+      payload: {
+        action: 'record_test',
+        kind: command.kind,
+        status: outcome.status,
+        message: outcome.message,
+        recipientMasked: outcome.recipientMasked,
+        ...(outcome.providerReference ? { providerReference: outcome.providerReference } : {}),
+        ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+        reasonEn: command.reasonEn,
+        reasonAr: command.reasonAr,
+        evidence: command.evidence,
+      },
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  private requireIntegrations(): IntegrationRuntime {
+    if (!this.integrations) {
+      throw new Error('Integration settings are not available in this Operations runtime.');
+    }
+    return this.integrations;
+  }
+
+  public readNasClients(tenantId: VerifiedTenantId, input: WriterInput<'readNasClients'>) {
+    return this.repository.readNasClients(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readRadiusSessions(tenantId: VerifiedTenantId, input: WriterInput<'readRadiusSessions'>) {
+    return this.repository.readRadiusSessions(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readIpPools(tenantId: VerifiedTenantId, input: WriterInput<'readIpPools'>) {
+    return this.repository.readIpPools(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readCpeDevices(tenantId: VerifiedTenantId, input: WriterInput<'readCpeDevices'>) {
+    return this.repository.readCpeDevices(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readNetworkAlarms(tenantId: VerifiedTenantId, input: WriterInput<'readNetworkAlarms'>) {
+    return this.repository.readNetworkAlarms(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readOutages(tenantId: VerifiedTenantId, input: WriterInput<'readOutages'>) {
+    return this.repository.readOutages(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readQosReports(tenantId: VerifiedTenantId, input: WriterInput<'readQosReports'>) {
+    return this.repository.readQosReports(this.database, tenantId, this.sign(tenantId, input));
+  }
+
+  public readNocWorkspace(tenantId: VerifiedTenantId, input: WriterInput<'readNocWorkspace'>) {
+    return this.repository.readNocWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+  public createOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'createOutageIncident'>,
+  ) {
+    return this.repository.createOutageIncident(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+  public transitionOutageIncident(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'transitionOutageIncident'>,
+  ) {
+    return this.repository.transitionOutageIncident(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
   private sign(
     tenantId: VerifiedTenantId,
     context: OperationsMutationContext,

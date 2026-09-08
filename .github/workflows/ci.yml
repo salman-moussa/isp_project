@@ -40,6 +40,23 @@ jobs:
           node -e 'const p=require("./package.json"); if (!p.scripts?.["test:integration"]) throw new Error("test:integration is required")'
           echo "integration=true" >> "$GITHUB_OUTPUT"
 
+  # Runs before every other gate: a CRLF blob or a non-executable provisioning script
+  # breaks production deployment while passing lint, typecheck, and tests.
+  packaging:
+    needs: detect
+    if: needs.detect.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Verify release packaging contract
+        run: node scripts/release/verify-release-packaging.mjs
+
   quality:
     needs: detect
     if: needs.detect.outputs.node == 'true'
@@ -111,6 +128,11 @@ jobs:
             echo "OPERATIONS_RELAY_TEST_TENANT_RUNTIME_DATABASE_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
             echo "OPERATIONS_RELAY_TEST_CONTROL_RELAY_DATABASE_URL=postgresql://orvex_finance_audit_relay:test-only-relay-not-production@127.0.0.1:${pg_port}/isp_test"
             echo "OPERATIONS_RELAY_TEST_TENANT_RELAY_DATABASE_URL=postgresql://orvex_finance_audit_relay:test-only-relay-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
+            echo "TENANT_STAFF_TEST_ADMIN_DATABASE_URL=postgresql://orvex_bootstrap_test:test-only-bootstrap-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "TENANT_STAFF_TEST_API_DATABASE_URL=postgresql://orvex_control_api:test-only-control-api-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "SALES_TEST_ADMIN_DATABASE_URL=postgresql://orvex_bootstrap_test:test-only-bootstrap-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "SALES_TEST_RUNTIME_DATABASE_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_test"
+            echo "SALES_TEST_NETWORK_WORKER_DATABASE_URL=postgresql://orvex_network_worker:test-only-network-worker-not-production@127.0.0.1:${pg_port}/isp_test"
             echo "COLLECT_TEST_MIGRATION_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
             echo "COLLECT_TEST_RUNTIME_URL=postgresql://orvex_runtime:test-only-runtime-not-production@127.0.0.1:${pg_port}/isp_tenant_template"
             echo "NETWORK_TEST_MIGRATION_URL=postgresql://orvex_migrator:test-only-migrator-not-production@127.0.0.1:${pg_port}/isp_tenant_template"

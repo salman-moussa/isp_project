@@ -1,4 +1,9 @@
-import type { Permission } from '@isp/contracts';
+import {
+  integrationKindSchema,
+  platformIntegrationConfigureBodySchema,
+  platformIntegrationTestBodySchema,
+  type Permission,
+} from '@isp/contracts';
 import { AuthorizationDeniedError } from '@isp/domain';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -138,6 +143,9 @@ export interface ControlCenterApiService {
   reversePayment(input: Record<string, unknown>): Promise<unknown>;
   allocatePayment(input: Record<string, unknown>): Promise<unknown>;
   reverseAllocation(input: Record<string, unknown>): Promise<unknown>;
+  readIntegrations(context: Record<string, unknown>): Promise<unknown>;
+  configureIntegration(input: Record<string, unknown>): Promise<unknown>;
+  testIntegration(input: Record<string, unknown>): Promise<unknown>;
 }
 export interface ControlCenterRouteOptions {
   readonly service: ControlCenterApiService;
@@ -282,6 +290,80 @@ export function registerControlCenterRoutes(
   registerDocumentRoute(app, options, 'invoices', 'platform.billing.post');
   registerDocumentRoute(app, options, 'payments', 'platform.payment.post');
   registerFinanceCorrectionRoutes(app, options);
+  registerIntegrationRoutes(app, options);
+}
+
+const integrationParams = z.object({ kind: integrationKindSchema });
+
+/**
+ * Platform provider settings (SMTP for verification mail, optional SMS/WhatsApp). Secrets are
+ * excluded from the hashed envelope and from every response; the service binds a keyed
+ * fingerprint of them into the signed request identity instead.
+ */
+function registerIntegrationRoutes(app: FastifyInstance, options: ControlCenterRouteOptions): void {
+  const authenticate = (request: FastifyRequest, reply: FastifyReply) =>
+    app.authenticate(request, reply);
+  app.get('/v1/control-center/integrations', {
+    preHandler: [authenticate, platformPermission('platform.integration.manage')],
+    handler: async (request, reply) =>
+      reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readIntegrations(
+            requestContext(request, 'platform.integration.manage', 'integration.read'),
+          ),
+        ),
+  });
+  app.put('/v1/control-center/integrations/:kind', {
+    preHandler: [authenticate, platformPermission('platform.integration.manage')],
+    handler: async (request, reply) => {
+      const { kind } = integrationParams.parse(request.params);
+      const body = platformIntegrationConfigureBodySchema.parse({
+        ...(request.body as Record<string, unknown>),
+        kind,
+      });
+      const { secrets, ...hashed } = body;
+      return reply
+        .code(200)
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.configureIntegration({
+            ...mutationEnvelope(
+              request,
+              { ...hashed, secretFields: secrets ? Object.keys(secrets).sort() : [] },
+              options,
+              'platform.integration.manage',
+              'integration.configure',
+            ),
+            ...(secrets ? { secrets } : {}),
+          }),
+        );
+    },
+  });
+  app.post('/v1/control-center/integrations/:kind/tests', {
+    preHandler: [authenticate, platformPermission('platform.integration.manage')],
+    handler: async (request, reply) => {
+      const { kind } = integrationParams.parse(request.params);
+      const body = platformIntegrationTestBodySchema.parse({
+        ...(request.body as Record<string, unknown>),
+        kind,
+      });
+      return reply
+        .code(201)
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.testIntegration(
+            mutationEnvelope(
+              request,
+              body,
+              options,
+              'platform.integration.manage',
+              'integration.test',
+            ),
+          ),
+        );
+    },
+  });
 }
 
 function registerDocumentRoute(

@@ -1,5 +1,11 @@
 export * from './context-authority.js';
 export * from './context.js';
+export * from './customer-accounts.js';
+export * from './accounting.js';
+export * from './dealers-vouchers.js';
+export * from './warehouse.js';
+export * from './radius-ipam.js';
+export * from './noc-qos.js';
 export * from './billing.js';
 export * from './repository.js';
 export * from './scope-catalogue.js';
@@ -8,3 +14,5 @@ export * from './subscriber-workspace.js';
 export * from './service-lifecycle.js';
 export * from './types.js';
 export * from './usage-rating.js';
+export * from './integrations.js';
+export * from './field-service.js';

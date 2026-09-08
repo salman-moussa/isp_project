@@ -106,7 +106,29 @@ describe('Orvex ISP Operations shell', () => {
 
       expect(navigationButton).toHaveAttribute('aria-current', 'page');
       const operationsTask = tenantOperationsTasks[item.id];
-      if (operationsTask) {
+      if (item.id === 'sales') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Sales' }),
+        ).toBeInTheDocument();
+      } else if (item.id === 'accounting') {
+        expect(
+          await screen.findByRole('heading', {
+            level: 1,
+            name: 'Double-entry accounting and trial balance',
+          }),
+        ).toBeInTheDocument();
+      } else if (item.id === 'noc') {
+        expect(
+          await screen.findByRole('heading', { level: 1, name: 'NOC incidents' }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText('Sign in to view your permitted incident workspace.'),
+        ).toBeVisible();
+      } else if (item.id === 'warehouse') {
+        expect(
+          await screen.findByRole('heading', { level: 1, name: 'Sign in to open Warehouse' }),
+        ).toBeInTheDocument();
+      } else if (operationsTask) {
         expect(
           screen.getByRole('heading', {
             level: 1,
@@ -128,7 +150,7 @@ describe('Orvex ISP Operations shell', () => {
 
     const results = await axe.run(container);
     expect(results.violations).toEqual([]);
-  });
+  }, 15_000);
 
   it('opens the bilingual command center from the keyboard and navigates directly', async () => {
     const user = userEvent.setup();

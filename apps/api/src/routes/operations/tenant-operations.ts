@@ -1,3 +1,26 @@
+import {
+  createOutageSchema,
+  transitionOutageSchema,
+  nocQuerySchema,
+  journalEntryInputSchema,
+  periodCloseRequestSchema,
+  customerStatementQuerySchema,
+  customerAccountSchemas,
+  inventoryCustodyCommandSchema,
+  procurementCommandSchema,
+  warehouseAdminCommandSchema,
+  stockCommandSchema,
+  stockReservationCommandSchema,
+  stockCountCommandSchema,
+  rmaCommandSchema,
+  vendorQuoteCommandSchema,
+  integrationConfigureCommandSchema,
+  integrationTestCommandSchema,
+  fieldDispatchCommandSchema,
+  fieldExecutionCommandSchema,
+  fieldServiceQuerySchema,
+  type CustomerAccountKind,
+} from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
 import { assertPermission, assertTenantContext, AuthorizationDeniedError } from '@isp/domain';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -11,6 +34,80 @@ const headers = z.object({ 'idempotency-key': z.string().trim().min(8).max(200) 
 const uuid = z.uuid();
 const scopedLocation = { branchId: uuid, areaId: uuid, routeId: uuid } as const;
 const businessReason = z.string().trim().min(8).max(1000);
+const procurementManageBody = z
+  .object({
+    command: procurementCommandSchema.refine(
+      (command) => command.action !== 'approve_purchase_order',
+      'Approval uses the MFA-protected approval route.',
+    ),
+  })
+  .strict();
+const procurementApprovalBody = z
+  .object({
+    command: procurementCommandSchema.refine(
+      (command) => command.action === 'approve_purchase_order',
+      'Only approval commands are accepted here.',
+    ),
+  })
+  .strict();
+const warehouseAdminBody = z.object({ command: warehouseAdminCommandSchema }).strict();
+const integrationConfigureBody = z.object({ command: integrationConfigureCommandSchema }).strict();
+const integrationTestBody = z.object({ command: integrationTestCommandSchema }).strict();
+const fieldDispatchBody = z.object({ command: fieldDispatchCommandSchema }).strict();
+const fieldExecutionBody = z.object({ command: fieldExecutionCommandSchema }).strict();
+// Moving stock and writing its value off carry different authority, so they are separate routes.
+const stockTransferBody = z
+  .object({
+    command: stockCommandSchema.refine(
+      (command) => command.action === 'transfer_stock',
+      'Only transfer commands are accepted here.',
+    ),
+  })
+  .strict();
+const stockReservationBody = z.object({ command: stockReservationCommandSchema }).strict();
+// Opening and recording a count is warehouse work; closing it posts variance and is finance work.
+const stockCountBody = z
+  .object({
+    command: stockCountCommandSchema.refine(
+      (command) => command.action !== 'close_count',
+      'Closing a count uses the MFA-protected finance route.',
+    ),
+  })
+  .strict();
+// Scrapping writes a device off, so it is the only RMA step that is finance work.
+const vendorQuoteBody = z.object({ command: vendorQuoteCommandSchema }).strict();
+const rmaManageBody = z
+  .object({
+    command: rmaCommandSchema.refine(
+      (command) => command.action !== 'scrap_asset',
+      'Scrapping uses the MFA-protected finance route.',
+    ),
+  })
+  .strict();
+const rmaScrapBody = z
+  .object({
+    command: rmaCommandSchema.refine(
+      (command) => command.action === 'scrap_asset',
+      'Only scrap commands are accepted here.',
+    ),
+  })
+  .strict();
+const stockCountCloseBody = z
+  .object({
+    command: stockCountCommandSchema.refine(
+      (command) => command.action === 'close_count',
+      'Only close commands are accepted here.',
+    ),
+  })
+  .strict();
+const stockAdjustBody = z
+  .object({
+    command: stockCommandSchema.refine(
+      (command) => command.action === 'adjust_stock',
+      'Adjustments use the MFA-protected finance route.',
+    ),
+  })
+  .strict();
 
 const salesLeadBody = z
   .object({
@@ -532,6 +629,7 @@ const exportBody = z
     format: z.enum(['csv', 'xlsx', 'pdf']),
   })
   .strict();
+const inventoryCustodyBody = z.object({ command: inventoryCustodyCommandSchema }).strict();
 const configurationBody = z
   .object({
     key: z
@@ -623,6 +721,18 @@ export const operationsRequestSchemas = {
   issueBody,
   issueTransitionBody,
   exportBody,
+  inventoryCustodyBody,
+  procurementManageBody,
+  procurementApprovalBody,
+  warehouseAdminBody,
+  stockTransferBody,
+  stockAdjustBody,
+  stockReservationBody,
+  stockCountBody,
+  stockCountCloseBody,
+  rmaManageBody,
+  rmaScrapBody,
+  vendorQuoteBody,
   configurationBody,
   networkBody,
   serviceChangeBody,
@@ -630,6 +740,8 @@ export const operationsRequestSchemas = {
 
 interface RouteSpec extends OperationsDefinition {
   readonly download?: boolean;
+  readonly arrayResponse?: boolean;
+  readonly querySchema?: z.ZodType;
   readonly schema: z.ZodType;
   readonly requiresRecentMfa?: boolean;
   readonly additionalPermissions?: readonly Permission[];
@@ -650,7 +762,70 @@ export function registerTenantOperationsRoutes(
   app: FastifyInstance,
   options: TenantOperationsRouteOptions,
 ): void {
+  const accountPermissions = {
+    credit_note: 'tenant.invoice.reverse',
+    credit_reversal: 'tenant.invoice.reverse',
+    deposit_received: 'tenant.payment.post',
+    deposit_applied: 'tenant.payment.post',
+    deposit_application_reversal: 'tenant.payment.reverse',
+    deposit_reversal: 'tenant.payment.reverse',
+  } as const;
   const routes: readonly RouteSpec[] = [
+    operation(
+      '/noc/incidents',
+      'createOutageIncident',
+      'tenant.network.job.create',
+      'tenant.noc.incident.create',
+      'noc_incident',
+      z.object({ command: createOutageSchema }).strict(),
+      (w, id, v) => w.createOutageIncident(id, v as never),
+    ),
+    operation(
+      '/noc/incidents/transition',
+      'transitionOutageIncident',
+      'tenant.network.job.create',
+      'tenant.noc.incident.transition',
+      'noc_incident',
+      z.object({ command: transitionOutageSchema }).strict(),
+      (w, id, v) => w.transitionOutageIncident(id, v as never),
+    ),
+    operation(
+      '/accounting/journals',
+      'postJournalEntry',
+      'tenant.accounting.post',
+      'tenant.accounting.journal.post',
+      'accounting_journal',
+      z.object({ command: journalEntryInputSchema }).strict(),
+      (writer, tenantId, input) => writer.postJournalEntry(tenantId, input as never),
+      true,
+    ),
+    operation(
+      '/accounting/periods/close',
+      'closeAccountingPeriod',
+      'tenant.accounting.close',
+      'tenant.accounting.period.close',
+      'accounting_period',
+      z.object({ request: periodCloseRequestSchema }).strict(),
+      (writer, tenantId, input) => writer.closeAccountingPeriod(tenantId, input as never),
+      true,
+    ),
+    ...Object.entries(customerAccountSchemas).map(([key, schema]) => {
+      const kind = key as CustomerAccountKind;
+      return operation(
+        '/customer-accounts/' + kind,
+        'customerAccount_' + kind,
+        accountPermissions[kind],
+        'tenant.customer_account.' + kind,
+        'customer_account_entry',
+        schema,
+        (writer, tenantId, input) => {
+          // Only body fields enter the monetary payload, never auth/session metadata.
+          const command = { ...schema.parse(inputBody(input)), kind };
+          return writer.postCustomerAccountEntry(tenantId, { ...input, command } as never);
+        },
+        true,
+      );
+    }),
     operation(
       '/invoice-documents',
       'generateInvoiceDocument',
@@ -954,6 +1129,154 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.transitionIssue(id, v as never),
     ),
     operation(
+      '/warehouse/custody',
+      'transitionInventoryCustody',
+      'tenant.installation.manage',
+      'tenant.warehouse.custody.transition',
+      'serialized_asset',
+      inventoryCustodyBody,
+      (w, id, v) => w.transitionInventoryCustody(id, v as never),
+    ),
+    operation(
+      '/warehouse/procurement',
+      'executeProcurementCommand',
+      'tenant.catalog.manage',
+      'tenant.warehouse.procurement.manage',
+      'purchase_order',
+      procurementManageBody,
+      (w, id, v) => w.executeProcurementCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/administration',
+      'executeWarehouseAdminCommand',
+      'tenant.catalog.manage',
+      'tenant.warehouse.administration.manage',
+      'warehouse_administration',
+      warehouseAdminBody,
+      (w, id, v) => w.executeWarehouseAdminCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/transfer',
+      'transferOperationsStock',
+      'tenant.installation.manage',
+      'tenant.warehouse.stock.transfer',
+      'stock_balance',
+      stockTransferBody,
+      (w, id, v) => w.executeStockCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/reservations',
+      'commandOperationsStockReservation',
+      'tenant.installation.manage',
+      'tenant.warehouse.stock.reserve',
+      'stock_reservation',
+      stockReservationBody,
+      (w, id, v) => w.executeStockReservationCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/quotes',
+      'commandOperationsVendorQuote',
+      'tenant.catalog.manage',
+      'tenant.warehouse.quote.manage',
+      'vendor_quote_request',
+      vendorQuoteBody,
+      (w, id, v) => w.executeVendorQuoteCommand(id, v as never),
+    ),
+    operation(
+      '/field-service/dispatch',
+      'dispatchFieldService',
+      'tenant.installation.manage',
+      'tenant.field.dispatch',
+      'work_order',
+      fieldDispatchBody,
+      (w, id, v) => w.executeFieldDispatchCommand(id, v as never),
+    ),
+    operation(
+      '/field-service/execute',
+      'executeFieldService',
+      'tenant.installation.manage',
+      'tenant.field.execute',
+      'work_order',
+      fieldExecutionBody,
+      (w, id, v) => w.executeFieldExecutionCommand(id, v as never),
+    ),
+    operation(
+      '/integrations/configure',
+      'configureTenantIntegration',
+      'tenant.secret.manage',
+      'tenant.integration.configure',
+      'integration_setting',
+      integrationConfigureBody,
+      (w, id, v) => w.configureIntegration(id, v as never),
+    ),
+    operation(
+      '/integrations/test',
+      'testTenantIntegration',
+      'tenant.secret.manage',
+      'tenant.integration.test',
+      'integration_setting',
+      integrationTestBody,
+      (w, id, v) => w.testIntegration(id, v as never),
+    ),
+    operation(
+      '/warehouse/rma',
+      'commandOperationsRma',
+      'tenant.installation.manage',
+      'tenant.warehouse.rma.manage',
+      'rma_case',
+      rmaManageBody,
+      (w, id, v) => w.executeRmaCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/rma/scrap',
+      'scrapOperationsRmaAsset',
+      'tenant.accounting.post',
+      'tenant.warehouse.rma.scrap',
+      'rma_case',
+      rmaScrapBody,
+      (w, id, v) => w.executeRmaCommand(id, v as never),
+      true,
+    ),
+    operation(
+      '/warehouse/stock/counts',
+      'commandOperationsStockCount',
+      'tenant.installation.manage',
+      'tenant.warehouse.stock.count',
+      'stock_count',
+      stockCountBody,
+      (w, id, v) => w.executeStockCountCommand(id, v as never),
+    ),
+    operation(
+      '/warehouse/stock/counts/close',
+      'closeOperationsStockCount',
+      'tenant.accounting.post',
+      'tenant.warehouse.stock.count.close',
+      'stock_count',
+      stockCountCloseBody,
+      (w, id, v) => w.executeStockCountCommand(id, v as never),
+      true,
+    ),
+    operation(
+      '/warehouse/stock/adjust',
+      'adjustOperationsStock',
+      'tenant.accounting.post',
+      'tenant.warehouse.stock.adjust',
+      'stock_balance',
+      stockAdjustBody,
+      (w, id, v) => w.executeStockCommand(id, v as never),
+      true,
+    ),
+    operation(
+      '/warehouse/procurement/approve',
+      'approveProcurementPurchaseOrder',
+      'tenant.accounting.post',
+      'tenant.warehouse.procurement.approve',
+      'purchase_order',
+      procurementApprovalBody,
+      (w, id, v) => w.executeProcurementCommand(id, v as never),
+      true,
+    ),
+    operation(
       '/exports',
       'requestOperationsExport',
       'tenant.report.export',
@@ -992,6 +1315,140 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.enqueueNetworkAction(id, v as never),
     ),
   ];
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/warehouse/workspace',
+      operationId: 'readWarehouseWorkspace',
+      permission: 'tenant.installation.view',
+      action: 'tenant.warehouse.workspace.read',
+      resourceType: 'warehouse_workspace',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readWarehouseWorkspace(tenantId, input as never),
+    },
+    'Tenant warehouse',
+    'warehouse-read',
+    'Read scoped serialized equipment custody',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/field-service/workspace',
+      operationId: 'readFieldServiceWorkspace',
+      permission: 'tenant.installation.view',
+      action: 'tenant.field.workspace.read',
+      resourceType: 'work_order',
+      schema: z.object({}).strict(),
+      querySchema: fieldServiceQuerySchema,
+      execute: (w, id, v) => w.readFieldServiceWorkspace(id, v as never),
+    },
+    'Tenant field service',
+    'field-read',
+    'Read scoped dispatch board and technicians',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/integrations',
+      operationId: 'readTenantIntegrationSettings',
+      permission: 'tenant.user.administer',
+      action: 'tenant.integration.read',
+      resourceType: 'integration_setting',
+      schema: z.object({}).strict(),
+      execute: (w, id, v) => w.readIntegrationSettings(id, v as never),
+    },
+    'Tenant integrations',
+    'integrations-read',
+    'Read tenant provider settings without secrets',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/noc/workspace',
+      operationId: 'readNocWorkspace',
+      permission: 'tenant.network.view',
+      action: 'tenant.noc.workspace.read',
+      resourceType: 'noc_workspace',
+      schema: z.object({}).strict(),
+      querySchema: nocQuerySchema,
+      execute: (w, id, v) => w.readNocWorkspace(id, v as never),
+    },
+    'Tenant NOC',
+    'noc-read',
+    'Read scoped incident workspace',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/customer-accounts/workspace',
+      operationId: 'readCustomerAccounts',
+      permission: 'tenant.billing.view',
+      action: 'tenant.customer_account.read',
+      resourceType: 'customer_accounts',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readCustomerAccounts(tenantId, input as never),
+    },
+    'Tenant billing',
+    'account-read',
+    'Authorized customer account read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/chart-of-accounts',
+      operationId: 'readChartOfAccounts',
+      arrayResponse: true,
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.coa.read',
+      resourceType: 'chart_of_accounts',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readChartOfAccounts(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'coa-read',
+    'Authorized chart of accounts read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/journal-entries',
+      operationId: 'readJournalEntries',
+      arrayResponse: true,
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.journal.read',
+      resourceType: 'journal_entries',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) => writer.readJournalEntries(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'journal-read',
+    'Authorized journal entries read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/trial-balance',
+      operationId: 'readTrialBalance',
+      querySchema: z.object({ asOfDate: z.iso.date().optional() }).strict(),
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.trial_balance.read',
+      resourceType: 'trial_balance',
+      schema: z.object({}).strict(),
+      execute: (writer, tenantId, input) =>
+        writer.readTrialBalance(tenantId, { ...input, ...(input.query as object) } as never),
+    },
+    'Tenant accounting',
+    'trial-balance-read',
+    'Authorized trial balance read',
+  );
   registerWorkspaceRead(
     app,
     options,
@@ -1040,6 +1497,40 @@ export function registerTenantOperationsRoutes(
     'Tenant subscribers',
     'subscriber-read',
     'Authorized subscriber workspace read',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/periods',
+      operationId: 'readAccountingPeriods',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.periods.read',
+      resourceType: 'accounting_period',
+      schema: z.object({}),
+      arrayResponse: true,
+      execute: (writer, tenantId, input) => writer.readAccountingPeriods(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'accounting-periods',
+    'Read accounting periods',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/accounting/customer-statement',
+      operationId: 'readCustomerStatement',
+      permission: 'tenant.accounting.view',
+      action: 'tenant.accounting.statement.read',
+      resourceType: 'customer_statement',
+      schema: z.object({}),
+      querySchema: customerStatementQuerySchema,
+      execute: (writer, tenantId, input) => writer.readCustomerStatement(tenantId, input as never),
+    },
+    'Tenant accounting',
+    'customer-statement',
+    'Read scoped customer statement',
   );
   for (const spec of routes) registerMutation(app, options, spec);
   registerWorkspaceRead(
@@ -1104,7 +1595,13 @@ function registerWorkspaceRead(
         tags: [tag],
         security: [{ bearerAuth: [] }],
         response: {
-          ...(!spec.download ? { 200: { type: 'object', additionalProperties: true } } : {}),
+          ...(!spec.download
+            ? {
+                200: spec.arrayResponse
+                  ? { type: 'array', items: { type: 'object', additionalProperties: true } }
+                  : { type: 'object', additionalProperties: true },
+              }
+            : {}),
           400: errorResponseJsonSchema,
           401: errorResponseJsonSchema,
           403: errorResponseJsonSchema,
@@ -1133,6 +1630,7 @@ function registerWorkspaceRead(
       try {
         result = await spec.execute(options.writer, context.tenantId, {
           ...(artifactId ? { artifactId } : {}),
+          ...(spec.querySchema ? { query: spec.querySchema.parse(request.query) } : {}),
           actorId: request.auth.sub,
           sessionId: request.auth.sessionId,
           idempotencyKey,
@@ -1357,4 +1855,21 @@ function containsSecretKey(value: unknown): boolean {
     ([key, item]) =>
       /secret|password|credential|token|private[_-]?key/i.test(key) || containsSecretKey(item),
   );
+}
+function inputBody(input: Record<string, unknown>): Record<string, unknown> {
+  const fields = [
+    'documentNumber',
+    'reasonEn',
+    'reasonAr',
+    'subscriberId',
+    'invoiceId',
+    'currency',
+    'netMinor',
+    'vatMinor',
+    'stampMinor',
+    'amountMinor',
+    'sourceReference',
+    'sourceEntryId',
+  ];
+  return Object.fromEntries(fields.filter((key) => key in input).map((key) => [key, input[key]]));
 }
