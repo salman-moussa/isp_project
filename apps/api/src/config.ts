@@ -45,14 +45,12 @@ const configSchema = z
         message: 'Production document storage requires HTTPS.',
       });
     }
-    if (
-      (configuration.AUTH_DELIVERY_BASE_URL === undefined) !==
-      (configuration.AUTH_DELIVERY_TOKEN === undefined)
-    ) {
+    // A leftover token without a provider URL is inert; a URL without its token is a misconfiguration.
+    if (configuration.AUTH_DELIVERY_BASE_URL && !configuration.AUTH_DELIVERY_TOKEN) {
       context.addIssue({
         code: 'custom',
-        path: ['AUTH_DELIVERY_BASE_URL'],
-        message: 'AUTH_DELIVERY_BASE_URL and AUTH_DELIVERY_TOKEN must be set together.',
+        path: ['AUTH_DELIVERY_TOKEN'],
+        message: 'AUTH_DELIVERY_TOKEN is required when AUTH_DELIVERY_BASE_URL is set.',
       });
     }
     for (const field of [

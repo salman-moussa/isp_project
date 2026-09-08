@@ -422,7 +422,7 @@ export function IntegrationSettingsPanel({
                 {current?.lastTestStatus ? (
                   <>
                     <StatusBadge
-                      tone={current.lastTestStatus === 'passed' ? 'positive' : 'negative'}
+                      tone={current.lastTestStatus === 'passed' ? 'positive' : 'critical'}
                     >
                       {current.lastTestStatus === 'passed'
                         ? t('Passed', 'ناجح')
@@ -594,7 +594,7 @@ export function IntegrationSettingsPanel({
                     {delivery.recipient}
                   </span>
                   <span role="cell">
-                    <StatusBadge tone={delivery.status === 'sent' ? 'positive' : 'negative'}>
+                    <StatusBadge tone={delivery.status === 'sent' ? 'positive' : 'critical'}>
                       {delivery.status === 'sent' ? t('Sent', 'أُرسل') : t('Failed', 'فشل')}
                     </StatusBadge>
                   </span>

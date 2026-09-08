@@ -281,17 +281,20 @@ LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,public AS $$
       AND to_regprocedure('public.verify_auth_otp_code(uuid,text,timestamp with time zone,integer)') IS NOT NULL
 $$;
 
--- Platform administrators receive the new canonical permission explicitly. The version bump
--- trigger invalidates their current sessions, which is the intended effect of a permission change.
+-- Platform administrators receive the new canonical permission explicitly: canonical owner or
+-- administrator roles, plus the legacy 'administrator' role key and any authorization that already
+-- holds the administrative bundle (client + deployment management). The version bump trigger
+-- invalidates their current sessions, which is the intended effect of a permission change.
 UPDATE platform_authorizations SET permissions = array_append(permissions, 'platform.integration.manage')
 WHERE active AND NOT ('platform.integration.manage' = ANY(permissions))
-  AND (roles && ARRAY['platform_owner','platform_administrator']::text[]);
+  AND (roles && ARRAY['platform_owner','platform_administrator','administrator']::text[]
+    OR ('platform.client.manage' = ANY(permissions) AND 'platform.deployment.manage' = ANY(permissions)));
 
 -- ISP owners and administrators hold every tenant permission by preset; memberships created
 -- before tenant.secret.manage was exercised receive it explicitly so provider configuration is
 -- reachable without an out-of-band grant. The membership version bump ends their sessions.
 UPDATE tenant_memberships SET permissions = array_append(permissions, 'tenant.secret.manage')
-WHERE active AND role_key IN ('isp_owner','isp_administrator')
+WHERE active AND role_key IN ('isp_owner','isp_administrator','administrator')
   AND NOT ('tenant.secret.manage' = ANY(permissions));
 
 REVOKE ALL ON platform_integration_settings, platform_integration_setting_events, auth_otp_codes,
