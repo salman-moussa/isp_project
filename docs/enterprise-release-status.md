@@ -1,7 +1,7 @@
 # Orvex ISP enterprise release status
 
 Status: live engineering ledger Controlling specification:
-[`product/enterprise-capability-map.md`](product/enterprise-capability-map.md) Updated: 2026-09-07
+[`product/enterprise-capability-map.md`](product/enterprise-capability-map.md) Updated: 2026-09-08
 
 This ledger records what the composed product can prove today. The only allowed capability states
 are `foundation`, `partial`, `missing`, `activation_required`, and `verified`. A unit test is
@@ -15,6 +15,36 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Audit/worker**: immutable evidence and asynchronous or external execution boundary.
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
+
+## Production checkpoint deployed — 2026-09-08 (`9f6e958`)
+
+Production moved from `e179b51` to `9f6e958`, promoting product-managed integration settings and
+database-backed authentication delivery. Release id `20260908T065954Z-9f6e958`. The deploy script
+completed end to end; the integration sealing key was generated on the host (`openssl rand`) and
+appended to the preserved `.env` without ever being printed, with the prior `.env` backed up first.
+
+| Item                | Result                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact            | sha256 `6c368fa2ecb652e4859ea32d96085e81e532f7c4b3f592b1a3124809c561fffd`, identical local and on-host                                                            |
+| Backup              | `/opt/orvex-backups/20260908T065954Z-9f6e958`, 7/7 entries verified with `sha256sum -c`                                                                           |
+| Preflight           | control 13/13 matched, 1 pending; tenant 54/54 matched, 1 pending — no blocking findings                                                                          |
+| Migrations promoted | `202609070100_control_integration_settings.sql` (control 13 → 14), `202609070200_tenant_integration_settings.sql` (tenant 54 → 55)                                |
+| Permission grants   | both platform administrators now hold `platform.integration.manage` (authorization versions bumped); the tenant administrator already held `tenant.secret.manage` |
+| Readiness           | `platform_integration_readiness()` relations and functions ready                                                                                                  |
+| Services            | all five `running (healthy)`                                                                                                                                      |
+| Endpoints           | `/health` 200, `/ready` 200, `/` 200, `/control/` 200, `/v1/control-center/integrations` 401 unauthenticated                                                      |
+| Invariants          | invalid indexes 0 in both databases                                                                                                                               |
+| Migration bytes     | 12 CRLF preserved, both new migrations 0 CR bytes                                                                                                                 |
+| Logs                | no error/fatal/panic lines after deployment                                                                                                                       |
+
+What is now live: Control Center → Administration → Integrations and tenant Configuration →
+Integrations. The remaining activation step is human: a platform administrator signs in (existing
+sessions ended with the permission bump), saves real SMTP settings, and sends a test email. Until
+then MFA step-up, recovery and invitations return an explicit `503` instead of pointing at a
+placeholder provider.
+
+Rollback boundary: `/opt/orvex-backups/20260908T065954Z-9f6e958/source.tar` plus both database dumps
+and `env.backup`.
 
 ## Product-managed integration settings — 2026-09-07
 
