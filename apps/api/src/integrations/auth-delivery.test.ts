@@ -8,7 +8,7 @@ import {
 } from './auth-delivery.js';
 import type { IntegrationRuntime } from './runtime.js';
 import { AesGcmSecretBox } from './secret-box.js';
-import { SmtpError } from './smtp-client.js';
+import { SmtpError, type MailMessage, type SmtpConnectionOptions } from './smtp-client.js';
 
 function harness(options: { smtp?: boolean; failSend?: boolean } = {}) {
   const secretBox = new AesGcmSecretBox(randomBytes(32), 'integration-1');
@@ -32,7 +32,15 @@ function harness(options: { smtp?: boolean; failSend?: boolean } = {}) {
     { digest: string; expiresAt: Date; attempts: number; consumed: boolean }
   >();
   const deliveries: MessageDeliveryEvidence[] = [];
-  const sendMail = vi.fn(async () => {
+  const sendMail = vi.fn<
+    (
+      options: SmtpConnectionOptions,
+      message: MailMessage,
+    ) => Promise<{
+      messageId: string;
+      response: string;
+    }>
+  >(async () => {
     if (options.failSend) throw new SmtpError('SMTP_CONNECT', 'down');
     return { messageId: '<m@example.test>', response: '250 ok' };
   });
