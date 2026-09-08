@@ -125,14 +125,14 @@ export async function readControlIntegrations(
   return (await response.json()) as ControlIntegrationWorkspace;
 }
 
-export interface ControlIntegrationConfigureBody {
+export type ControlIntegrationConfigureBody = {
   readonly config: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, string>>;
   readonly keepSecrets: boolean;
   readonly active: boolean;
   readonly expectedVersion?: number;
   readonly reason: string;
-}
+};
 
 export function configureControlIntegration(
   session: ApiSession,
