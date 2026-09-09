@@ -14,6 +14,9 @@ import type {
   AssuranceQuery,
   SupportCommand,
   SupportQuery,
+  ReportKey,
+  ReportQuery,
+  ReportExportCommand,
   TemplateCommand,
   CommunicationCommand,
   DeliverNotificationsCommand,
@@ -560,6 +563,22 @@ export interface OperationsWriter {
   readDealerWorkspace(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readDashboardSnapshot(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readReportsWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readReportDataset(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<ReportQuery> & { key?: ReportKey } },
+  ): Promise<unknown>;
+  exportReport(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: ReportExportCommand },
   ): Promise<unknown>;
   readSupportWorkspace(
     tenantId: VerifiedTenantId,

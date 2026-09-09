@@ -26,6 +26,11 @@ import {
   executeAssuranceCommand,
   readSupportWorkspace,
   executeSupportCommand,
+  readDashboardSnapshot,
+  readReportsWorkspace,
+  readReportDataset,
+  recordReportExport,
+  renderCsv,
   readCommunicationsWorkspace,
   executeTemplateCommand,
   executeCommunicationCommand,
@@ -145,6 +150,10 @@ export interface OperationsRepositoryAdapter {
   readonly readDealerWorkspace: typeof readDealerWorkspace;
   readonly readAssuranceWorkspace: typeof readAssuranceWorkspace;
   readonly readSupportWorkspace: typeof readSupportWorkspace;
+  readonly readDashboardSnapshot: typeof readDashboardSnapshot;
+  readonly readReportsWorkspace: typeof readReportsWorkspace;
+  readonly readReportDataset: typeof readReportDataset;
+  readonly recordReportExport: typeof recordReportExport;
   readonly executeSupportCommand: typeof executeSupportCommand;
   readonly readCommunicationsWorkspace: typeof readCommunicationsWorkspace;
   readonly executeTemplateCommand: typeof executeTemplateCommand;
@@ -246,6 +255,10 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   executeAssuranceCommand,
   readSupportWorkspace,
   executeSupportCommand,
+  readDashboardSnapshot,
+  readReportsWorkspace,
+  readReportDataset,
+  recordReportExport,
   readCommunicationsWorkspace,
   executeTemplateCommand,
   executeCommunicationCommand,
@@ -854,6 +867,63 @@ export class PostgresOperationsService implements OperationsWriter {
       request: input.request,
       authorization: this.sign(tenantId, input),
     });
+  }
+
+  public readDashboardSnapshot(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readDashboardSnapshot'>,
+  ) {
+    return this.repository.readDashboardSnapshot(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readReportsWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readReportsWorkspace'>,
+  ) {
+    return this.repository.readReportsWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readReportDataset(tenantId: VerifiedTenantId, input: WriterInput<'readReportDataset'>) {
+    const { key, ...window } = input.query ?? {};
+    if (!key) throw new Error('A report key is required.');
+    return this.repository.readReportDataset(this.database, tenantId, {
+      key,
+      query: window,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  /** Renders the dataset as CSV and records the export as a completed job. */
+  public async exportReport(tenantId: VerifiedTenantId, input: WriterInput<'exportReport'>) {
+    const dataset = await this.repository.readReportDataset(this.database, tenantId, {
+      key: input.command.key,
+      query: {
+        ...(input.command.from ? { from: input.command.from } : {}),
+        ...(input.command.to ? { to: input.command.to } : {}),
+      },
+      authorization: this.sign(tenantId, {
+        ...input,
+        permission: 'tenant.report.export',
+        auditAction: 'tenant.report.read',
+        idempotencyKey: `${input.idempotencyKey}:read`,
+      }),
+    });
+    const csv = renderCsv(dataset.rows);
+    const job = await this.repository.recordReportExport(this.database, tenantId, {
+      command: input.command,
+      rows: dataset.rows.length,
+      authorization: this.sign(tenantId, input),
+    });
+    return {
+      ...job,
+      rows: dataset.rows.length,
+      filename: `${input.command.key}-${dataset.from}-${dataset.to}.csv`,
+      csv,
+    };
   }
 
   public readSupportWorkspace(

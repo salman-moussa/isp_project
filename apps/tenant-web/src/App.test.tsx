@@ -87,7 +87,13 @@ describe('Orvex ISP Operations shell', () => {
     ).toHaveAttribute('href', '#main-content');
     expect(screen.getByText('ORVEX')).toBeInTheDocument();
     expect(screen.getByText('Orvex ISP Operations')).toBeInTheDocument();
-    expect(screen.getAllByText('Demonstration data').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Demonstration data')).toBeNull();
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Sign in to see today’s operating picture.',
+      }),
+    ).toBeInTheDocument();
 
     const results = await axe.run(container);
     expect(results.violations).toEqual([]);
@@ -129,6 +135,10 @@ describe('Orvex ISP Operations shell', () => {
         expect(
           screen.getByText('Sign in to view your permitted incident workspace.'),
         ).toBeVisible();
+      } else if (item.id === 'reports') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Reports' }),
+        ).toBeInTheDocument();
       } else if (item.id === 'support') {
         expect(
           screen.getByRole('heading', { level: 3, name: 'Sign in to open Customer service' }),

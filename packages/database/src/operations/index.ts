@@ -19,3 +19,4 @@ export * from './field-service.js';
 export * from './network-resources.js';
 export * from './revenue-assurance.js';
 export * from './customer-service.js';
+export * from './analytics.js';

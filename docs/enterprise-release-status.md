@@ -16,6 +16,73 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Live dashboard and governed reports — 2026-09-09
+
+The operations dashboard read a snapshot table that nothing ever wrote, so production showed zeros,
+and the signed-out shell carried demonstration collections, activities and a "workflow states"
+showcase. Migration 202609090500_tenant_analytics.sql adds `read_dashboard_snapshot` (permission
+`tenant.dashboard.view`, action `tenant.dashboard.read`), which computes today's picture at read
+time from the tenant's own records under the signed context: receipts posted today per currency and
+channel (office cashier, collector routes, other) with the latest receipts; unpaid posted invoices
+with their remaining balance per currency, the count older than 30 days and the oldest invoices;
+active, suspended and pending services with live RADIUS sessions per NAS; failed work (dead-lettered
+network jobs, failed notifications, failed billing runs, critical alarms), open and overdue tickets,
+open incidents and today's field visits; and the latest audited actions. Currencies are reported
+apart at every level.
+
+`read_report_dataset` (permission `tenant.report.view` or export, action `tenant.report.read`)
+serves nine governed datasets with a validated window of at most one year: receivables aging per
+currency (0-30, 31-60, 61-90, 90+), collections by day, currency and channel, subscribers by branch
+and status, plan mix with the monthly recurring amount, ticket SLA by priority (responded and
+resolved in time, reopened, escalated), incidents with minutes to resolve against the SLA target,
+dealer float and vouchers in the field, revenue assurance exposure by control, and notification
+delivery by day, channel and status. `POST /reports/export` renders the dataset as RFC 4180 CSV in
+the API, records the export as a succeeded job with the row count (audited through the export job
+trigger), and hands the file to the browser; the export queue is therefore real evidence of what
+left the system rather than a list nobody drained.
+
+The tenant dashboard now renders only from the live snapshot (nothing is shown before sign-in;
+"Demonstration data" is gone): four cards (collections today, unpaid invoices, live sessions, failed
+work) whose records open in a drilldown, collections by channel, shift shortcuts and the latest
+audited activity. The placeholder "Reports" page is replaced by a Reports workspace with the
+catalogue, a date window for windowed reports, the rendered table with money shown in its currency,
+CSV export and the export history.
+
+Live acceptance on PostgreSQL 18 (`test-live-analytics.ts`): dashboard refused without dashboard
+authority or with a support grant; collections today split by currency and channel with the office
+receipt attributed to its subscriber; unpaid invoices, overdue count, remaining per currency and
+oldest ordering; services and empty failed work; aging buckets, daily collections, invalid and
+oversized windows refused, empty window, plan mix, subscriber status; unknown report and wrong
+authority refused; CSV rendering with quoting; export recorded once with exact replay and one audit
+row; other-branch reader seeing no subscriber-bound rows and zero active services.
+
+Focused suites: api (dashboard, dataset key validation, export authority), tenant-web (dashboard
+sign-out/live/retry, reports run/export/window, App navigation); typecheck, lint and formatting
+gates pass.
+
+## Production checkpoint deployed — 2026-09-09 (`93e0d4e`, customer service and communications)
+
+Release id `20260909T071533Z-93e0d4e`; the deploy script completed end to end with
+`Deployment complete.`
+
+| Item                | Result                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Artifact            | sha256 `bfab30004d0093dc580449b1cef484ca4eae9b01da0d15c326bd12498e78d859`, identical local and on-host |
+| Backup              | `/opt/orvex-backups/20260909T071533Z-93e0d4e`, verified with SHA256SUMS                                |
+| Migrations promoted | 1 (`202609090400_tenant_customer_service`); 16 applied files preserved at their applied bytes          |
+| Services            | all five `running (healthy)`                                                                           |
+| Endpoints           | `/ready` 200 after 10s, `/` 200, `/control/` 200                                                       |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                                               |
+
+What is now live: tenant "Customer service" (categorised, verified tickets with SLA, notes,
+escalation, outage links, reopen and redress) and "Communications" (approved bilingual templates,
+subscriber consents, the notification outbox with masked destinations, and delivery through the
+tenant's own SMTP/SMS integrations). Production has no approved templates or configured providers
+yet, so delivery stays queued until an administrator activates them.
+
+Rollback boundary: `/opt/orvex-backups/20260909T071533Z-93e0d4e/source.tar` plus both database dumps
+and `env.backup`.
+
 ## Customer service and communications — 2026-09-09
 
 Support issues existed as a status machine with no intake discipline, and there was no way to send a
@@ -860,7 +927,7 @@ host was not modified.
 | Communications                       | `partial`    | Bilingual templates with separated approval, per-channel subscriber consent, notification outbox with rendering, destination resolution, suppression reasons, retry and delivery evidence; product-managed SMTP/SMS/WhatsApp providers                                                                                    | Template governance `tenant.user.administer`; messaging `tenant.subscriber.edit`; delivery `tenant.secret.manage`; masked destinations for readers                                                         | Append-only consent and communication event ledgers plus Operations audit; delivery recorded per attempt with deterministic keys | Live PostgreSQL 18 template/consent/queue/delivery proof; API and UI suites; providers remain `activation_required` until credentials are configured  | Scheduled delivery worker, provider receipts/webhooks, event-driven billing and outage notifications                                 |
 | Documents and verification           | `partial`    | Deterministic bilingual posted-invoice PDFs, private archive/retry/download UI; secure verifier boundary specified                                                                                                                                                                                                        | Invoice authority; signed scoped FORCE-RLS archive metadata; retained private S3 objects                                                                                                                   | Atomic archive mutation and download audit; retained create-only S3 objects                                                      | Live posted-invoice archive metadata and focused renderer/API/UI proof; no public verifier E2E                                                        | Activate Object Lock storage/restore; uploads/quarantine/scanning, legal hold/disposal and opaque verifier                           |
 | Regulatory and QoS                   | `missing`    | No obligations/KPI/reporting workspace                                                                                                                                                                                                                                                                                    | Absent                                                                                                                                                                                                     | None                                                                                                                             | None                                                                                                                                                  | TRA/license/tariff/QoS evidence model and reproducible submissions                                                                   |
-| Management analytics                 | `partial`    | Real tenant summary plus demonstration unauthenticated catalogue; drill-down datasets incomplete                                                                                                                                                                                                                          | Dashboard/report permissions; snapshots                                                                                                                                                                    | Summary read audit                                                                                                               | Summary API/UI tests                                                                                                                                  | Reconciled KPI drill-down, explicit windows/currencies and production-scale queries                                                  |
+| Management analytics                 | `partial`    | Live operations dashboard computed from real records (collections by channel, receivables, sessions, failed work, audited activity) and nine governed report datasets with CSV export recorded as evidence; no demonstration figures anywhere in the tenant shell                                                         | `tenant.dashboard.view`, `tenant.report.view`, `tenant.report.export`; signed read contexts and row policies apply scope; currencies never combined                                                        | Export jobs audited through the operations outbox                                                                                | Live PostgreSQL 18 dashboard/report/export proof (test-live-analytics.ts); API and UI suites                                                          | Scheduled report delivery, executive trend history, churn and capacity analytics, PDF/XLSX rendering                                 |
 | People operations                    | `missing`    | IAM identity is not an HR/people operations workflow                                                                                                                                                                                                                                                                      | Absent                                                                                                                                                                                                     | None                                                                                                                             | None                                                                                                                                                  | Teams/skills/schedules/leave/training/access-lifecycle without surveillance                                                          |
 | Security and audit                   | `foundation` | Canonical sessions, MFA boundary, scoped grants, tenant auth, staff device administration and immutable evidence exist                                                                                                                                                                                                    | Central permission catalogue, recent-MFA guards, FORCE RLS and guarded roles/functions                                                                                                                     | Security/control/tenant audit planes                                                                                             | Deny/isolation/session tests and fresh staff lifecycle proof exist; full DAST review absent                                                           | Complete secure uploads/webhooks, DAST and incident acceptance                                                                       |
 | Integration and data management      | `partial`    | Versioned API, idempotent operations and provider interfaces exist; lineage/import/webhooks incomplete                                                                                                                                                                                                                    | Route permissions and guarded worker DB roles                                                                                                                                                              | Outbox/inbox patterns in implemented slices                                                                                      | Finance/network/collect replay tests                                                                                                                  | Mapping/validation, durable webhooks, retention/legal hold, import/export and recovery                                               |

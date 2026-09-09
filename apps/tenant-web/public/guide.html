@@ -884,28 +884,61 @@
 
         <section class="module" id="dashboard">
           <header>
-            <h2><span lang="en">Dashboard</span><span lang="ar">لوحة التشغيل</span></h2>
-            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+            <h2><span lang="en">Operations dashboard</span><span lang="ar">لوحة العمليات</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
           </header>
           <p class="where">
-            <span lang="en">Where: tenant navigation → Operations dashboard.</span
-            ><span lang="ar">أين: قائمة المزوّد ← لوحة التشغيل.</span>
+            <span lang="en"
+              >Where: Operations dashboard (home). Permission:
+              <code>tenant.dashboard.view</code>.</span
+            ><span lang="ar">أين: لوحة العمليات (الصفحة الرئيسية). الصلاحية: عرض اللوحة.</span>
           </p>
-          <ul class="plain">
-            <li lang="en">
-              Shows the authenticated summary: active and online subscribers, collections split by
-              USD and LBP, and the snapshot time. Nothing is estimated; a value the API does not
-              provide is shown as a dash.
-            </li>
-            <li lang="ar">
-              تعرض الملخص الموثّق: المشتركون النشطون والمتصلون، والتحصيلات مفصولة بين الدولار
-              والليرة، ووقت اللقطة. لا شيء مقدّر؛ القيمة غير المتوفرة تظهر كشرطة.
-            </li>
-            <li lang="en">
-              Quick actions jump to the module that owns the work (add subscriber, record payment).
-            </li>
-            <li lang="ar">الإجراءات السريعة تنتقل إلى الوحدة المسؤولة عن العمل.</li>
-          </ul>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Four cards computed from your own records at the moment you open the page:
+                  collections today (USD and LBP apart, receipts by office cashier, collector routes
+                  and other channels), unpaid invoices with the remaining balance per currency and
+                  the count older than 30 days, live PPPoE sessions against active, suspended and
+                  pending services, and failed work (network jobs, notifications, billing runs,
+                  critical alarms) with open and overdue tickets, incidents and today's field
+                  visits.
+                </li>
+                <li lang="ar">
+                  أربع بطاقات تُحسب من سجلاتك لحظة فتح الصفحة: تحصيلات اليوم (الدولار والليرة
+                  منفصلان، والإيصالات حسب صندوق المكتب ومسارات الجباة والقنوات الأخرى)، الفواتير غير
+                  المسددة مع الرصيد المتبقي لكل عملة وعدد الأقدم من ٣٠ يوماً، جلسات PPPoE الحية
+                  مقابل الخدمات النشطة والمعلّقة والمنتظرة، والأعمال الفاشلة (مهام الشبكة والإشعارات
+                  ودورات الفوترة والإنذارات الحرجة) مع التذاكر المفتوحة والمتجاوزة والحوادث وزيارات
+                  اليوم الميدانية.
+                </li>
+                <li lang="en">
+                  Open any card to see the records behind it; the latest audited actions in your
+                  scope are listed below the cards. Nothing is shown before you sign in and no
+                  demonstration figures exist.
+                </li>
+                <li lang="ar">
+                  افتح أي بطاقة لرؤية السجلات وراءها؛ وتُدرج أحدث الإجراءات المدققة ضمن نطاقك أسفل
+                  البطاقات. لا يُعرض شيء قبل تسجيل الدخول ولا توجد أرقام تجريبية.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Trend history, churn and capacity analytics, and per-user saved layouts.
+                </li>
+                <li lang="ar">
+                  سجل الاتجاهات، وتحليلات فقدان العملاء والسعة، والتخطيطات المحفوظة لكل مستخدم.
+                </li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section class="module" id="sales">
@@ -1274,6 +1307,64 @@
                   تحتاج إلى NAS الفعلي (يتطلب تفعيلاً). تخطيط VLAN والبادئات وسجلات DNS وخطط التغيير
                   القابلة للتراجع وتهيئة أجهزة العميل وتشخيصها وتحديث برامجها (محوّل TR-069/USP)
                   واستطلاع الأجهزة وخريطة الشبكة هي التالية.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="reports">
+          <header>
+            <h2><span lang="en">Reports</span><span lang="ar">التقارير</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Reports. Permissions: <code>tenant.report.view</code> to run,
+              <code>tenant.report.export</code> to export CSV.</span
+            ><span lang="ar"
+              >أين: التقارير. الصلاحيات: عرض التقارير للتشغيل، وتصديرها لتصدير CSV.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Nine governed reports computed on request for your scope: receivables aging per
+                  currency, collections by day and channel, subscribers by branch and status, plan
+                  mix and monthly recurring, ticket SLA by priority, incidents and time to resolve,
+                  dealer float and vouchers, revenue assurance exposure, and notification delivery.
+                  Windowed reports default to the last 30 days and accept at most one year.
+                </li>
+                <li lang="ar">
+                  تسعة تقارير محكومة تُحسب عند الطلب ضمن نطاقك: أعمار الذمم لكل عملة، التحصيل حسب
+                  اليوم والقناة، المشتركون حسب الفرع والحالة، مزيج الخطط والإيراد الشهري، مهل
+                  التذاكر حسب الأولوية، الحوادث ومدة الحل، رصيد الوكلاء والقسائم، تعرض ضمان
+                  الإيرادات، وتسليم الإشعارات. التقارير ذات النافذة تعود إلى آخر ٣٠ يوماً وتقبل سنة
+                  كحد أقصى.
+                </li>
+                <li lang="en">
+                  CSV export downloads the rows and records the export with who ran it and how many
+                  rows left the system; the export history is shown on the page.
+                </li>
+                <li lang="ar">
+                  تصدير CSV ينزّل الصفوف ويسجل التصدير مع من شغّله وعدد الصفوف التي غادرت النظام؛
+                  ويُعرض سجل التصدير في الصفحة.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Scheduled report delivery by email, PDF and XLSX rendering, and saved report
+                  views.
+                </li>
+                <li lang="ar">
+                  تسليم التقارير المجدول بالبريد، وإخراج PDF وXLSX، وعروض التقارير المحفوظة.
                 </li>
               </ul>
             </div>

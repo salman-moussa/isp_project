@@ -120,6 +120,15 @@ function writerMocks() {
     })),
     readAssuranceWorkspace: vi.fn(async () => ({ findings: [], cases: [], runs: [] })),
     readSupportWorkspace: vi.fn(async () => ({ tickets: [] })),
+    readDashboardSnapshot: vi.fn(async () => ({ asOf: 'now', activity: [] })),
+    readReportsWorkspace: vi.fn(async () => ({ catalogue: [], exports: [] })),
+    readReportDataset: vi.fn(async () => ({ key: 'ar_aging', rows: [] })),
+    exportReport: vi.fn(async () => ({
+      jobId: 'job-a',
+      rows: 0,
+      filename: 'ar_aging.csv',
+      csv: '',
+    })),
     executeSupportCommand: vi.fn(async () => ({ issueId: 'issue-a', version: 1 })),
     readCommunicationsWorkspace: vi.fn(async () => ({ templates: [], notifications: [] })),
     executeTemplateCommand: vi.fn(async () => ({ templateId: 'tpl-a', version: 1 })),
@@ -2867,5 +2876,78 @@ describe('customer service and communications routes', () => {
       expect.objectContaining({ permission: 'tenant.secret.manage' }),
     );
     await administrator.app.close();
+  });
+});
+
+describe('dashboard and report routes', () => {
+  it('serves the live dashboard, report datasets with a validated key and CSV exports', async () => {
+    const writer = writerMocks();
+    const viewer = await makeApp(
+      { ...claims, permissions: ['tenant.dashboard.view', 'tenant.report.view'] },
+      writer,
+    );
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/operations/dashboard`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(writer.readDashboardSnapshot).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.dashboard.view',
+        auditAction: 'tenant.dashboard.read',
+      }),
+    );
+    const dataset = await viewer.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/reports/dataset?key=collections_daily&from=2026-08-01&to=2026-08-31`,
+    });
+    expect(dataset.statusCode).toBe(200);
+    expect(writer.readReportDataset).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        query: expect.objectContaining({ key: 'collections_daily', from: '2026-08-01' }) as unknown,
+      }),
+    );
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/operations/reports/dataset?key=not_a_report`,
+        })
+      ).statusCode,
+    ).toBe(400);
+    // Exporting needs the export permission.
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/reports/export`,
+          headers: { 'idempotency-key': 'report-export-001' },
+          payload: { command: { key: 'ar_aging' } },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
+
+    const exporter = await makeApp({ ...claims, permissions: ['tenant.report.export'] }, writer);
+    const exported = await exporter.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/reports/export`,
+      headers: { 'idempotency-key': 'report-export-002' },
+      payload: { command: { key: 'ar_aging' } },
+    });
+    expect(exported.statusCode).toBe(201);
+    expect(writer.exportReport).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.report.export',
+        command: expect.objectContaining({ key: 'ar_aging', format: 'csv' }) as unknown,
+      }),
+    );
+    await exporter.app.close();
   });
 });

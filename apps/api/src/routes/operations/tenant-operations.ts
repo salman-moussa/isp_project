@@ -8,6 +8,9 @@ import {
   assuranceQuerySchema,
   supportCommandSchema,
   supportQuerySchema,
+  reportQuerySchema,
+  reportKeys,
+  reportExportSchema,
   templateCommandSchema,
   communicationCommandSchema,
   deliverNotificationsSchema,
@@ -810,6 +813,15 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.transitionOutageIncident(id, v as never),
     ),
     operation(
+      '/reports/export',
+      'exportReport',
+      'tenant.report.export',
+      'tenant.report.export',
+      'export_job',
+      z.object({ command: reportExportSchema }).strict(),
+      (w, id, v) => w.exportReport(id, v as never),
+    ),
+    operation(
       '/support/commands',
       'executeSupportCommand',
       'tenant.subscriber.edit',
@@ -1519,6 +1531,55 @@ export function registerTenantOperationsRoutes(
     'Tenant integrations',
     'integrations-read',
     'Read tenant provider settings without secrets',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/dashboard',
+      operationId: 'readDashboardSnapshot',
+      permission: 'tenant.dashboard.view',
+      action: 'tenant.dashboard.read',
+      resourceType: 'dashboard',
+      schema: z.object({}).strict(),
+      execute: (w, id, v) => w.readDashboardSnapshot(id, v as never),
+    },
+    'Tenant dashboard',
+    'dashboard-read',
+    'Read the live operations dashboard for the authorized scope',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/reports/workspace',
+      operationId: 'readReportsWorkspace',
+      permission: 'tenant.report.view',
+      action: 'tenant.report.workspace.read',
+      resourceType: 'reports',
+      schema: z.object({}).strict(),
+      execute: (w, id, v) => w.readReportsWorkspace(id, v as never),
+    },
+    'Tenant reports',
+    'reports-read',
+    'Read the report catalogue and export history',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/reports/dataset',
+      operationId: 'readReportDataset',
+      permission: 'tenant.report.view',
+      action: 'tenant.report.read',
+      resourceType: 'report_dataset',
+      schema: z.object({}).strict(),
+      querySchema: reportQuerySchema.extend({ key: z.enum(reportKeys) }),
+      execute: (w, id, v) => w.readReportDataset(id, v as never),
+    },
+    'Tenant reports',
+    'report-dataset',
+    'Read one governed report dataset',
   );
   registerWorkspaceRead(
     app,

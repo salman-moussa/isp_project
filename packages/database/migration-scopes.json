@@ -71,5 +71,6 @@
   "202609090100_tenant_noc_telemetry.sql": "tenant",
   "202609090200_tenant_dealer_channel.sql": "tenant",
   "202609090300_tenant_revenue_assurance.sql": "tenant",
-  "202609090400_tenant_customer_service.sql": "tenant"
+  "202609090400_tenant_customer_service.sql": "tenant",
+  "202609090500_tenant_analytics.sql": "tenant"
 }

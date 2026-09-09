@@ -6,6 +6,11 @@ import type {
   AssuranceQuery,
   SupportWorkspace,
   SupportQuery,
+  DashboardSnapshot,
+  ReportsWorkspace,
+  ReportDataset,
+  ReportKey,
+  ReportQuery,
   CommunicationsWorkspace,
   NocWorkspace,
   NocQuery,
@@ -1014,6 +1019,43 @@ export async function readFieldServiceWorkspace(
   return (await response.json()) as FieldServiceWorkspace;
 }
 
+export async function readDashboardSnapshot(session: ApiSession): Promise<DashboardSnapshot> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/dashboard`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Dashboard');
+  return (await response.json()) as DashboardSnapshot;
+}
+export async function readReportsWorkspace(session: ApiSession): Promise<ReportsWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/reports/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Reports workspace');
+  return (await response.json()) as ReportsWorkspace;
+}
+export async function readReportDataset(
+  session: ApiSession,
+  key: ReportKey,
+  query: Partial<ReportQuery> = {},
+): Promise<ReportDataset> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const params = new URLSearchParams({ key });
+  for (const [name, value] of Object.entries(query))
+    if (value !== undefined) params.set(name, String(value));
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/reports/dataset?${params}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Report dataset');
+  return (await response.json()) as ReportDataset;
+}
 export async function readSupportWorkspace(
   session: ApiSession,
   query: Partial<SupportQuery> = {},
