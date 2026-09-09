@@ -1,0 +1,273 @@
+.dealer-shell {
+  --dl-ink: var(--color-ink, #14213a);
+  --dl-line: var(--color-border, #dfe5ed);
+  --dl-muted: var(--color-ink-muted, #5d6b82);
+  display: grid;
+  gap: 1.1rem;
+  color: var(--dl-ink);
+  max-width: 1600px;
+  margin: auto;
+}
+.dealer-shell :is(button, input, select, textarea) {
+  font: inherit;
+}
+.dealer-shell :is(input, select, textarea, button):focus-visible {
+  outline: 3px solid #ef9b19;
+  outline-offset: 2px;
+}
+.dealer-shell button {
+  cursor: pointer;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--dl-line);
+  border-radius: 0.6rem;
+  background: var(--color-surface, #fff);
+  color: inherit;
+}
+.dealer-shell button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.dealer-shell button.dealer-primary {
+  background: var(--dl-ink);
+  border-color: var(--dl-ink);
+  color: #fff;
+  font-weight: 650;
+}
+.dealer-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: clamp(1.2rem, 2.5vw, 1.8rem);
+  border: 1px solid var(--dl-line);
+  border-radius: var(--radius-lg, 0.875rem);
+  background: var(--color-surface, #fff);
+}
+.dealer-hero > div:first-child {
+  max-width: 68ch;
+}
+.dealer-hero > div:first-child > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dl-muted);
+}
+.dealer-hero h1 {
+  margin: 0.4rem 0 0.6rem;
+  font-size: clamp(1.5rem, 2.8vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+.dealer-hero p,
+.dealer-note {
+  margin: 0;
+  color: var(--dl-muted);
+}
+.dealer-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(6rem, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+.dealer-stats > div {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.8rem;
+  background: var(--color-surface-raised, #f8fafc);
+  border: 1px solid var(--dl-line);
+}
+.dealer-stats > div.is-alert {
+  border-color: #f0b4b4;
+  background: #fff1f1;
+}
+.dealer-stats dt {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dl-muted);
+}
+.dealer-stats dd {
+  margin: 0.2rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dealer-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.dealer-shell .dealer-tabs button {
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  font-weight: 600;
+}
+.dealer-shell .dealer-tabs button[aria-current='page'] {
+  background: var(--dl-ink);
+  border-color: var(--dl-ink);
+  color: #fff;
+}
+.dealer-panel {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--dl-line);
+  background: #f4f8ff;
+}
+.dealer-panel--positive {
+  border-color: #9ad6c3;
+  background: #ecfaf4;
+}
+.dealer-panel--negative {
+  border-color: #f0b4b4;
+  background: #fff1f1;
+}
+.dealer-panel h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+.dealer-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: clamp(0.9rem, 2vw, 1.4rem);
+  border: 1px solid var(--dl-line);
+  border-radius: var(--radius-lg, 0.875rem);
+  background: var(--color-surface, #fff);
+}
+.dealer-card h2,
+.dealer-card h3 {
+  margin: 0;
+}
+.dealer-card h3 {
+  font-size: 1rem;
+}
+.dealer-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.dealer-pins {
+  border-color: #f0c36d;
+  background: #fffaf0;
+}
+.dealer-pins code {
+  font-size: 1.05em;
+  letter-spacing: 0.08em;
+}
+.dealer-form {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid var(--dl-line);
+  border-radius: 0.8rem;
+  background: var(--color-surface-raised, #f8fafc);
+}
+.dealer-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+.dealer-field {
+  display: grid;
+  gap: 0.3rem;
+}
+.dealer-field > span {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.dealer-field :is(input, select, textarea) {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #b9c7dc;
+  border-radius: 0.6rem;
+  background: var(--color-surface, #fff);
+  min-inline-size: 0;
+}
+.dealer-field textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+.dealer-field--wide {
+  grid-column: 1 / -1;
+}
+.dealer-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.dealer-table {
+  display: grid;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+.dealer-table [role='row'] {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  background: var(--color-surface-raised, #f7f9fd);
+  text-align: start;
+  align-items: center;
+  font-size: 0.92rem;
+}
+.dealer-table [role='cell'] small {
+  display: block;
+  color: var(--dl-muted);
+}
+.dealer-table [role='cell'].is-negative {
+  color: #922330;
+}
+.dealer-table [role='cell'].is-positive {
+  color: #205c48;
+}
+.dealer-table__head {
+  background: transparent !important;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dl-muted);
+}
+.dealer-table__row.status-suspended,
+.dealer-table__row.status-cancelled {
+  color: var(--dl-muted);
+}
+.dealer-table__row.status-credit_pending {
+  box-shadow: inset 4px 0 #d98c12;
+}
+[dir='rtl'] .dealer-table__row.status-credit_pending {
+  box-shadow: inset -4px 0 #d98c12;
+}
+.dealer-table__row--dealers {
+  grid-template-columns: minmax(12rem, 1.3fr) 10rem 9rem 9rem 6rem 8rem 14rem;
+  min-inline-size: 72rem;
+}
+.dealer-table__row--batches {
+  grid-template-columns: 9rem 7rem 11rem 9rem minmax(12rem, 1fr) 12rem 12rem;
+  min-inline-size: 72rem;
+}
+.dealer-table__row--redemptions {
+  grid-template-columns: 12rem minmax(10rem, 1fr) 8rem 12rem 11rem 9rem;
+  min-inline-size: 62rem;
+}
+.dealer-table__row--ledger {
+  grid-template-columns: 11rem 11rem minmax(12rem, 1fr) 9rem 9rem 10rem 9rem;
+  min-inline-size: 72rem;
+}
+.dealer-table__row--pins {
+  grid-template-columns: 14rem 12rem;
+}
+@media (max-width: 900px) {
+  .dealer-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 620px) {
+  .dealer-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

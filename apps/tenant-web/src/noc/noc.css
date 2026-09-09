@@ -379,3 +379,122 @@
     padding: 0.7rem;
   }
 }
+.noc-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(5.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+.noc-stats > div {
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--noc-border);
+}
+.noc-stats > div.is-alert {
+  border-color: #f0b4b4;
+  background: #fff1f1;
+}
+.noc-stats dt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #486266;
+}
+.noc-stats dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+.noc-views {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.noc-shell .noc-views button {
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-weight: 650;
+}
+.noc-shell .noc-views button[aria-current='page'] {
+  background: var(--noc-ink);
+  border-color: var(--noc-ink);
+  color: #fff;
+}
+.noc-views button small {
+  font-weight: 600;
+  opacity: 0.75;
+}
+.noc-sla {
+  display: inline-block;
+  margin-inline-start: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 750;
+  background: #eef4f4;
+  color: #3f6461;
+}
+.noc-sla.is-breached {
+  background: #fae3e5;
+  color: #922330;
+}
+.noc-alarms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.noc-alarm {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid #e1ebea;
+  font-size: 0.9rem;
+}
+.noc-alarm:last-child {
+  border-bottom: 0;
+}
+.noc-alarm.status-active {
+  box-shadow: inset 4px 0 #c43a4a;
+}
+[dir='rtl'] .noc-alarm.status-active {
+  box-shadow: inset -4px 0 #c43a4a;
+}
+.noc-alarm.status-cleared,
+.noc-alarm.status-completed,
+.noc-alarm.status-cancelled {
+  color: #5d7370;
+}
+.noc-alarm p {
+  margin: 0;
+}
+.noc-alarm small {
+  color: #516865;
+}
+.noc-alarm code {
+  font-size: 0.85em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.3rem;
+  background: #eef4f4;
+}
+.noc-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+.noc-error button {
+  margin-top: 0.8rem;
+}
+@media (max-width: 950px) {
+  .noc-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 620px) {
+  .noc-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

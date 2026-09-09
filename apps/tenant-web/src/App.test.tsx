@@ -124,6 +124,14 @@ describe('Orvex ISP Operations shell', () => {
         expect(
           screen.getByText('Sign in to view your permitted incident workspace.'),
         ).toBeVisible();
+      } else if (item.id === 'assurance') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Revenue assurance' }),
+        ).toBeInTheDocument();
+      } else if (item.id === 'dealers') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Dealers' }),
+        ).toBeInTheDocument();
       } else if (item.id === 'warehouse') {
         expect(
           await screen.findByRole('heading', { level: 1, name: 'Sign in to open Warehouse' }),

@@ -250,6 +250,8 @@ class SmtpSession {
       plain.removeAllListeners('error');
       plain.removeAllListeners('close');
       plain.removeAllListeners('timeout');
+      // The raw socket must never be left without an error listener while TLS negotiates.
+      plain.on('error', () => undefined);
       const secure = connectTls({ socket: plain, servername: this.options.host }, () => {
         this.socket = secure;
         this.secure = true;

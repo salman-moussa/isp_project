@@ -3,12 +3,15 @@ import { createHash } from 'node:crypto';
 import {
   executeFieldServiceCommand,
   readFieldServiceWorkspace,
+  executeNetworkCommand,
+  readNetworkWorkspace,
   executeIntegrationSettingsCommand,
   readTenantIntegrationDelivery,
   readTenantIntegrationSettings,
   readNocWorkspace,
   createOutageIncident,
   transitionOutageIncident,
+  executeNocAlarmCommand,
   postCustomerAccountEntry,
   readCustomerAccounts,
   readChartOfAccounts,
@@ -18,9 +21,15 @@ import {
   readTrialBalance,
   readAccountingPeriods,
   closeAccountingPeriod,
-  readDealers,
+  readDealerWorkspace,
+  readAssuranceWorkspace,
+  executeAssuranceCommand,
+  executeDealerChannelCommand,
   generateVoucherBatch,
-  redeemVoucher,
+  adjustDealerBalance,
+  redeemVoucherForSubscriber,
+  confirmVoucherCredit,
+  readPendingVoucherRedemption,
   readWarehouses,
   readInventoryItems,
   readSerializedAssets,
@@ -107,6 +116,7 @@ export interface OperationsRepositoryAdapter {
   readonly readNocWorkspace: typeof readNocWorkspace;
   readonly createOutageIncident: typeof createOutageIncident;
   readonly transitionOutageIncident: typeof transitionOutageIncident;
+  readonly executeNocAlarmCommand: typeof executeNocAlarmCommand;
   readonly postCustomerAccountEntry: typeof postCustomerAccountEntry;
   readonly readCustomerAccounts: typeof readCustomerAccounts;
   readonly readChartOfAccounts: typeof readChartOfAccounts;
@@ -116,9 +126,15 @@ export interface OperationsRepositoryAdapter {
   readonly readTrialBalance: typeof readTrialBalance;
   readonly readAccountingPeriods: typeof readAccountingPeriods;
   readonly closeAccountingPeriod: typeof closeAccountingPeriod;
-  readonly readDealers: typeof readDealers;
+  readonly readDealerWorkspace: typeof readDealerWorkspace;
+  readonly readAssuranceWorkspace: typeof readAssuranceWorkspace;
+  readonly executeAssuranceCommand: typeof executeAssuranceCommand;
+  readonly executeDealerChannelCommand: typeof executeDealerChannelCommand;
   readonly generateVoucherBatch: typeof generateVoucherBatch;
-  readonly redeemVoucher: typeof redeemVoucher;
+  readonly adjustDealerBalance: typeof adjustDealerBalance;
+  readonly redeemVoucherForSubscriber: typeof redeemVoucherForSubscriber;
+  readonly confirmVoucherCredit: typeof confirmVoucherCredit;
+  readonly readPendingVoucherRedemption: typeof readPendingVoucherRedemption;
   readonly readWarehouses: typeof readWarehouses;
   readonly readInventoryItems: typeof readInventoryItems;
   readonly readSerializedAssets: typeof readSerializedAssets;
@@ -136,6 +152,8 @@ export interface OperationsRepositoryAdapter {
   readonly readTenantIntegrationDelivery: typeof readTenantIntegrationDelivery;
   readonly executeFieldServiceCommand: typeof executeFieldServiceCommand;
   readonly readFieldServiceWorkspace: typeof readFieldServiceWorkspace;
+  readonly executeNetworkCommand: typeof executeNetworkCommand;
+  readonly readNetworkWorkspace: typeof readNetworkWorkspace;
   readonly readNasClients: typeof readNasClients;
   readonly readRadiusSessions: typeof readRadiusSessions;
   readonly readIpPools: typeof readIpPools;
@@ -190,6 +208,7 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readNocWorkspace,
   createOutageIncident,
   transitionOutageIncident,
+  executeNocAlarmCommand,
   postCustomerAccountEntry,
   readCustomerAccounts,
   readChartOfAccounts,
@@ -199,9 +218,15 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readTrialBalance,
   readAccountingPeriods,
   closeAccountingPeriod,
-  readDealers,
+  readDealerWorkspace,
+  readAssuranceWorkspace,
+  executeAssuranceCommand,
+  executeDealerChannelCommand,
   generateVoucherBatch,
-  redeemVoucher,
+  adjustDealerBalance,
+  redeemVoucherForSubscriber,
+  confirmVoucherCredit,
+  readPendingVoucherRedemption,
   readWarehouses,
   readInventoryItems,
   readSerializedAssets,
@@ -219,6 +244,8 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readTenantIntegrationDelivery,
   executeFieldServiceCommand,
   readFieldServiceWorkspace,
+  executeNetworkCommand,
+  readNetworkWorkspace,
   readNasClients,
   readRadiusSessions,
   readIpPools,
@@ -799,8 +826,43 @@ export class PostgresOperationsService implements OperationsWriter {
     });
   }
 
-  public readDealers(tenantId: VerifiedTenantId, input: WriterInput<'readDealers'>) {
-    return this.repository.readDealers(this.database, tenantId, this.sign(tenantId, input));
+  public readAssuranceWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readAssuranceWorkspace'>,
+  ) {
+    return this.repository.readAssuranceWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeAssuranceCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeAssuranceCommand'>,
+  ) {
+    return this.repository.executeAssuranceCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readDealerWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readDealerWorkspace'>,
+  ) {
+    return this.repository.readDealerWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeDealerChannelCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeDealerChannelCommand'>,
+  ) {
+    return this.repository.executeDealerChannelCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
   }
 
   public generateVoucherBatch(
@@ -813,11 +875,117 @@ export class PostgresOperationsService implements OperationsWriter {
     });
   }
 
-  public redeemVoucher(tenantId: VerifiedTenantId, input: WriterInput<'redeemVoucher'>) {
-    return this.repository.redeemVoucher(this.database, tenantId, {
+  public adjustDealerBalance(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'adjustDealerBalance'>,
+  ) {
+    return this.repository.adjustDealerBalance(this.database, tenantId, {
       command: input.command,
       authorization: this.sign(tenantId, input),
     });
+  }
+
+  /**
+   * Voucher redemption is a three-step saga with visible state: the voucher is marked redeemed
+   * (atomic, PIN-guarded), the subscriber deposit is posted through the customer account ledger
+   * under its own signed action, and the redemption is confirmed against that entry. Every step
+   * carries a deterministic idempotency key, so a retry after a partial failure completes the
+   * same redemption instead of creating another.
+   */
+  public async redeemVoucher(tenantId: VerifiedTenantId, input: WriterInput<'redeemVoucher'>) {
+    const redeemed = await this.repository.redeemVoucherForSubscriber(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+    if (redeemed.creditStatus === 'credited') return redeemed;
+    const credit = await this.creditRedemption(tenantId, input, {
+      redemptionId: redeemed.redemptionId,
+      serialNumber: redeemed.serialNumber,
+      subscriberId: redeemed.subscriberId,
+      amountMinor: redeemed.amountMinor,
+      currency: redeemed.currency,
+    });
+    return { ...redeemed, creditStatus: 'credited', accountEntryId: credit.accountEntryId };
+  }
+
+  /** Completes the subscriber credit for a redemption whose posting failed earlier. */
+  public async retryVoucherCredit(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'retryVoucherCredit'>,
+  ) {
+    const pending = await this.repository.readPendingVoucherRedemption(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+      redemptionId: input.command.redemptionId,
+    });
+    if (pending.status === 'credited') {
+      return {
+        redemptionId: pending.id,
+        creditStatus: 'credited',
+        accountEntryId: pending.accountEntryId,
+      };
+    }
+    const credit = await this.creditRedemption(tenantId, input, {
+      redemptionId: pending.id,
+      serialNumber: pending.serialNumber,
+      subscriberId: pending.subscriberId,
+      amountMinor: pending.amountMinor,
+      currency: pending.currency,
+    });
+    return {
+      redemptionId: pending.id,
+      creditStatus: 'credited',
+      accountEntryId: credit.accountEntryId,
+    };
+  }
+
+  private async creditRedemption(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: { readonly reasonEn: string; readonly reasonAr: string };
+    },
+    redemption: {
+      readonly redemptionId: string;
+      readonly serialNumber: string;
+      readonly subscriberId: string;
+      readonly amountMinor: number;
+      readonly currency: 'USD' | 'LBP';
+    },
+  ) {
+    const reasonEn = input.command.reasonEn.slice(0, 500);
+    const reasonAr = input.command.reasonAr.slice(0, 500);
+    const entry = await this.repository.postCustomerAccountEntry(this.database, tenantId, {
+      command: {
+        kind: 'deposit_received',
+        subscriberId: redemption.subscriberId,
+        currency: redemption.currency,
+        amountMinor: redemption.amountMinor,
+        documentNumber: `VCH-${redemption.serialNumber}`,
+        sourceReference: `VOUCHER:${redemption.serialNumber}`,
+        reasonEn,
+        reasonAr,
+      },
+      authorization: this.sign(tenantId, {
+        ...input,
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.customer_account.deposit_received',
+        idempotencyKey: `voucher-credit:${redemption.redemptionId}`,
+      }),
+    });
+    await this.repository.confirmVoucherCredit(this.database, tenantId, {
+      command: {
+        redemptionId: redemption.redemptionId,
+        accountEntryId: entry.id,
+        reasonEn: input.command.reasonEn,
+        reasonAr: input.command.reasonAr,
+      },
+      authorization: this.sign(tenantId, {
+        ...input,
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.dealer.channel.manage',
+        idempotencyKey: `voucher-confirm:${redemption.redemptionId}`,
+      }),
+    });
+    return { accountEntryId: entry.id };
   }
 
   public readWarehouses(tenantId: VerifiedTenantId, input: WriterInput<'readWarehouses'>) {
@@ -952,6 +1120,46 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'executeFieldExecutionCommand'>,
   ) {
     return this.repository.executeFieldServiceCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readNetworkWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readNetworkWorkspace'>,
+  ) {
+    return this.repository.readNetworkWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeNetworkInfrastructureCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeNetworkInfrastructureCommand'>,
+  ) {
+    return this.repository.executeNetworkCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeNocAlarmCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeNocAlarmCommand'>,
+  ) {
+    return this.repository.executeNocAlarmCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeNetworkResourceCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeNetworkResourceCommand'>,
+  ) {
+    return this.repository.executeNetworkCommand(this.database, tenantId, {
       command: input.command,
       authorization: this.sign(tenantId, input),
     });

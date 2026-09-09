@@ -2,12 +2,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import type { ApiSession } from '@isp/ui';
-import type { NocWorkspace as Workspace, NocIncident } from '@isp/contracts';
+import type { NocWorkspace as Workspace, NocIncident, NocAlarm } from '@isp/contracts';
 import { NocWorkspace } from './NocWorkspace';
 import * as api from '../api';
 vi.mock('../api', () => ({ readNocWorkspace: vi.fn(), submitTenantOperation: vi.fn() }));
 const id = '10000000-0000-4000-8000-000000000001',
-  route = '20000000-0000-4000-8000-000000000001';
+  route = '20000000-0000-4000-8000-000000000001',
+  alarmId = '30000000-0000-4000-8000-000000000001';
 const session: ApiSession = {
   apiBaseUrl: 'https://example.test',
   tenantId: id,
@@ -30,6 +31,9 @@ const incident: NocIncident = {
   severity: 'major',
   version: 3,
   serviceIds: [id],
+  slaDueAt: '2026-09-02T16:00:00Z',
+  slaBreached: true,
+  linkedAlarms: 1,
   events: [
     {
       id,
@@ -42,11 +46,39 @@ const incident: NocIncident = {
     },
   ],
 };
+const alarm: NocAlarm = {
+  id: alarmId,
+  deviceName: 'edge-1',
+  severity: 'critical',
+  alarmCode: 'ROUTER_UNREACHABLE',
+  messageEn: 'Router edge-1 did not answer the worker (offline).',
+  messageAr: 'لم يستجب الراوتر edge-1 لعامل الشبكة (offline).',
+  source: 'worker',
+  status: 'active',
+  routerId: 'edge-1',
+  routeId: route,
+  serviceId: id,
+  serviceNumber: 'SVC-001',
+  outageId: null,
+  maintenanceId: null,
+  occurrenceCount: 3,
+  raisedAt: '2026-09-09T01:00:00Z',
+  lastSeenAt: '2026-09-09T01:20:00Z',
+  acknowledgedAt: null,
+  acknowledgedBy: null,
+  acknowledgementNote: null,
+  clearedAt: null,
+  version: 3,
+};
 const empty: Workspace = {
   incidents: [],
   routes: [{ id: route, nameEn: 'Test route', nameAr: 'مسار تجريبي' }],
   services: [{ id, routeId: route, serviceNumber: 'SVC-001', subscriberName: 'Fixture customer' }],
   serviceDirectoryTruncated: false,
+  alarms: [],
+  maintenanceWindows: [],
+  routerIds: ['edge-1'],
+  alarmSummary: { active: 0, acknowledged: 0, critical: 0, suppressed: 0, slaBreaches: 0 },
   page: 1,
   pageSize: 25,
   totalCount: 0,
@@ -67,7 +99,7 @@ describe('NOC workflow', () => {
     const user = userEvent.setup();
     render(<NocWorkspace locale="ar" session={session} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('مساحة العمل غير متاحة');
-    await user.click(screen.getByRole('button', { name: 'تحديث' }));
+    await user.click(screen.getAllByRole('button', { name: 'تحديث' })[0]);
     expect(await screen.findByText('لا حوادث في هذا العرض')).toBeVisible();
     expect(screen.getByText('لا حوادث في هذا العرض').closest('.noc-shell')).toHaveAttribute(
       'dir',
@@ -114,6 +146,7 @@ describe('NOC workflow', () => {
     const user = userEvent.setup();
     render(<NocWorkspace locale="en" session={session} />);
     await user.click(await screen.findByRole('button', { name: /Upstream cabinet power/ }));
+    expect(screen.getByText('Resolution target').nextElementSibling).toHaveTextContent('Breached');
     await user.click(screen.getByRole('button', { name: 'Save status update' }));
     expect(api.submitTenantOperation).not.toHaveBeenCalled();
     for (const [label, value] of [
@@ -143,6 +176,7 @@ describe('NOC workflow', () => {
         page: 2,
         pageSize: 25,
         status: 'open',
+        alarms: 'live',
       }),
     );
     await user.selectOptions(screen.getByLabelText('Show incidents'), 'resolved');
@@ -151,7 +185,83 @@ describe('NOC workflow', () => {
         page: 1,
         pageSize: 25,
         status: 'resolved',
+        alarms: 'live',
       }),
+    );
+  });
+  it('shows worker alarms with the summary and acknowledges one at its current version', async () => {
+    vi.mocked(api.readNocWorkspace).mockResolvedValue({
+      ...empty,
+      alarms: [alarm],
+      alarmSummary: { active: 1, acknowledged: 0, critical: 1, suppressed: 0, slaBreaches: 0 },
+    });
+    const user = userEvent.setup();
+    render(<NocWorkspace locale="en" session={session} />);
+    expect((await screen.findByText('Critical')).nextElementSibling).toHaveTextContent('1');
+    await user.click(screen.getByRole('button', { name: /^Alarms/ }));
+    expect(screen.getByText('Router edge-1 did not answer the worker (offline).')).toBeVisible();
+    expect(screen.getByText(/Seen 3×/)).toBeVisible();
+    // No open incident exists, so linking is not offered.
+    expect(screen.getByRole('button', { name: 'Link to incident' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }));
+    fireEvent.change(screen.getByLabelText('Note (optional)'), {
+      target: { value: 'Field team dispatched' },
+    });
+    fireEvent.change(screen.getByLabelText('Reason in English'), {
+      target: { value: 'Router power loss confirmed on site' },
+    });
+    fireEvent.change(screen.getByLabelText('Reason in Arabic'), {
+      target: { value: 'تم تأكيد انقطاع طاقة الراوتر في الموقع' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.submitTenantOperation).mock.calls[0]?.[1]).toBe('noc/alarms');
+    expect(vi.mocked(api.submitTenantOperation).mock.calls[0]?.[2]).toMatchObject({
+      command: {
+        action: 'acknowledge_alarm',
+        alarmId,
+        expectedVersion: 3,
+        note: 'Field team dispatched',
+      },
+    });
+  });
+  it('plans a maintenance window for a registered router with ISO timestamps in Arabic', async () => {
+    const user = userEvent.setup();
+    render(<NocWorkspace locale="ar" session={session} />);
+    await screen.findByText('لا حوادث في هذا العرض');
+    await user.click(screen.getByRole('button', { name: /الصيانة/ }));
+    await user.click(screen.getByRole('button', { name: 'تخطيط صيانة' }));
+    fireEvent.change(screen.getByLabelText('العنوان بالإنجليزية'), {
+      target: { value: 'Edge router firmware' },
+    });
+    fireEvent.change(screen.getByLabelText('العنوان بالعربية'), {
+      target: { value: 'ترقية برمجية للراوتر الطرفي' },
+    });
+    fireEvent.change(screen.getByLabelText('البداية'), { target: { value: '2026-09-12T02:00' } });
+    fireEvent.change(screen.getByLabelText('النهاية'), { target: { value: '2026-09-12T04:00' } });
+    await user.selectOptions(screen.getByLabelText('الراوتر (اختياري)'), 'edge-1');
+    fireEvent.change(screen.getByLabelText('السبب بالإنجليزية'), {
+      target: { value: 'Vendor advisory firmware upgrade' },
+    });
+    fireEvent.change(screen.getByLabelText('السبب بالعربية'), {
+      target: { value: 'ترقية برمجية وفق توصية المورد' },
+    });
+    await user.click(screen.getByRole('button', { name: 'حفظ النافذة' }));
+    await waitFor(() => expect(api.submitTenantOperation).toHaveBeenCalledTimes(1));
+    const command = (
+      vi.mocked(api.submitTenantOperation).mock.calls[0]?.[2] as {
+        command: Record<string, unknown>;
+      }
+    ).command;
+    expect(command).toMatchObject({
+      action: 'create_maintenance',
+      routerId: 'edge-1',
+      expectedImpact: 'degraded',
+    });
+    expect(command).not.toHaveProperty('routeId');
+    expect(String(command.startsAt)).toMatch(/Z$/u);
+    expect(Date.parse(String(command.endsAt))).toBeGreaterThan(
+      Date.parse(String(command.startsAt)),
     );
   });
 });

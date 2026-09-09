@@ -1,5 +1,9 @@
 import type {
   FieldServiceWorkspace,
+  NetworkWorkspace,
+  DealerWorkspace,
+  AssuranceWorkspace,
+  AssuranceQuery,
   NocWorkspace,
   NocQuery,
   TenantIntegrationWorkspace,
@@ -1005,4 +1009,51 @@ export async function readFieldServiceWorkspace(
     throw new TenantApiError(failure.message, response.status);
   }
   return (await response.json()) as FieldServiceWorkspace;
+}
+
+export async function readAssuranceWorkspace(
+  session: ApiSession,
+  query: Partial<AssuranceQuery> = {},
+): Promise<AssuranceWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query))
+    if (value !== undefined) params.set(key, String(value));
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/assurance/workspace?${params}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Revenue assurance workspace');
+  return (await response.json()) as AssuranceWorkspace;
+}
+export async function readDealerWorkspace(session: ApiSession): Promise<DealerWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/dealers/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Dealer workspace');
+  return (await response.json()) as DealerWorkspace;
+}
+export async function readNetworkWorkspace(
+  session: ApiSession,
+  query: { readonly jobs?: string; readonly limit?: number } = {},
+): Promise<NetworkWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const search = new URLSearchParams();
+  if (query.jobs) search.set('jobs', query.jobs);
+  if (query.limit) search.set('limit', String(query.limit));
+  const suffix = search.size > 0 ? `?${search.toString()}` : '';
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/network/workspace${suffix}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) {
+    const failure = await staffError(response, 'Network workspace');
+    throw new TenantApiError(failure.message, response.status);
+  }
+  return (await response.json()) as NetworkWorkspace;
 }

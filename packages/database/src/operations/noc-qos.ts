@@ -10,6 +10,11 @@ import {
   type OutageRecord,
   type QosReportRecord,
   type VerifiedTenantId,
+  nocAlarmCommandSchema,
+  type NocAlarmCommand,
+  type NocAlarm,
+  type NocMaintenanceWindow,
+  type NocAlarmSummary,
 } from '@isp/contracts';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
@@ -231,20 +236,94 @@ export async function readNocWorkspace(
     'affectedRegion',o.affected_region,'impactedSubscribersCount',o.impacted_subscribers_count,
     'startedAt',o.started_at,'resolvedAt',o.resolved_at,'rootCauseEn',o.root_cause_en,'rootCauseAr',o.root_cause_ar,
     'status',o.status,'routeId',o.route_id,'severity',o.severity,'version',o.version,
+    'slaDueAt',o.started_at + make_interval(mins => noc_sla_minutes(o.severity)),
+    'slaBreached',coalesce(o.resolved_at,clock_timestamp()) > o.started_at + make_interval(mins => noc_sla_minutes(o.severity)),
+    'linkedAlarms',(SELECT count(*) FROM operations_network_alarms a WHERE a.tenant_id=o.tenant_id AND a.outage_id=o.id),
     'serviceIds',coalesce((SELECT jsonb_agg(i.service_id ORDER BY i.service_id) FROM operations_outage_impacts i WHERE i.tenant_id=o.tenant_id AND i.outage_id=o.id),'[]'::jsonb),
     'events',coalesce((SELECT jsonb_agg(jsonb_build_object('id',e.id,'version',e.version,'status',e.status,
       'reasonEn',e.reason_en,'reasonAr',e.reason_ar,'occurredAt',e.occurred_at,'resolutionEvidence',e.resolution_evidence) ORDER BY e.version)
       FROM operations_outage_events e WHERE e.tenant_id=o.tenant_id AND e.outage_id=o.id),'[]'::jsonb)
     ) AS record FROM operations_outages o WHERE ${where}
     ORDER BY o.started_at DESC,o.id LIMIT ${query.pageSize} OFFSET ${(query.page - 1) * query.pageSize}`);
+    const alarms = await tx.execute<{ record: NocAlarm }>(sql`SELECT jsonb_build_object(
+    'id',a.id,'deviceName',a.device_name,'severity',a.severity,'alarmCode',a.alarm_code,
+    'messageEn',a.message_en,'messageAr',a.message_ar,'source',a.source,'status',a.status,
+    'routerId',a.router_id,'routeId',a.route_id,'serviceId',a.service_id,'serviceNumber',s.service_number,
+    'outageId',a.outage_id,'maintenanceId',a.maintenance_id,'occurrenceCount',a.occurrence_count,
+    'raisedAt',a.raised_at,'lastSeenAt',a.last_seen_at,'acknowledgedAt',a.acknowledged_at,
+    'acknowledgedBy',u.display_name,'acknowledgementNote',a.acknowledgement_note,'clearedAt',a.cleared_at,
+    'version',a.version) AS record
+    FROM operations_network_alarms a
+    LEFT JOIN operations_services s ON s.tenant_id=a.tenant_id AND s.id=a.service_id
+    LEFT JOIN users u ON u.id=a.acknowledged_by
+    WHERE a.tenant_id=${tenantId} AND (${query.alarms}='all' OR a.status<>'cleared')
+    ORDER BY CASE a.status WHEN 'active' THEN 0 WHEN 'acknowledged' THEN 1 ELSE 2 END,
+      CASE a.severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 WHEN 'minor' THEN 2 ELSE 3 END,
+      a.last_seen_at DESC, a.id LIMIT 300`);
+    const maintenance = await tx.execute<{
+      record: NocMaintenanceWindow;
+    }>(sql`SELECT jsonb_build_object(
+    'id',m.id,'titleEn',m.title_en,'titleAr',m.title_ar,'routeId',m.route_id,'routerId',m.router_id,
+    'startsAt',m.starts_at,'endsAt',m.ends_at,'expectedImpact',m.expected_impact,'status',m.status,
+    'notesEn',m.notes_en,'notesAr',m.notes_ar,'createdBy',coalesce(u.display_name,m.created_by::text),
+    'suppressedAlarms',(SELECT count(*) FROM operations_network_alarms a WHERE a.tenant_id=m.tenant_id AND a.maintenance_id=m.id),
+    'version',m.version) AS record
+    FROM operations_maintenance_windows m LEFT JOIN users u ON u.id=m.created_by
+    WHERE m.tenant_id=${tenantId} AND (m.status IN ('planned','in_progress') OR m.ends_at > clock_timestamp() - interval '30 days')
+    ORDER BY CASE m.status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END, m.starts_at DESC, m.id LIMIT 100`);
+    const [routerIds] = await tx.execute<{ ids: string[] }>(
+      sql`SELECT read_noc_router_ids() AS ids`,
+    );
+    const [summary] = await tx.execute<{
+      active: string;
+      acknowledged: string;
+      critical: string;
+      suppressed: string;
+      sla_breaches: string;
+    }>(sql`SELECT
+      (SELECT count(*) FROM operations_network_alarms a WHERE a.tenant_id=${tenantId} AND a.status='active')::text AS active,
+      (SELECT count(*) FROM operations_network_alarms a WHERE a.tenant_id=${tenantId} AND a.status='acknowledged')::text AS acknowledged,
+      (SELECT count(*) FROM operations_network_alarms a WHERE a.tenant_id=${tenantId} AND a.status<>'cleared' AND a.severity='critical')::text AS critical,
+      (SELECT count(*) FROM operations_network_alarms a WHERE a.tenant_id=${tenantId} AND a.status<>'cleared' AND a.maintenance_id IS NOT NULL)::text AS suppressed,
+      (SELECT count(*) FROM operations_outages o WHERE o.tenant_id=${tenantId} AND o.status<>'resolved'
+         AND clock_timestamp() > o.started_at + make_interval(mins => noc_sla_minutes(o.severity)))::text AS sla_breaches`);
+    const alarmSummary: NocAlarmSummary = {
+      active: Number(summary?.active ?? 0),
+      acknowledged: Number(summary?.acknowledged ?? 0),
+      critical: Number(summary?.critical ?? 0),
+      suppressed: Number(summary?.suppressed ?? 0),
+      slaBreaches: Number(summary?.sla_breaches ?? 0),
+    };
     return {
       routes,
       services: directory.slice(0, 1000),
       serviceDirectoryTruncated: directory.length > 1000,
       incidents: rows.map((r) => r.record),
+      alarms: alarms.map((r) => r.record),
+      maintenanceWindows: maintenance.map((r) => r.record),
+      routerIds: routerIds?.ids ?? [],
+      alarmSummary,
       page: query.page,
       pageSize: query.pageSize,
       totalCount: Number(count?.total ?? 0),
     };
+  });
+}
+
+export async function executeNocAlarmCommand(
+  database: Database,
+  tenantId: VerifiedTenantId,
+  input: {
+    readonly authorization: SignedOperationsDatabaseContext;
+    readonly command: NocAlarmCommand;
+  },
+): Promise<Record<string, unknown>> {
+  const command = nocAlarmCommandSchema.parse(input.command);
+  return inOperationsTransaction(database, tenantId, input.authorization, async (tx) => {
+    const [row] = await tx.execute<{ result: Record<string, unknown> }>(
+      sql`SELECT execute_noc_alarm_command(${JSON.stringify(command)}::jsonb) AS result`,
+    );
+    if (!row) throw new Error('NOC alarm command returned no result.');
+    return row.result;
   });
 }

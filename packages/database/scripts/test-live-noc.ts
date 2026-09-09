@@ -28,7 +28,7 @@ const keyId = 'noc-test-' + randomUUID(),
   run = randomUUID();
 try {
   const [source] = await admin.unsafe(
-    "SELECT s.tenant_id,s.id,s.route_id,s.branch_id,s.area_id,i.actor_id FROM operations_services s JOIN tenants t ON t.id=s.tenant_id JOIN operations_invoice_preparations p ON p.tenant_id=s.tenant_id AND p.service_id=s.id JOIN finance_invoices i ON i.tenant_id=p.tenant_id AND i.id=p.finance_invoice_id WHERE t.code LIKE 'SALES-%' AND s.status<>'terminated' ORDER BY i.created_at DESC LIMIT 1",
+    "SELECT s.tenant_id,s.id,s.route_id,s.branch_id,s.area_id,m.user_id AS actor_id FROM operations_services s JOIN tenants t ON t.id=s.tenant_id JOIN tenant_memberships m ON m.tenant_id=s.tenant_id WHERE t.code LIKE 'SALES-%' AND s.status<>'terminated' AND s.route_id IS NOT NULL ORDER BY s.created_at DESC,m.user_id LIMIT 1",
   );
   assert(source, 'Run local sales fixture first.');
   const tenantId = source.tenant_id as VerifiedTenantId;
@@ -84,8 +84,9 @@ try {
     'SELECT id FROM operations_services WHERE tenant_id<>$1 LIMIT 1',
     [tenantId],
   );
-  assert(other);
-  await assert.rejects(create({ ...command, serviceIds: [other.id] }, randomUUID()));
+  // Another tenant's service (when one exists) or an unknown id must be refused either way.
+  const foreignServiceId = (other?.id as string | undefined) ?? randomUUID();
+  await assert.rejects(create({ ...command, serviceIds: [foreignServiceId] }, randomUUID()));
   const [opened, replay] = await Promise.all([create(), create()]);
   assert.equal(opened.id, replay.id);
   assert.equal(opened.version, 1);

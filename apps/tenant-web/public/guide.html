@@ -559,6 +559,13 @@
             >
           </li>
           <li>
+            <a href="#assurance"
+              ><span lang="en">Revenue assurance</span><span lang="ar">ضمان الإيرادات</span></a
+            >
+            <a href="#dealers"
+              ><span lang="en">Dealers &amp; vouchers</span
+              ><span lang="ar">الوكلاء والقسائم</span></a
+            >
             <a href="#warehouse"
               ><span lang="en">Warehouse &amp; procurement</span
               ><span lang="ar">المستودع والمشتريات</span></a
@@ -1182,12 +1189,71 @@
                   دون بيانات اعتماد.
                 </li>
                 <li lang="en">
+                  Network workspace (Network menu): the worker job queue split into open, needs
+                  attention and closed, with cancel and evidence-backed re-queue of dead-lettered
+                  jobs; router registry (register/update with HTTPS endpoint and a secret reference,
+                  bound services and open jobs per router); service bindings with PPP account,
+                  profile and static address; IP pools with utilisation bars, reservation and
+                  next-free allocation to a service; NAS clients with live session counts; RADIUS
+                  session history (start/interim/stop, octets, terminate cause) fed only by the
+                  worker identity; CPE registry with service and asset links.
+                </li>
+                <li lang="ar">
+                  مساحة عمل الشبكة (قائمة الشبكة): طابور مهام العامل مقسّماً إلى مفتوح ويحتاج
+                  انتباهاً ومغلق مع الإلغاء وإعادة الإدراج بدليل للمهام المتوقفة؛ سجل الراوترات
+                  (تسجيل/تحديث بنقطة اتصال HTTPS ومرجع سري، الخدمات المرتبطة والمهام المفتوحة لكل
+                  راوتر)؛ ربط الخدمات بحساب PPP وملف تعريف وعنوان ثابت؛ مجموعات العناوين مع أشرطة
+                  الاستخدام والحجز وتخصيص أول عنوان حر لخدمة؛ عملاء NAS مع عدد الجلسات الحية؛ سجل
+                  جلسات RADIUS (بدء/مرحلي/إيقاف، الحجم، سبب الإنهاء) يغذّيه عامل الشبكة فقط؛ سجل
+                  أجهزة العميل مع ربط الخدمة والأصل.
+                </li>
+                <li lang="en">
+                  Router, NAS and PPP credentials are accepted only as secret-manager references
+                  (secret://, vault://, env://). Registering routers or NAS clients needs bulk
+                  approval authority and a fresh MFA step-up; pools, bindings, CPE and job actions
+                  need job authority. Every change carries a bilingual reason and evidence.
+                </li>
+                <li lang="ar">
+                  تُقبل بيانات اعتماد الراوتر وNAS وPPP كمراجع إلى مدير الأسرار فقط (secret://،
+                  vault://، env://). يتطلب تسجيل الراوترات أو عملاء NAS صلاحية الاعتماد الجماعي
+                  وتحققاً ثنائياً حديثاً؛ بينما تتطلب المجموعات والربط وأجهزة العميل ومهام العامل
+                  صلاحية إنشاء المهام. كل تغيير يحمل سبباً ثنائي اللغة ودليلاً.
+                </li>
+                <li lang="en">
                   NOC incidents: queue, create, detail, service impact, root-cause note and a
-                  guarded investigating → identified → monitoring → resolved lifecycle.
+                  guarded investigating → identified → monitoring → resolved lifecycle, with a
+                  resolution target by severity (critical 1 h, major 4 h, minor 24 h, warning 72 h)
+                  and a breach badge.
                 </li>
                 <li lang="ar">
                   حوادث المراقبة: قائمة وإنشاء وتفاصيل وأثر على الخدمة وملاحظة السبب الجذري ودورة
-                  حياة محكومة.
+                  حياة محكومة، مع هدف حل حسب الخطورة (حرج ساعة، مرتفع ٤ ساعات، منخفض ٢٤ ساعة، تنبيه
+                  ٧٢ ساعة) وشارة تجاوز.
+                </li>
+                <li lang="en">
+                  Alarms from real router executions: when the Network Worker cannot reach a router,
+                  is refused by it, or finds a subscriber state that differs from the requested
+                  change, one deduplicated alarm per router and problem is raised, escalated on dead
+                  letter and cleared automatically when a job succeeds. Operators can acknowledge
+                  with a note, link an alarm to an open incident, clear it, or raise an alarm they
+                  observed outside the worker (upper-case code, bilingual message).
+                </li>
+                <li lang="ar">
+                  إنذارات من تنفيذ فعلي على الراوترات: عندما يعجز عامل الشبكة عن الوصول إلى راوتر أو
+                  يُرفض منه أو يجد حالة مشترك تختلف عن التغيير المطلوب، يُرفع إنذار واحد مُزال
+                  التكرار لكل راوتر ومشكلة، يتصاعد عند التوقف النهائي ويُزال تلقائياً عند نجاح مهمة.
+                  يمكن للمشغلين الإقرار مع ملاحظة أو ربط الإنذار بحادث مفتوح أو إزالته أو رفع إنذار
+                  رصدوه خارج العامل (رمز بأحرف كبيرة ورسالة ثنائية اللغة).
+                </li>
+                <li lang="en">
+                  Maintenance windows: plan work for a router or route with start/end and expected
+                  impact; alarms raised inside an active window are marked as expected instead of
+                  new faults; start, complete or cancel with a bilingual reason.
+                </li>
+                <li lang="ar">
+                  نوافذ الصيانة: خطط أعمالاً لراوتر أو مسار مع بداية ونهاية وتأثير متوقع؛ الإنذارات
+                  الصادرة داخل نافذة نشطة تُعلَّم كمتوقعة لا كأعطال جديدة؛ ابدأ أو أكمل أو ألغِ مع
+                  سبب ثنائي اللغة.
                 </li>
               </ul>
             </div>
@@ -1195,12 +1261,168 @@
               <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
               <ul class="plain">
                 <li lang="en">
-                  Orvex is not a RADIUS server; AAA accounting, IPAM allocation screens, CPE
-                  provisioning/diagnostics and live telemetry are next on the plan.
+                  Orvex is not the RADIUS server itself: a redundant RADIUS service and acknowledged
+                  CoA/disconnect need the real NAS (activation required). VLAN and prefix planning,
+                  DNS records, rollback-capable change plans, CPE provisioning, diagnostics and
+                  firmware (TR-069/USP adapter) and live telemetry are next.
                 </li>
                 <li lang="ar">
-                  ‏Orvex ليس خادم RADIUS؛ محاسبة AAA وشاشات تخصيص العناوين وتهيئة/تشخيص أجهزة العميل
-                  والقياس الحي هي التالية في الخطة.
+                  ‏Orvex ليس خادم RADIUS بحد ذاته: خدمة RADIUS الاحتياطية وقطع/تغيير الجلسات المؤكد
+                  تحتاج إلى NAS الفعلي (يتطلب تفعيلاً). تخطيط VLAN والبادئات وسجلات DNS وخطط التغيير
+                  القابلة للتراجع وتهيئة أجهزة العميل وتشخيصها وتحديث برامجها (محوّل TR-069/USP)
+                  واستطلاع الأجهزة وخريطة الشبكة هي التالية.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="assurance">
+          <header>
+            <h2><span lang="en">Revenue assurance</span><span lang="ar">ضمان الإيرادات</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Revenue assurance. Permissions: <code>tenant.billing.view</code> to read,
+              <code>tenant.collection.reconcile</code> to run controls and manage cases.</span
+            ><span lang="ar"
+              >أين: ضمان الإيرادات. الصلاحيات: عرض الفوترة للقراءة، وتسوية التحصيل لتشغيل الضوابط
+              وإدارة الحالات.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Eight controls read your own records: active service not billed in 35 days, billed
+                  after termination, invoice unpaid over 60 days, payment unallocated over 7 days,
+                  possible duplicate payment, voucher credit pending, collector cash variance and
+                  dealer beyond credit limit. Each finding carries an exposure amount in its own
+                  currency; USD and LBP are never added together.
+                </li>
+                <li lang="ar">
+                  ثمانية ضوابط تقرأ سجلاتك: خدمة نشطة دون فوترة ٣٥ يوماً، فوترة بعد الإنهاء، فاتورة
+                  غير مسددة لأكثر من ٦٠ يوماً، دفعة غير مخصصة لأكثر من ٧ أيام، دفعة مكررة محتملة،
+                  قيد قسيمة معلق، فرق نقدي لدى الجابي، ووكيل تجاوز سقف الائتمان. لكل نتيجة مبلغ تعرض
+                  بعملتها؛ لا يُجمع الدولار والليرة أبداً.
+                </li>
+                <li lang="en">
+                  Findings persist across runs: a repeat refreshes them, a condition that disappears
+                  clears itself and one that returns reopens. Acknowledge with a note, select
+                  findings and open an exposure case with an owner; move it through investigation to
+                  resolved or written off with bilingual resolution and evidence.
+                </li>
+                <li lang="ar">
+                  تبقى النتائج عبر التشغيلات: التكرار يحدّثها، والحالة التي تزول تُزال تلقائياً،
+                  والتي تعود تُفتح مجدداً. أقرّ بملاحظة، وحدد نتائج وافتح حالة تعرض بمالك؛ وانقلها
+                  عبر التحقيق إلى الحل أو الشطب مع حل ثنائي اللغة ودليل.
+                </li>
+                <li lang="en">
+                  Controls only read. Nothing in this screen posts, allocates or reverses money; the
+                  fix always happens in billing, payments, dealers or collections.
+                </li>
+                <li lang="ar">
+                  الضوابط تقرأ فقط. لا شيء في هذه الشاشة يرحّل أو يخصص أو يعكس مالاً؛ المعالجة تتم
+                  دائماً في الفوترة أو الدفعات أو الوكلاء أو التحصيل.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Scheduled automatic runs, usage-versus-rating and unauthorized-service controls,
+                  and a management export of exposure trends.
+                </li>
+                <li lang="ar">
+                  التشغيل المجدول التلقائي، وضوابط الاستخدام مقابل التسعير والخدمات غير المصرح بها،
+                  وتصدير إداري لاتجاهات التعرض.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="dealers">
+          <header>
+            <h2>
+              <span lang="en">Dealers &amp; vouchers</span><span lang="ar">الوكلاء والقسائم</span>
+            </h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Dealers &amp; vouchers. Permissions: <code>tenant.payment.view</code> to read,
+              <code>tenant.payment.post</code> for the channel,
+              <code>tenant.collection.reconcile</code> with a fresh MFA step-up for float
+              adjustments.</span
+            ><span lang="ar"
+              >أين: الوكلاء والقسائم. الصلاحيات: عرض الدفعات للقراءة، ترحيل الدفعات للقناة، وتسوية
+              التحصيل مع تحقق ثنائي حديث لتسويات الرصيد.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Dealer registry: type (dealer, reseller, point of sale), contact, optional branch
+                  scope, credit limit per currency, commission rate, suspend/reactivate, versioned
+                  updates.
+                </li>
+                <li lang="ar">
+                  سجل الوكلاء: النوع (وكيل، موزّع، نقطة بيع)، جهة الاتصال، نطاق فرع اختياري، سقف
+                  ائتمان لكل عملة، نسبة العمولة، إيقاف/إعادة تفعيل، تحديثات ذات إصدارات.
+                </li>
+                <li lang="en">
+                  Per-currency prepaid float: deposits with a unique receipt reference, batch issues
+                  charged at face value with the commission credited back, cancellations refunded
+                  net of commission, approved adjustments. USD and LBP are never combined.
+                </li>
+                <li lang="ar">
+                  رصيد مسبق لكل عملة: إيداعات بمرجع إيصال فريد، إصدار الدفعات بالقيمة الاسمية مع
+                  إعادة العمولة، استرداد الإلغاءات بعد خصم العمولة، تسويات معتمدة. لا يُجمع الدولار
+                  والليرة أبداً.
+                </li>
+                <li lang="en">
+                  PIN voucher batches generated in the database: twelve-digit PINs stored only as
+                  salted hashes and shown once at generation for printing; issue to an active dealer
+                  within float plus credit limit; cancel the unredeemed remainder; optional expiry.
+                </li>
+                <li lang="ar">
+                  دفعات قسائم برموز تُولَّد في قاعدة البيانات: رموز من 12 رقماً تُحفظ كتجزئة مملّحة
+                  فقط وتُعرض مرة واحدة عند التوليد للطباعة؛ الإصدار لوكيل نشط ضمن الرصيد وسقف
+                  الائتمان؛ إلغاء المتبقي غير المستخدم؛ انتهاء صلاحية اختياري.
+                </li>
+                <li lang="en">
+                  Redemption for a scoped subscriber: five wrong PINs lock the voucher; a successful
+                  redemption posts a deposit to the subscriber account through the finance ledger.
+                  If that posting fails, the redemption stays "credit pending" with a one-click
+                  completion that never credits twice.
+                </li>
+                <li lang="ar">
+                  الاستخدام لمشترك ضمن الصلاحية: خمسة رموز خاطئة تقفل القسيمة؛ الاستخدام الناجح
+                  يرحّل إيداعاً إلى حساب المشترك عبر دفتر المالية. إذا فشل الترحيل تبقى العملية "قيد
+                  معلق" مع إكمال بنقرة واحدة لا يقيّد الرصيد مرتين.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Dealer hierarchy and POS users, printable dealer settlement statements, voucher
+                  print templates and fraud analytics.
+                </li>
+                <li lang="ar">
+                  التسلسل الهرمي للوكلاء ومستخدمو نقاط البيع، كشوف تسوية الوكلاء القابلة للطباعة،
+                  قوالب طباعة القسائم وتحليلات الاحتيال.
                 </li>
               </ul>
             </div>

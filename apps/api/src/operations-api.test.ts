@@ -112,9 +112,30 @@ function writerMocks() {
     readTrialBalance: vi.fn(async () => ({ accounts: [] })),
     readAccountingPeriods: vi.fn(async () => []),
     closeAccountingPeriod: vi.fn(async () => ({ id: 'period-a', status: 'soft_closed' })),
-    readDealers: vi.fn(async () => []),
-    generateVoucherBatch: vi.fn(async () => ({ batchId: 'batch-a', count: 10 })),
-    redeemVoucher: vi.fn(async () => ({ voucherId: 'voucher-a', status: 'redeemed' })),
+    readDealerWorkspace: vi.fn(async () => ({
+      dealers: [],
+      batches: [],
+      ledger: [],
+      redemptions: [],
+    })),
+    readAssuranceWorkspace: vi.fn(async () => ({ findings: [], cases: [], runs: [] })),
+    executeAssuranceCommand: vi.fn(async () => ({ runId: 'run-a', summary: [] })),
+    executeDealerChannelCommand: vi.fn(async () => ({ dealerId: 'dealer-a', version: 1 })),
+    generateVoucherBatch: vi.fn(async () => ({
+      batchId: 'batch-a',
+      batchNumber: 'B-1',
+      pins: [{ serialNumber: 'B-1-00001', pin: '123456789012' }],
+    })),
+    adjustDealerBalance: vi.fn(async () => ({ entryId: 'entry-a' })),
+    redeemVoucher: vi.fn(async () => ({
+      status: 'redeemed',
+      redemptionId: 'redemption-a',
+      creditStatus: 'credited',
+    })),
+    retryVoucherCredit: vi.fn(async () => ({
+      redemptionId: 'redemption-a',
+      creditStatus: 'credited',
+    })),
     readWarehouses: vi.fn(async () => []),
     readInventoryItems: vi.fn(async () => []),
     readSerializedAssets: vi.fn(async () => []),
@@ -180,6 +201,14 @@ function writerMocks() {
     readOutages: vi.fn(async () => []),
     readQosReports: vi.fn(async () => []),
     readFieldServiceWorkspace: vi.fn(async () => ({ technicians: [], workOrders: [], events: [] })),
+    readNetworkWorkspace: vi.fn(async () => ({ routers: [], bindings: [], jobs: [], pools: [] })),
+    executeNetworkInfrastructureCommand: vi.fn(async () => ({ routerId: 'core-1', enabled: true })),
+    executeNetworkResourceCommand: vi.fn(async () => ({ poolId: 'pool-1', version: 1 })),
+    executeNocAlarmCommand: vi.fn(async () => ({
+      alarmId: 'alarm-1',
+      status: 'acknowledged',
+      version: 2,
+    })),
     executeFieldDispatchCommand: vi.fn(async () => ({
       workOrderId: 'wo-1',
       status: 'open',
@@ -1173,7 +1202,7 @@ describe('NOC incident routes', () => {
       expect.objectContaining({
         branchIds: [branchId],
         routeIds: [routeId],
-        query: { page: 2, pageSize: 25, status: 'resolved' },
+        query: { page: 2, pageSize: 25, status: 'resolved', alarms: 'live' },
       }),
     );
     const command = {
@@ -2188,6 +2217,484 @@ describe('field service routes', () => {
               workOrderId: serviceId,
               expectedVersion: 1,
               ...fieldEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
+  });
+});
+
+describe('network resource routes', () => {
+  const networkEvidence = {
+    reasonEn: 'Network change reviewed by the NOC lead',
+    reasonAr: 'تغيير شبكي راجعه قائد المراقبة',
+    evidence: 'Change record CHG-2026-120.',
+  };
+
+  it('splits infrastructure (approval + fresh MFA) from resource commands (job authority)', async () => {
+    const writer = writerMocks();
+    const approver = await makeApp(
+      {
+        ...claims,
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+        permissions: [
+          'tenant.network.view',
+          'tenant.network.job.create',
+          'tenant.network.bulk.approve',
+        ],
+      },
+      writer,
+    );
+    const router = await approver.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/network/infrastructure`,
+      headers: { 'idempotency-key': 'network-router-001' },
+      payload: {
+        command: {
+          action: 'register_router',
+          routerId: 'core-1',
+          endpoint: 'https://core-1.example.test/rest',
+          routerAccessReference: 'secret://routers/core-1',
+          connector: 'routeros-rest',
+          ...networkEvidence,
+        },
+      },
+    });
+    expect(router.statusCode).toBe(201);
+    expect(writer.executeNetworkInfrastructureCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.network.bulk.approve',
+        auditAction: 'tenant.network.infrastructure.manage',
+      }),
+    );
+    // A plaintext credential in place of a reference is refused before the database.
+    expect(
+      (
+        await approver.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/network/infrastructure`,
+          headers: { 'idempotency-key': 'network-router-002' },
+          payload: {
+            command: {
+              action: 'register_router',
+              routerId: 'core-2',
+              endpoint: 'https://core-2.example.test/rest',
+              routerAccessReference: 'admin:hunter2',
+              connector: 'routeros-rest',
+              ...networkEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const pool = await approver.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/network/resources`,
+      headers: { 'idempotency-key': 'network-pool-001' },
+      payload: {
+        command: {
+          action: 'create_ip_pool',
+          poolName: 'static-public',
+          subnetCidr: '203.0.113.0/29',
+          gateway: '203.0.113.1',
+          purpose: 'static_public',
+          ...networkEvidence,
+        },
+      },
+    });
+    expect(pool.statusCode).toBe(201);
+    expect(writer.executeNetworkResourceCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.network.job.create',
+        auditAction: 'tenant.network.resource.manage',
+      }),
+    );
+    const board = await approver.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/network/workspace?jobs=attention`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readNetworkWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.network.view',
+        query: expect.objectContaining({ jobs: 'attention' }) as unknown,
+      }),
+    );
+    await approver.app.close();
+
+    const operatorWithoutMfa = await makeApp(
+      {
+        ...claims,
+        mfaVerifiedAt: '2026-08-11T09:00:00.000Z',
+        permissions: ['tenant.network.job.create', 'tenant.network.bulk.approve'],
+      },
+      writer,
+    );
+    expect(
+      (
+        await operatorWithoutMfa.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/network/infrastructure`,
+          headers: { 'idempotency-key': 'network-router-003' },
+          payload: {
+            command: {
+              action: 'upsert_nas_client',
+              nasName: 'core-1-nas',
+              ipAddress: '10.255.0.1',
+              nasKeyReference: 'secret://nas/core-1',
+              ...networkEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await operatorWithoutMfa.app.close();
+
+    const jobOnly = await makeApp(
+      { ...claims, permissions: ['tenant.network.job.create'] },
+      writer,
+    );
+    expect(
+      (
+        await jobOnly.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/network/infrastructure`,
+          headers: { 'idempotency-key': 'network-router-004' },
+          payload: {
+            command: {
+              action: 'register_router',
+              routerId: 'core-3',
+              endpoint: 'https://core-3.example.test/rest',
+              routerAccessReference: 'secret://routers/core-3',
+              connector: 'routeros-rest',
+              ...networkEvidence,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await jobOnly.app.close();
+  });
+});
+
+describe('NOC alarm routes', () => {
+  it('acknowledges an alarm under network job authority and refuses view-only staff', async () => {
+    const writer = writerMocks();
+    const operator = await makeApp(
+      { ...claims, permissions: ['tenant.network.view', 'tenant.network.job.create'] },
+      writer,
+    );
+    const command = {
+      action: 'acknowledge_alarm',
+      alarmId: '30000000-0000-4000-8000-000000000001',
+      expectedVersion: 1,
+      note: 'Field team dispatched to the POP',
+      reasonEn: 'Alarm acknowledged by the NOC shift lead',
+      reasonAr: 'تم الإقرار بالإنذار من قائد مناوبة المراقبة',
+    };
+    const response = await operator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/noc/alarms`,
+      headers: { 'idempotency-key': 'noc-alarm-ack-001' },
+      payload: { command },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(writer.executeNocAlarmCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.network.job.create',
+        auditAction: 'tenant.noc.alarm.manage',
+        command: expect.objectContaining({ action: 'acknowledge_alarm' }) as unknown,
+      }),
+    );
+    // A malformed maintenance window (ends before it starts) is refused before the database.
+    expect(
+      (
+        await operator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/noc/alarms`,
+          headers: { 'idempotency-key': 'noc-maint-001' },
+          payload: {
+            command: {
+              action: 'create_maintenance',
+              titleEn: 'Core upgrade',
+              titleAr: 'ترقية النواة',
+              startsAt: '2026-09-10T02:00:00.000Z',
+              endsAt: '2026-09-10T01:00:00.000Z',
+              expectedImpact: 'degraded',
+              reasonEn: 'Planned firmware upgrade window',
+              reasonAr: 'نافذة ترقية برمجية مخططة',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await operator.app.close();
+
+    const viewer = await makeApp({ ...claims, permissions: ['tenant.network.view'] }, writer);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/noc/alarms`,
+          headers: { 'idempotency-key': 'noc-alarm-ack-002' },
+          payload: { command },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
+  });
+});
+
+describe('dealer channel routes', () => {
+  const dealerReasons = {
+    reasonEn: 'Dealer channel change reviewed by finance',
+    reasonAr: 'تغيير قناة الوكلاء راجعته المالية',
+  };
+
+  it('separates channel commands, PIN batches, approved adjustments and redemption', async () => {
+    const writer = writerMocks();
+    const cashier = await makeApp(
+      { ...claims, permissions: ['tenant.payment.view', 'tenant.payment.post'] },
+      writer,
+    );
+    const register = await cashier.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/dealers/channel`,
+      headers: { 'idempotency-key': 'dealer-register-001' },
+      payload: {
+        command: {
+          action: 'register_dealer',
+          dealerCode: 'HAM-01',
+          dealerName: 'Hamra Mobile Shop',
+          contactPhone: '+961 1 000000',
+          commissionRateBps: 400,
+          ...dealerReasons,
+        },
+      },
+    });
+    expect(register.statusCode).toBe(201);
+    expect(writer.executeDealerChannelCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.dealer.channel.manage',
+      }),
+    );
+    const batch = await cashier.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/dealers/batches`,
+      headers: { 'idempotency-key': 'dealer-batch-001' },
+      payload: {
+        command: {
+          action: 'generate_batch',
+          batchNumber: 'B-2026-001',
+          faceValueMinor: 1000,
+          currency: 'USD',
+          quantity: 1,
+          ...dealerReasons,
+        },
+      },
+    });
+    expect(batch.statusCode).toBe(201);
+    expect(batch.json<{ pins: unknown[] }>().pins).toHaveLength(1);
+    // A lower-case batch number and a non-numeric PIN are refused before the database.
+    expect(
+      (
+        await cashier.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/dealers/batches`,
+          headers: { 'idempotency-key': 'dealer-batch-002' },
+          payload: {
+            command: {
+              action: 'generate_batch',
+              batchNumber: 'b-2026-002',
+              faceValueMinor: 1000,
+              currency: 'USD',
+              quantity: 1,
+              ...dealerReasons,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await cashier.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/dealers/redeem`,
+          headers: { 'idempotency-key': 'dealer-redeem-001' },
+          payload: {
+            command: {
+              serialNumber: 'B-2026-001-00001',
+              pin: 'abc',
+              subscriberId: '40000000-0000-4000-8000-000000000001',
+              ...dealerReasons,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const redeem = await cashier.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/dealers/redeem`,
+      headers: { 'idempotency-key': 'dealer-redeem-002' },
+      payload: {
+        command: {
+          serialNumber: 'B-2026-001-00001',
+          pin: '123456789012',
+          subscriberId: '40000000-0000-4000-8000-000000000001',
+          ...dealerReasons,
+        },
+      },
+    });
+    expect(redeem.statusCode).toBe(201);
+    expect(writer.redeemVoucher).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ auditAction: 'tenant.dealer.channel.manage' }),
+    );
+    // Float adjustments need reconciliation authority and fresh MFA.
+    expect(
+      (
+        await cashier.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/dealers/adjust`,
+          headers: { 'idempotency-key': 'dealer-adjust-001' },
+          payload: {
+            command: {
+              action: 'adjust_balance',
+              dealerId: '50000000-0000-4000-8000-000000000001',
+              currency: 'USD',
+              amountMinor: -500,
+              ...dealerReasons,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(writer.adjustDealerBalance).not.toHaveBeenCalled();
+    const board = await cashier.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/dealers/workspace`,
+    });
+    expect(board.statusCode).toBe(200);
+    await cashier.app.close();
+
+    const reconciler = await makeApp(
+      {
+        ...claims,
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+        permissions: ['tenant.collection.reconcile'],
+      },
+      writer,
+    );
+    expect(
+      (
+        await reconciler.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/dealers/adjust`,
+          headers: { 'idempotency-key': 'dealer-adjust-002' },
+          payload: {
+            command: {
+              action: 'adjust_balance',
+              dealerId: '50000000-0000-4000-8000-000000000001',
+              currency: 'USD',
+              amountMinor: -500,
+              ...dealerReasons,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.adjustDealerBalance).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.collection.reconcile' }),
+    );
+    await reconciler.app.close();
+  });
+});
+
+describe('revenue assurance routes', () => {
+  it('runs controls under reconciliation authority and serves the scoped workspace', async () => {
+    const writer = writerMocks();
+    const analyst = await makeApp(
+      { ...claims, permissions: ['tenant.billing.view', 'tenant.collection.reconcile'] },
+      writer,
+    );
+    const run = await analyst.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/assurance/commands`,
+      headers: { 'idempotency-key': 'assurance-run-001' },
+      payload: {
+        command: {
+          action: 'run_controls',
+          reasonEn: 'Month-end leakage review',
+          reasonAr: 'مراجعة التسرب في نهاية الشهر',
+        },
+      },
+    });
+    expect(run.statusCode).toBe(201);
+    expect(writer.executeAssuranceCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.collection.reconcile',
+        auditAction: 'tenant.assurance.manage',
+      }),
+    );
+    // Closing a case without resolution evidence is refused before the database.
+    expect(
+      (
+        await analyst.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/assurance/commands`,
+          headers: { 'idempotency-key': 'assurance-case-001' },
+          payload: {
+            command: {
+              action: 'transition_case',
+              caseId: '80000000-0000-4000-8000-000000000001',
+              expectedVersion: 1,
+              status: 'resolved',
+              reasonEn: 'Closing after review',
+              reasonAr: 'إغلاق بعد المراجعة',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const board = await analyst.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/assurance/workspace?findings=all&control=INVOICE_OVERDUE_60`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readAssuranceWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.billing.view',
+        query: expect.objectContaining({
+          findings: 'all',
+          control: 'INVOICE_OVERDUE_60',
+        }) as unknown,
+      }),
+    );
+    await analyst.app.close();
+
+    const viewer = await makeApp({ ...claims, permissions: ['tenant.billing.view'] }, writer);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/assurance/commands`,
+          headers: { 'idempotency-key': 'assurance-run-002' },
+          payload: {
+            command: {
+              action: 'run_controls',
+              reasonEn: 'Month-end leakage review',
+              reasonAr: 'مراجعة التسرب في نهاية الشهر',
             },
           },
         })

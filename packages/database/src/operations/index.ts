@@ -16,3 +16,5 @@ export * from './types.js';
 export * from './usage-rating.js';
 export * from './integrations.js';
 export * from './field-service.js';
+export * from './network-resources.js';
+export * from './revenue-assurance.js';

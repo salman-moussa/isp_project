@@ -2,6 +2,14 @@ import {
   createOutageSchema,
   transitionOutageSchema,
   nocQuerySchema,
+  nocAlarmCommandSchema,
+  dealerChannelCommandSchema,
+  assuranceCommandSchema,
+  assuranceQuerySchema,
+  generateVoucherBatchSchema,
+  adjustDealerBalanceSchema,
+  redeemVoucherSchema,
+  retryVoucherCreditSchema,
   journalEntryInputSchema,
   periodCloseRequestSchema,
   customerStatementQuerySchema,
@@ -19,6 +27,9 @@ import {
   fieldDispatchCommandSchema,
   fieldExecutionCommandSchema,
   fieldServiceQuerySchema,
+  networkInfrastructureCommandSchema,
+  networkResourceCommandSchema,
+  networkWorkspaceQuerySchema,
   type CustomerAccountKind,
 } from '@isp/contracts';
 import { errorResponseJsonSchema, type Permission, type VerifiedTenantId } from '@isp/contracts';
@@ -55,6 +66,10 @@ const integrationConfigureBody = z.object({ command: integrationConfigureCommand
 const integrationTestBody = z.object({ command: integrationTestCommandSchema }).strict();
 const fieldDispatchBody = z.object({ command: fieldDispatchCommandSchema }).strict();
 const fieldExecutionBody = z.object({ command: fieldExecutionCommandSchema }).strict();
+const networkInfrastructureBody = z
+  .object({ command: networkInfrastructureCommandSchema })
+  .strict();
+const networkResourceBody = z.object({ command: networkResourceCommandSchema }).strict();
 // Moving stock and writing its value off carry different authority, so they are separate routes.
 const stockTransferBody = z
   .object({
@@ -790,6 +805,70 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.transitionOutageIncident(id, v as never),
     ),
     operation(
+      '/assurance/commands',
+      'executeAssuranceCommand',
+      'tenant.collection.reconcile',
+      'tenant.assurance.manage',
+      'assurance',
+      z.object({ command: assuranceCommandSchema }).strict(),
+      (w, id, v) => w.executeAssuranceCommand(id, v as never),
+    ),
+    operation(
+      '/dealers/channel',
+      'executeDealerChannelCommand',
+      'tenant.payment.post',
+      'tenant.dealer.channel.manage',
+      'dealer_channel',
+      z.object({ command: dealerChannelCommandSchema }).strict(),
+      (w, id, v) => w.executeDealerChannelCommand(id, v as never),
+    ),
+    operation(
+      '/dealers/batches',
+      'generateVoucherBatch',
+      'tenant.payment.post',
+      'tenant.dealer.channel.manage',
+      'voucher_batch',
+      z.object({ command: generateVoucherBatchSchema }).strict(),
+      (w, id, v) => w.generateVoucherBatch(id, v as never),
+    ),
+    operation(
+      '/dealers/adjust',
+      'adjustDealerBalance',
+      'tenant.collection.reconcile',
+      'tenant.dealer.channel.manage',
+      'dealer_ledger',
+      z.object({ command: adjustDealerBalanceSchema }).strict(),
+      (w, id, v) => w.adjustDealerBalance(id, v as never),
+      true,
+    ),
+    operation(
+      '/dealers/redeem',
+      'redeemVoucher',
+      'tenant.payment.post',
+      'tenant.dealer.channel.manage',
+      'voucher_redemption',
+      z.object({ command: redeemVoucherSchema }).strict(),
+      (w, id, v) => w.redeemVoucher(id, v as never),
+    ),
+    operation(
+      '/dealers/credit-retry',
+      'retryVoucherCredit',
+      'tenant.payment.post',
+      'tenant.dealer.channel.manage',
+      'voucher_redemption',
+      z.object({ command: retryVoucherCreditSchema }).strict(),
+      (w, id, v) => w.retryVoucherCredit(id, v as never),
+    ),
+    operation(
+      '/noc/alarms',
+      'executeNocAlarmCommand',
+      'tenant.network.job.create',
+      'tenant.noc.alarm.manage',
+      'noc_alarm',
+      z.object({ command: nocAlarmCommandSchema }).strict(),
+      (w, id, v) => w.executeNocAlarmCommand(id, v as never),
+    ),
+    operation(
       '/accounting/journals',
       'postJournalEntry',
       'tenant.accounting.post',
@@ -1183,6 +1262,25 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.executeVendorQuoteCommand(id, v as never),
     ),
     operation(
+      '/network/infrastructure',
+      'manageNetworkInfrastructure',
+      'tenant.network.bulk.approve',
+      'tenant.network.infrastructure.manage',
+      'network_infrastructure',
+      networkInfrastructureBody,
+      (w, id, v) => w.executeNetworkInfrastructureCommand(id, v as never),
+      true,
+    ),
+    operation(
+      '/network/resources',
+      'manageNetworkResources',
+      'tenant.network.job.create',
+      'tenant.network.resource.manage',
+      'network_resource',
+      networkResourceBody,
+      (w, id, v) => w.executeNetworkResourceCommand(id, v as never),
+    ),
+    operation(
       '/field-service/dispatch',
       'dispatchFieldService',
       'tenant.installation.manage',
@@ -1335,6 +1433,23 @@ export function registerTenantOperationsRoutes(
     app,
     options,
     {
+      path: '/v1/tenants/:tenantId/operations/network/workspace',
+      operationId: 'readNetworkWorkspace',
+      permission: 'tenant.network.view',
+      action: 'tenant.network.workspace.read',
+      resourceType: 'network_resource',
+      schema: z.object({}).strict(),
+      querySchema: networkWorkspaceQuerySchema,
+      execute: (w, id, v) => w.readNetworkWorkspace(id, v as never),
+    },
+    'Tenant network',
+    'network-read',
+    'Read scoped routers, bindings, jobs, pools, NAS and CPE',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
       path: '/v1/tenants/:tenantId/operations/field-service/workspace',
       operationId: 'readFieldServiceWorkspace',
       permission: 'tenant.installation.view',
@@ -1363,6 +1478,39 @@ export function registerTenantOperationsRoutes(
     'Tenant integrations',
     'integrations-read',
     'Read tenant provider settings without secrets',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/assurance/workspace',
+      operationId: 'readAssuranceWorkspace',
+      permission: 'tenant.billing.view',
+      action: 'tenant.assurance.workspace.read',
+      resourceType: 'assurance_workspace',
+      schema: z.object({}).strict(),
+      querySchema: assuranceQuerySchema,
+      execute: (w, id, v) => w.readAssuranceWorkspace(id, v as never),
+    },
+    'Tenant revenue assurance',
+    'assurance-read',
+    'Read revenue assurance findings, runs and cases',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/dealers/workspace',
+      operationId: 'readDealerWorkspace',
+      permission: 'tenant.payment.view',
+      action: 'tenant.dealer.workspace.read',
+      resourceType: 'dealer_workspace',
+      schema: z.object({}).strict(),
+      execute: (w, id, v) => w.readDealerWorkspace(id, v as never),
+    },
+    'Tenant dealers',
+    'dealers-read',
+    'Read scoped dealer and voucher workspace',
   );
   registerWorkspaceRead(
     app,

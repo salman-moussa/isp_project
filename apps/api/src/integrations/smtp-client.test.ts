@@ -29,6 +29,8 @@ async function startFakeSmtp(options: FakeSmtpOptions = {}): Promise<FakeSmtp> {
   const server: Server = createServer((socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
+    // The client tears sockets down abruptly on QUIT; the fake must not crash the runner.
+    socket.on('error', () => undefined);
     if (options.silent) return;
     let buffer = '';
     let data = false;

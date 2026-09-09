@@ -9,8 +9,12 @@ import type {
   JournalEntryInput,
   CustomerStatementQuery,
   PeriodCloseRequest,
-  VoucherBatchInput,
-  VoucherRedeemInput,
+  DealerChannelCommand,
+  AssuranceCommand,
+  AssuranceQuery,
+  AdjustDealerBalanceCommand,
+  RedeemVoucherCommand,
+  RetryVoucherCreditCommand,
   InventoryCustodyCommand,
   ProcurementCommand,
   WarehouseAdminCommand,
@@ -24,6 +28,10 @@ import type {
   FieldDispatchCommand,
   FieldExecutionCommand,
   FieldServiceQuery,
+  NetworkInfrastructureCommand,
+  NetworkResourceCommand,
+  NocAlarmCommand,
+  NetworkWorkspaceQuery,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -544,18 +552,39 @@ export interface OperationsWriter {
       readonly request: PeriodCloseRequest;
     },
   ): Promise<unknown>;
-  readDealers(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
+  readDealerWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readAssuranceWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<AssuranceQuery> },
+  ): Promise<unknown>;
+  executeAssuranceCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: AssuranceCommand },
+  ): Promise<unknown>;
+  executeDealerChannelCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: DealerChannelCommand },
+  ): Promise<unknown>;
   generateVoucherBatch(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & {
-      readonly command: VoucherBatchInput;
+      readonly command: Extract<DealerChannelCommand, { action: 'generate_batch' }>;
     },
+  ): Promise<unknown>;
+  adjustDealerBalance(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: AdjustDealerBalanceCommand },
   ): Promise<unknown>;
   redeemVoucher(
     tenantId: VerifiedTenantId,
-    input: OperationsMutationContext & {
-      readonly command: VoucherRedeemInput;
-    },
+    input: OperationsMutationContext & { readonly command: RedeemVoucherCommand },
+  ): Promise<unknown>;
+  retryVoucherCredit(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: RetryVoucherCreditCommand },
   ): Promise<unknown>;
   readWarehouses(tenantId: VerifiedTenantId, input: OperationsMutationContext): Promise<unknown>;
   readInventoryItems(
@@ -605,6 +634,22 @@ export interface OperationsWriter {
   readFieldServiceWorkspace(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { query?: Partial<FieldServiceQuery> },
+  ): Promise<unknown>;
+  readNetworkWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<NetworkWorkspaceQuery> },
+  ): Promise<unknown>;
+  executeNetworkInfrastructureCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: NetworkInfrastructureCommand },
+  ): Promise<unknown>;
+  executeNetworkResourceCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: NetworkResourceCommand },
+  ): Promise<unknown>;
+  executeNocAlarmCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: NocAlarmCommand },
   ): Promise<unknown>;
   executeFieldDispatchCommand(
     tenantId: VerifiedTenantId,

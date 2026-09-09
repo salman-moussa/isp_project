@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { NocAlarm, NocAlarmSummary, NocMaintenanceWindow } from './noc-telemetry.js';
 
 export const alarmRecordSchema = z.object({
   id: z.string().uuid(),
@@ -77,6 +78,7 @@ export const nocQuerySchema = z
     page: z.coerce.number().int().min(1).max(100000).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(25),
     status: z.enum(['all', 'open', 'resolved']).default('open'),
+    alarms: z.enum(['live', 'all']).default('live'),
   })
   .strict();
 export type CreateOutageCommand = z.infer<typeof createOutageSchema>;
@@ -87,6 +89,9 @@ export interface NocIncident extends OutageRecord {
   readonly severity: 'critical' | 'major' | 'minor' | 'warning';
   readonly version: number;
   readonly serviceIds: readonly string[];
+  readonly slaDueAt: string;
+  readonly slaBreached: boolean;
+  readonly linkedAlarms: number;
   readonly events: readonly {
     id: string;
     version: number;
@@ -107,6 +112,10 @@ export interface NocWorkspace {
     subscriberName: string;
   }[];
   readonly serviceDirectoryTruncated: boolean;
+  readonly alarms: readonly NocAlarm[];
+  readonly maintenanceWindows: readonly NocMaintenanceWindow[];
+  readonly routerIds: readonly string[];
+  readonly alarmSummary: NocAlarmSummary;
   readonly page: number;
   readonly pageSize: number;
   readonly totalCount: number;

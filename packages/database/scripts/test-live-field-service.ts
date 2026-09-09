@@ -469,7 +469,8 @@ try {
       (event) => event.workOrderId === revisitId && event.action === 'complete_work_order',
     ),
   );
-  const today = await read({ status: 'all' });
+  // The original window sits 2-4 hours from now, which may already be tomorrow in UTC.
+  const today = await read({ status: 'all', day: at(2).slice(0, 10) });
   const original = today.workOrders.find((row) => row.id === workOrderId);
   assert(original, 'the failed original must be on its own day');
   assert.equal(original.overdue, false, 'closed work is never overdue');

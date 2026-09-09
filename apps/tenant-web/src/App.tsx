@@ -67,6 +67,21 @@ const FieldServiceWorkspace = lazy(() =>
     default: module.FieldServiceWorkspace,
   })),
 );
+const AssuranceWorkspace = lazy(() =>
+  import('./assurance/AssuranceWorkspace').then((module) => ({
+    default: module.AssuranceWorkspace,
+  })),
+);
+const DealerWorkspace = lazy(() =>
+  import('./dealers/DealerWorkspace').then((module) => ({
+    default: module.DealerWorkspace,
+  })),
+);
+const NetworkWorkspace = lazy(() =>
+  import('./network/NetworkWorkspace').then((module) => ({
+    default: module.NetworkWorkspace,
+  })),
+);
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
 export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
@@ -451,6 +466,18 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <WorkspaceBoundary locale={locale}>
           <WarehouseWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
+      ) : activeNavigationId === 'assurance' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <AssuranceWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'dealers' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <DealerWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'mikrotik' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <NetworkWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'installations' && session ? (
         <WorkspaceBoundary locale={locale}>
           <FieldServiceWorkspace locale={locale} session={session} />
@@ -459,6 +486,30 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <WorkspaceBoundary locale={locale}>
           <ConfigurationWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
+      ) : activeNavigationId === 'assurance' ? (
+        <StatePanel
+          variant="empty"
+          title={
+            locale === 'en'
+              ? 'Sign in to open Revenue assurance'
+              : 'سجّل الدخول لفتح ضمان الإيرادات'
+          }
+          description={
+            locale === 'en'
+              ? 'Leakage controls, findings and exposure cases are available only inside an authenticated tenant session.'
+              : 'ضوابط التسرب والنتائج وحالات التعرض متاحة فقط ضمن جلسة مستأجر موثقة.'
+          }
+        />
+      ) : activeNavigationId === 'dealers' ? (
+        <StatePanel
+          variant="empty"
+          title={locale === 'en' ? 'Sign in to open Dealers' : 'سجّل الدخول لفتح الوكلاء'}
+          description={
+            locale === 'en'
+              ? 'Dealer float, voucher batches and redemptions are available only inside an authenticated tenant session.'
+              : 'رصيد الوكلاء ودفعات القسائم والاستخدامات متاحة فقط ضمن جلسة مستأجر موثقة.'
+          }
+        />
       ) : activeNavigationId === 'sales' ? (
         <StatePanel
           variant="empty"
