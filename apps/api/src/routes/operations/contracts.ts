@@ -12,6 +12,11 @@ import type {
   DealerChannelCommand,
   AssuranceCommand,
   AssuranceQuery,
+  SupportCommand,
+  SupportQuery,
+  TemplateCommand,
+  CommunicationCommand,
+  DeliverNotificationsCommand,
   AdjustDealerBalanceCommand,
   RedeemVoucherCommand,
   RetryVoucherCreditCommand,
@@ -555,6 +560,30 @@ export interface OperationsWriter {
   readDealerWorkspace(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext,
+  ): Promise<unknown>;
+  readSupportWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<SupportQuery> },
+  ): Promise<unknown>;
+  executeSupportCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: SupportCommand },
+  ): Promise<unknown>;
+  readCommunicationsWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext,
+  ): Promise<unknown>;
+  executeTemplateCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: TemplateCommand },
+  ): Promise<unknown>;
+  executeCommunicationCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: CommunicationCommand },
+  ): Promise<unknown>;
+  deliverNotifications(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: DeliverNotificationsCommand },
   ): Promise<unknown>;
   readAssuranceWorkspace(
     tenantId: VerifiedTenantId,

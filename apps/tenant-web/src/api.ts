@@ -4,6 +4,9 @@ import type {
   DealerWorkspace,
   AssuranceWorkspace,
   AssuranceQuery,
+  SupportWorkspace,
+  SupportQuery,
+  CommunicationsWorkspace,
   NocWorkspace,
   NocQuery,
   TenantIntegrationWorkspace,
@@ -1011,6 +1014,34 @@ export async function readFieldServiceWorkspace(
   return (await response.json()) as FieldServiceWorkspace;
 }
 
+export async function readSupportWorkspace(
+  session: ApiSession,
+  query: Partial<SupportQuery> = {},
+): Promise<SupportWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query))
+    if (value !== undefined) params.set(key, String(value));
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/support/workspace?${params}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Customer service workspace');
+  return (await response.json()) as SupportWorkspace;
+}
+export async function readCommunicationsWorkspace(
+  session: ApiSession,
+): Promise<CommunicationsWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/communications/workspace`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Communications workspace');
+  return (await response.json()) as CommunicationsWorkspace;
+}
 export async function readAssuranceWorkspace(
   session: ApiSession,
   query: Partial<AssuranceQuery> = {},

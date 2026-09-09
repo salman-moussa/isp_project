@@ -8,6 +8,7 @@ export * from './radius-ipam.js';
 export * from './noc-qos.js';
 export * from './noc-telemetry.js';
 export * from './revenue-assurance.js';
+export * from './customer-service.js';
 export * from './network-resources.js';
 export * from './identity.js';
 export * from './integrations.js';

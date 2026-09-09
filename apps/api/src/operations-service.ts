@@ -24,6 +24,13 @@ import {
   readDealerWorkspace,
   readAssuranceWorkspace,
   executeAssuranceCommand,
+  readSupportWorkspace,
+  executeSupportCommand,
+  readCommunicationsWorkspace,
+  executeTemplateCommand,
+  executeCommunicationCommand,
+  markNotificationDelivery,
+  readQueuedNotifications,
   executeDealerChannelCommand,
   generateVoucherBatch,
   adjustDealerBalance,
@@ -97,6 +104,15 @@ import {
 } from '@isp/database';
 import type { OperationsMutationContext, OperationsWriter } from './routes/operations/contracts.js';
 import { integrationTestMail, integrationTestText } from './integrations/mail-templates.js';
+import type { DeliveryPassResult } from '@isp/contracts';
+import type { StoredIntegrationDelivery } from '@isp/database';
+
+const escapeHtml = (value: string) =>
+  value.replace(
+    /[&<>"']/gu,
+    (char) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char,
+  );
 import {
   performIntegrationTest,
   prepareIntegrationConfiguration,
@@ -128,6 +144,13 @@ export interface OperationsRepositoryAdapter {
   readonly closeAccountingPeriod: typeof closeAccountingPeriod;
   readonly readDealerWorkspace: typeof readDealerWorkspace;
   readonly readAssuranceWorkspace: typeof readAssuranceWorkspace;
+  readonly readSupportWorkspace: typeof readSupportWorkspace;
+  readonly executeSupportCommand: typeof executeSupportCommand;
+  readonly readCommunicationsWorkspace: typeof readCommunicationsWorkspace;
+  readonly executeTemplateCommand: typeof executeTemplateCommand;
+  readonly executeCommunicationCommand: typeof executeCommunicationCommand;
+  readonly markNotificationDelivery: typeof markNotificationDelivery;
+  readonly readQueuedNotifications: typeof readQueuedNotifications;
   readonly executeAssuranceCommand: typeof executeAssuranceCommand;
   readonly executeDealerChannelCommand: typeof executeDealerChannelCommand;
   readonly generateVoucherBatch: typeof generateVoucherBatch;
@@ -221,6 +244,13 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readDealerWorkspace,
   readAssuranceWorkspace,
   executeAssuranceCommand,
+  readSupportWorkspace,
+  executeSupportCommand,
+  readCommunicationsWorkspace,
+  executeTemplateCommand,
+  executeCommunicationCommand,
+  markNotificationDelivery,
+  readQueuedNotifications,
   executeDealerChannelCommand,
   generateVoucherBatch,
   adjustDealerBalance,
@@ -824,6 +854,138 @@ export class PostgresOperationsService implements OperationsWriter {
       request: input.request,
       authorization: this.sign(tenantId, input),
     });
+  }
+
+  public readSupportWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readSupportWorkspace'>,
+  ) {
+    return this.repository.readSupportWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeSupportCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeSupportCommand'>,
+  ) {
+    return this.repository.executeSupportCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readCommunicationsWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCommunicationsWorkspace'>,
+  ) {
+    return this.repository.readCommunicationsWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeTemplateCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeTemplateCommand'>,
+  ) {
+    return this.repository.executeTemplateCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeCommunicationCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeCommunicationCommand'>,
+  ) {
+    return this.repository.executeCommunicationCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  /**
+   * One delivery pass over the queued notifications: each due message is sent through the
+   * tenant's configured provider for its channel and the outcome is recorded on the message
+   * with a deterministic key per attempt, so a repeated pass never double-sends.
+   */
+  public async deliverNotifications(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'deliverNotifications'>,
+  ): Promise<DeliveryPassResult> {
+    const runtime = this.requireIntegrations();
+    const queued = await this.repository.readQueuedNotifications(this.database, tenantId, {
+      authorization: this.sign(tenantId, {
+        ...input,
+        idempotencyKey: `${input.idempotencyKey}:read`,
+      }),
+      limit: input.command.limit,
+    });
+    const settings = new Map<'smtp' | 'sms' | 'whatsapp', StoredIntegrationDelivery | null>();
+    const stored = async (kind: 'smtp' | 'sms' | 'whatsapp') => {
+      if (!settings.has(kind)) {
+        settings.set(
+          kind,
+          await this.repository.readTenantIntegrationDelivery(
+            this.database,
+            tenantId,
+            this.sign(tenantId, {
+              ...input,
+              idempotencyKey: `${input.idempotencyKey}:settings:${kind}`,
+            }),
+            kind,
+          ),
+        );
+      }
+      return settings.get(kind) ?? null;
+    };
+    const result = {
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped: [] as { notificationId: string; reason: string }[],
+    };
+    for (const message of queued) {
+      const kind = message.channel === 'email' ? 'smtp' : message.channel;
+      const provider = await stored(kind);
+      if (!provider) {
+        result.skipped.push({ notificationId: message.id, reason: `no active ${kind} provider` });
+        continue;
+      }
+      result.attempted += 1;
+      const outcome = await performIntegrationTest(runtime, provider, message.destination, {
+        mail: {
+          subject: message.subject ?? 'Orvex ISP',
+          text: message.body,
+          html: `<p>${escapeHtml(message.body).replace(/\n/gu, '<br />')}</p>`,
+        },
+        text: message.body,
+      }).catch((error: unknown) => ({
+        status: 'failed' as const,
+        message: error instanceof Error ? error.message.slice(0, 500) : 'delivery failed',
+        recipientMasked: '',
+      }));
+      await this.repository.markNotificationDelivery(this.database, tenantId, {
+        command: {
+          action: 'mark_delivery',
+          notificationId: message.id,
+          expectedVersion: message.version,
+          outcome: outcome.status === 'passed' ? 'sent' : 'failed',
+          ...(outcome.status === 'passed' && outcome.providerReference
+            ? { providerReference: outcome.providerReference }
+            : {}),
+          ...(outcome.status === 'failed' ? { error: outcome.message } : {}),
+        },
+        authorization: this.sign(tenantId, {
+          ...input,
+          idempotencyKey: `notification-delivery:${message.id}:${message.version}`,
+        }),
+      });
+      if (outcome.status === 'passed') result.sent += 1;
+      else result.failed += 1;
+    }
+    return result;
   }
 
   public readAssuranceWorkspace(

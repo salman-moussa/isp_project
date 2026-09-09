@@ -67,6 +67,16 @@ const FieldServiceWorkspace = lazy(() =>
     default: module.FieldServiceWorkspace,
   })),
 );
+const SupportWorkspace = lazy(() =>
+  import('./support/SupportWorkspace').then((module) => ({
+    default: module.SupportWorkspace,
+  })),
+);
+const CommunicationsWorkspace = lazy(() =>
+  import('./communications/CommunicationsWorkspace').then((module) => ({
+    default: module.CommunicationsWorkspace,
+  })),
+);
 const AssuranceWorkspace = lazy(() =>
   import('./assurance/AssuranceWorkspace').then((module) => ({
     default: module.AssuranceWorkspace,
@@ -466,6 +476,14 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <WorkspaceBoundary locale={locale}>
           <WarehouseWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
+      ) : activeNavigationId === 'support' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <SupportWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'communications' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <CommunicationsWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'assurance' && session ? (
         <WorkspaceBoundary locale={locale}>
           <AssuranceWorkspace locale={locale} session={session} />
@@ -486,6 +504,28 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <WorkspaceBoundary locale={locale}>
           <ConfigurationWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
+      ) : activeNavigationId === 'support' ? (
+        <StatePanel
+          variant="empty"
+          title={
+            locale === 'en' ? 'Sign in to open Customer service' : 'سجّل الدخول لفتح خدمة العملاء'
+          }
+          description={
+            locale === 'en'
+              ? 'Tickets, verification and escalation are available only inside an authenticated tenant session.'
+              : 'التذاكر والتحقق والتصعيد متاحة فقط ضمن جلسة مستأجر موثقة.'
+          }
+        />
+      ) : activeNavigationId === 'communications' ? (
+        <StatePanel
+          variant="empty"
+          title={locale === 'en' ? 'Sign in to open Communications' : 'سجّل الدخول لفتح التواصل'}
+          description={
+            locale === 'en'
+              ? 'Templates, consent and the notification outbox are available only inside an authenticated tenant session.'
+              : 'القوالب والموافقات وصندوق الإشعارات متاحة فقط ضمن جلسة مستأجر موثقة.'
+          }
+        />
       ) : activeNavigationId === 'assurance' ? (
         <StatePanel
           variant="empty"

@@ -119,6 +119,12 @@ function writerMocks() {
       redemptions: [],
     })),
     readAssuranceWorkspace: vi.fn(async () => ({ findings: [], cases: [], runs: [] })),
+    readSupportWorkspace: vi.fn(async () => ({ tickets: [] })),
+    executeSupportCommand: vi.fn(async () => ({ issueId: 'issue-a', version: 1 })),
+    readCommunicationsWorkspace: vi.fn(async () => ({ templates: [], notifications: [] })),
+    executeTemplateCommand: vi.fn(async () => ({ templateId: 'tpl-a', version: 1 })),
+    executeCommunicationCommand: vi.fn(async () => ({ notificationId: 'msg-a', status: 'queued' })),
+    deliverNotifications: vi.fn(async () => ({ attempted: 0, sent: 0, failed: 0, skipped: [] })),
     executeAssuranceCommand: vi.fn(async () => ({ runId: 'run-a', summary: [] })),
     executeDealerChannelCommand: vi.fn(async () => ({ dealerId: 'dealer-a', version: 1 })),
     generateVoucherBatch: vi.fn(async () => ({
@@ -2701,5 +2707,165 @@ describe('revenue assurance routes', () => {
       ).statusCode,
     ).toBe(403);
     await viewer.app.close();
+  });
+});
+
+describe('customer service and communications routes', () => {
+  it('separates ticket work, template governance, subscriber messaging and provider delivery', async () => {
+    const writer = writerMocks();
+    const agent = await makeApp(
+      { ...claims, permissions: ['tenant.subscriber.view', 'tenant.subscriber.edit'] },
+      writer,
+    );
+    const ticket = await agent.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/support/commands`,
+      headers: { 'idempotency-key': 'support-ticket-001' },
+      payload: {
+        command: {
+          action: 'create_ticket',
+          subject: 'No internet since morning',
+          description: 'Customer reports the router lights are red.',
+          category: 'technical',
+          channel: 'phone',
+          subscriberId: '40000000-0000-4000-8000-000000000001',
+          verification: { method: 'contact_match', contact: '+961 3 000000' },
+        },
+      },
+    });
+    expect(ticket.statusCode).toBe(201);
+    expect(writer.executeSupportCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.subscriber.edit',
+        auditAction: 'tenant.support.manage',
+        command: expect.objectContaining({ priority: 'normal', category: 'technical' }) as unknown,
+      }),
+    );
+    // A ticket without a subscriber or service is refused before the database.
+    expect(
+      (
+        await agent.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/support/commands`,
+          headers: { 'idempotency-key': 'support-ticket-002' },
+          payload: {
+            command: {
+              action: 'create_ticket',
+              subject: 'Orphan',
+              description: 'No subscriber given',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const queued = await agent.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/communications/commands`,
+      headers: { 'idempotency-key': 'notify-001' },
+      payload: {
+        command: {
+          action: 'queue_notification',
+          subscriberId: '40000000-0000-4000-8000-000000000001',
+          templateKey: 'outage.notice',
+          variables: { area: 'Hamra' },
+        },
+      },
+    });
+    expect(queued.statusCode).toBe(201);
+    expect(writer.executeCommunicationCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        auditAction: 'tenant.communication.manage',
+        command: expect.objectContaining({ locale: 'ar' }) as unknown,
+      }),
+    );
+    // Agents cannot govern templates or run provider delivery.
+    expect(
+      (
+        await agent.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/communications/templates`,
+          headers: { 'idempotency-key': 'template-001' },
+          payload: {
+            command: {
+              action: 'approve_template',
+              templateKey: 'outage.notice',
+              expectedVersion: 1,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await agent.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/communications/deliver`,
+          headers: { 'idempotency-key': 'deliver-001' },
+          payload: { command: { limit: 10 } },
+        })
+      ).statusCode,
+    ).toBe(403);
+    const board = await agent.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/support/workspace?status=all&limit=50`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readSupportWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        query: expect.objectContaining({ status: 'all', limit: 50 }) as unknown,
+      }),
+    );
+    expect(
+      (
+        await agent.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/operations/communications/workspace`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    await agent.app.close();
+
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.user.administer', 'tenant.secret.manage'] },
+      writer,
+    );
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/communications/templates`,
+          headers: { 'idempotency-key': 'template-002' },
+          payload: {
+            command: {
+              action: 'upsert_template',
+              templateKey: 'outage.notice',
+              channel: 'sms',
+              nameEn: 'Outage notice',
+              nameAr: 'إشعار انقطاع',
+              bodyEn: 'Service in {{area}} is interrupted; our team is working on it.',
+              bodyAr: 'الخدمة في {{area}} متوقفة؛ فريقنا يعمل على إصلاحها.',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/communications/deliver`,
+          headers: { 'idempotency-key': 'deliver-002' },
+          payload: { command: { limit: 10 } },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.deliverNotifications).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ permission: 'tenant.secret.manage' }),
+    );
+    await administrator.app.close();
   });
 });

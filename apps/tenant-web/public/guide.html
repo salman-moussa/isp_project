@@ -577,8 +577,11 @@
             >
           </li>
           <li>
+            <a href="#communications"
+              ><span lang="en">Communications</span><span lang="ar">التواصل</span></a
+            >
             <a href="#support"
-              ><span lang="en">Support &amp; reports</span><span lang="ar">الدعم والتقارير</span></a
+              ><span lang="en">Customer service</span><span lang="ar">خدمة العملاء</span></a
             >
           </li>
           <li>
@@ -1597,39 +1600,143 @@
 
         <section class="module" id="support">
           <header>
-            <h2>
-              <span lang="en">Support &amp; reports</span><span lang="ar">الدعم والتقارير</span>
-            </h2>
+            <h2><span lang="en">Customer service</span><span lang="ar">خدمة العملاء</span></h2>
             <span class="pill partial"
               ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
             >
           </header>
           <p class="where">
             <span lang="en"
-              >Where: Internal support, Reports. Permissions: <code>tenant.subscriber.edit</code>,
-              <code>tenant.report.view</code>, <code>tenant.report.export</code>.</span
+              >Where: Customer service. Permissions: <code>tenant.subscriber.view</code> to read,
+              <code>tenant.subscriber.edit</code> to work tickets.</span
             ><span lang="ar"
-              >أين: الدعم الداخلي، التقارير. الصلاحيات: تعديل المشترك، عرض/تصدير التقارير.</span
+              >أين: خدمة العملاء. الصلاحيات: عرض المشتركين للقراءة، وتعديل المشتركين للعمل على
+              التذاكر.</span
             >
           </p>
-          <ul class="plain">
-            <li lang="en">
-              Internal issues link to a subscriber or service in scope, with priority and an
-              evidenced status history. A full complaint and knowledge workspace is planned.
-            </li>
-            <li lang="ar">
-              المشكلات الداخلية ترتبط بمشترك أو خدمة ضمن النطاق مع أولوية وتاريخ حالة مدعوم بالأدلة.
-              مساحة الشكاوى والمعرفة الكاملة مخططة.
-            </li>
-            <li lang="en">
-              Report exports (CSV/XLSX/PDF) apply the signed scope and expire; the drill-down
-              analytics catalogue is still being completed.
-            </li>
-            <li lang="ar">
-              تصدير التقارير يطبّق النطاق الموقّع وينتهي بعد مدة؛ فهرس التحليلات التفصيلية ما زال
-              قيد الإكمال.
-            </li>
-          </ul>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Ticket intake with channel (walk-in, phone, WhatsApp, email, field, internal),
+                  category, priority and caller verification: the contact the caller gives must
+                  match a live contact on the subscriber, or an ID document or account reference is
+                  recorded; "not verified" is allowed but shown as such.
+                </li>
+                <li lang="ar">
+                  استقبال التذاكر بالقناة (حضور، هاتف، واتساب، بريد، ميداني، داخلي) والفئة والأولوية
+                  والتحقق من المتصل: يجب أن تطابق جهة الاتصال التي يقدمها المتصل جهة اتصال حية لدى
+                  المشترك، أو تُسجل وثيقة هوية أو مرجع حساب؛ يُسمح بـ"غير متحقق" لكنه يظهر كذلك.
+                </li>
+                <li lang="en">
+                  Response and resolution targets by priority (urgent 1 h / 4 h, high 4 h / 24 h,
+                  normal 8 h / 72 h, low 24 h / 5 days) with overdue badges; a customer-contact note
+                  records the first response.
+                </li>
+                <li lang="ar">
+                  مهل الرد والحل حسب الأولوية (عاجلة ساعة / ٤ ساعات، مرتفعة ٤ / ٢٤ ساعة، عادية ٨ /
+                  ٧٢ ساعة، منخفضة ٢٤ ساعة / ٥ أيام) مع شارات التجاوز؛ ملاحظة التواصل مع العميل تسجل
+                  أول رد.
+                </li>
+                <li lang="en">
+                  Internal notes, escalation to a colleague (assigns and raises priority), link to
+                  an open NOC incident, governed status changes (open → triaged → in progress /
+                  waiting → resolved → closed) with a resolution code, reopen of a resolved ticket
+                  and redress with a document reference (credit note, goodwill, service extension).
+                </li>
+                <li lang="ar">
+                  ملاحظات داخلية، تصعيد إلى زميل (يعيّن ويرفع الأولوية)، ربط بحادث مفتوح في مركز
+                  المراقبة، تغييرات حالة محكومة (مفتوحة ← مصنّفة ← قيد المعالجة / بانتظار العميل ←
+                  محلولة ← مغلقة) مع رمز حل، إعادة فتح تذكرة محلولة، وتعويض بمرجع مستند (إشعار دائن،
+                  حسن نية، تمديد خدمة).
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Omnichannel intake adapters, a knowledge base, customer-facing ticket status and
+                  satisfaction surveys.
+                </li>
+                <li lang="ar">
+                  محوّلات الاستقبال متعددة القنوات، قاعدة معرفة، حالة التذكرة للعميل، واستبيانات
+                  الرضا.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="communications">
+          <header>
+            <h2><span lang="en">Communications</span><span lang="ar">التواصل</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Communications. Permissions: <code>tenant.user.administer</code> for
+              templates, <code>tenant.subscriber.edit</code> to queue messages and record consent,
+              <code>tenant.secret.manage</code> to run delivery.</span
+            ><span lang="ar"
+              >أين: التواصل. الصلاحيات: إدارة المستخدمين للقوالب، تعديل المشتركين لإدراج الرسائل
+              وتسجيل الموافقات، إدارة الأسرار لتشغيل الإرسال.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Bilingual templates per channel (SMS, WhatsApp, email with subjects) with
+                  {{placeholders}}; a template is approved by a different administrator than its
+                  author and returns to draft on every edit.
+                </li>
+                <li lang="ar">
+                  قوالب ثنائية اللغة لكل قناة (SMS، واتساب، بريد مع مواضيع) مع عناصر نائبة؛ يعتمد
+                  القالب مدير غير مؤلفه ويعود إلى مسودة عند كل تعديل.
+                </li>
+                <li lang="en">
+                  Consent per subscriber and channel with a source; the latest decision wins and a
+                  withdrawn consent suppresses the message with a recorded reason.
+                </li>
+                <li lang="ar">
+                  موافقة لكل مشترك وقناة مع مصدر؛ القرار الأحدث هو المعتمد، والموافقة المسحوبة تكبت
+                  الرسالة مع سبب مسجل.
+                </li>
+                <li lang="en">
+                  Outbox: queue a rendered message to the subscriber's live primary contact, cancel
+                  it while queued, then "Send queued now" delivers through the configured provider
+                  and records the provider reference or the error of each attempt; failures retry
+                  with a growing delay and park after five attempts. Readers see masked
+                  destinations.
+                </li>
+                <li lang="ar">
+                  الصندوق: إدراج رسالة مُصاغة إلى جهة الاتصال الأساسية الحية للمشترك، إلغاؤها ما
+                  دامت منتظرة، ثم "إرسال المنتظر الآن" يرسل عبر المزود المهيأ ويسجل مرجع المزود أو
+                  خطأ كل محاولة؛ تُعاد المحاولات الفاشلة بتأخير متزايد وتتوقف بعد خمس محاولات.
+                  القراء يرون وجهات مقنّعة.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  A scheduled delivery worker, provider delivery receipts and event-driven billing
+                  or outage notifications. Provider credentials stay a configuration task under
+                  Integrations.
+                </li>
+                <li lang="ar">
+                  عامل إرسال مجدول، إيصالات تسليم من المزود، وإشعارات فوترة أو انقطاع مدفوعة
+                  بالأحداث. تبقى بيانات اعتماد المزود مهمة إعداد ضمن التكاملات.
+                </li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section class="module" id="staff">

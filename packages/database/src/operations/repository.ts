@@ -1276,12 +1276,17 @@ export async function transitionSupportIssue(
     )
       throw new OperationsIdempotencyConflictError();
     if (!prior) {
+      // The runtime role holds no UPDATE privilege on issues (the event trigger applies the
+      // transition as definer), so the concurrency guard is an advisory lock, not FOR UPDATE.
+      await transaction.execute(sql`SELECT pg_advisory_xact_lock(
+        hashtextextended(${`${tenantId}:issue:${input.issueId}`}, 0)
+      )`);
       const [issue] = await transaction.execute<{
         readonly status: string;
         readonly version: number;
       }>(sql`
         SELECT status, version FROM operations_support_issues
-        WHERE tenant_id = ${tenantId} AND id = ${input.issueId} FOR UPDATE
+        WHERE tenant_id = ${tenantId} AND id = ${input.issueId}
       `);
       if (!issue || issue.version !== input.expectedVersion) {
         throw new Error('The support issue changed before this transition.');

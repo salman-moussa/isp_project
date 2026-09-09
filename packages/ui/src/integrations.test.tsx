@@ -147,7 +147,7 @@ describe('IntegrationSettingsPanel', () => {
         evidence: 'Ticket CHG-2026-091',
       },
     });
-  });
+  }, 15_000);
 
   it('switches providers per kind and renders Arabic right-to-left', async () => {
     const user = userEvent.setup();

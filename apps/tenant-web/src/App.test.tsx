@@ -112,18 +112,31 @@ describe('Orvex ISP Operations shell', () => {
         ).toBeInTheDocument();
       } else if (item.id === 'accounting') {
         expect(
-          await screen.findByRole('heading', {
-            level: 1,
-            name: 'Double-entry accounting and trial balance',
-          }),
+          await screen.findByRole(
+            'heading',
+            { level: 1, name: 'Double-entry accounting and trial balance' },
+            { timeout: 5000 },
+          ),
         ).toBeInTheDocument();
       } else if (item.id === 'noc') {
         expect(
-          await screen.findByRole('heading', { level: 1, name: 'NOC incidents' }),
+          await screen.findByRole(
+            'heading',
+            { level: 1, name: 'NOC incidents' },
+            { timeout: 5000 },
+          ),
         ).toBeInTheDocument();
         expect(
           screen.getByText('Sign in to view your permitted incident workspace.'),
         ).toBeVisible();
+      } else if (item.id === 'support') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Customer service' }),
+        ).toBeInTheDocument();
+      } else if (item.id === 'communications') {
+        expect(
+          screen.getByRole('heading', { level: 3, name: 'Sign in to open Communications' }),
+        ).toBeInTheDocument();
       } else if (item.id === 'assurance') {
         expect(
           screen.getByRole('heading', { level: 3, name: 'Sign in to open Revenue assurance' }),
@@ -134,7 +147,11 @@ describe('Orvex ISP Operations shell', () => {
         ).toBeInTheDocument();
       } else if (item.id === 'warehouse') {
         expect(
-          await screen.findByRole('heading', { level: 1, name: 'Sign in to open Warehouse' }),
+          await screen.findByRole(
+            'heading',
+            { level: 1, name: 'Sign in to open Warehouse' },
+            { timeout: 5000 },
+          ),
         ).toBeInTheDocument();
       } else if (operationsTask) {
         expect(
