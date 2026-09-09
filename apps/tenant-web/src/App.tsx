@@ -3,21 +3,11 @@ import {
   AppShell,
   LocaleSwitcher,
   StatePanel,
-  StatusBadge,
-  SupportSessionBanner,
-  TaskRouteView,
   useHashNavigation,
   type Locale,
   type ApiSession,
 } from '@isp/ui';
 import { tenantCopy } from './copy';
-import {
-  operationPath,
-  OperationsWorkspace,
-  type OperationsTask,
-} from './operations/OperationsWorkspace';
-import { tenantRoutes } from './routes';
-import { submitTenantOperation } from './api';
 
 const StaffWorkspace = lazy(() =>
   import('./staff/StaffWorkspace').then((module) => ({ default: module.StaffWorkspace })),
@@ -86,6 +76,16 @@ const ReportsWorkspace = lazy(() =>
     default: module.ReportsWorkspace,
   })),
 );
+const CashierWorkspace = lazy(() =>
+  import('./cashier/CashierWorkspace').then((module) => ({
+    default: module.CashierWorkspace,
+  })),
+);
+const CollectionsWorkspace = lazy(() =>
+  import('./collections/CollectionsWorkspace').then((module) => ({
+    default: module.CollectionsWorkspace,
+  })),
+);
 const NetworkWorkspace = lazy(() =>
   import('./network/NetworkWorkspace').then((module) => ({
     default: module.NetworkWorkspace,
@@ -93,17 +93,6 @@ const NetworkWorkspace = lazy(() =>
 );
 
 const tenantNavigationIds = tenantCopy.en.navigation.map((item) => item.id);
-export const tenantOperationsTasks: Readonly<Record<string, OperationsTask>> = {
-  subscribers: 'subscriber',
-  billing: 'billing',
-  payments: 'office-payment',
-  collectors: 'collectors',
-  installations: 'installation',
-  network: 'network',
-  support: 'support',
-  reports: 'reports',
-  configuration: 'configuration',
-};
 
 export function App({ session }: { readonly session?: ApiSession } = {}) {
   const [locale, setLocale] = useState<Locale>('en');
@@ -111,8 +100,9 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
     tenantNavigationIds,
     'dashboard',
   );
-  const [supportSessionActive, setSupportSessionActive] = useState(false);
   const copy = tenantCopy[locale];
+  const activeLabel =
+    copy.navigation.find((item) => item.id === activeNavigationId)?.label ?? activeNavigationId;
   const navigate = (id: string) => {
     navigateRoute(id);
   };
@@ -130,17 +120,12 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       activeNavigationId={activeNavigationId}
       onNavigate={navigate}
       context={{
-        eyebrow: session ? 'ISP workspace · Authenticated' : copy.contextEyebrow,
-        title: session
-          ? locale === 'en'
-            ? 'Authenticated ISP workspace'
-            : 'مساحة عمل مزوّد الإنترنت'
-          : copy.contextTitle,
+        eyebrow: session ? copy.signedInEyebrow : copy.contextEyebrow,
+        title: session ? copy.signedInTitle : copy.contextTitle,
         meta: session
-          ? `${locale === 'en' ? 'Workspace' : 'مساحة'} …${session.tenantId?.slice(-8) ?? ''} · Asia/Beirut`
+          ? `${copy.workspaceLabel} …${session.tenantId?.slice(-8) ?? ''} · Asia/Beirut`
           : copy.contextMeta,
       }}
-      contextAction={<StatusBadge tone="positive">{copy.branchStatus}</StatusBadge>}
       commandLabel={copy.searchLabel}
       toolbar={
         <>
@@ -154,17 +139,12 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
           <button
             type="button"
             className="user-chip"
-            aria-label={session ? (locale === 'en' ? 'Sign out' : 'تسجيل الخروج') : copy.userLabel}
+            aria-label={session ? copy.signOutLabel : copy.userLabel}
             onClick={session?.logout}
           >
             <span aria-hidden="true">ISP</span>
           </button>
         </>
-      }
-      supportBanner={
-        supportSessionActive ? (
-          <SupportSessionBanner {...copy.support} onEnd={() => setSupportSessionActive(false)} />
-        ) : undefined
       }
     >
       {activeNavigationId === 'dashboard' ? (
@@ -234,6 +214,14 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
         <WorkspaceBoundary locale={locale}>
           <DealerWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
+      ) : activeNavigationId === 'payments' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <CashierWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'collectors' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <CollectionsWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
       ) : activeNavigationId === 'mikrotik' && session ? (
         <WorkspaceBoundary locale={locale}>
           <NetworkWorkspace locale={locale} session={session} />
@@ -302,23 +290,11 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
               : 'مسار المبيعات المحكوم متاح فقط ضمن جلسة مستأجر موثقة.'
           }
         />
-      ) : tenantOperationsTasks[activeNavigationId] ? (
-        <OperationsWorkspace
-          locale={locale}
-          initialTask={tenantOperationsTasks[activeNavigationId]}
-          state="empty"
-          onSubmit={
-            session
-              ? (task, payload, idempotencyKey) =>
-                  submitTenantOperation(session, operationPath(task), payload, idempotencyKey)
-              : undefined
-          }
-        />
       ) : (
-        <TaskRouteView
-          route={tenantRoutes[locale][activeNavigationId]}
-          dataSourceLabel={session ? 'Authenticated API' : copy.dataStatus}
-          onNavigate={navigate}
+        <StatePanel
+          variant="empty"
+          title={`${copy.signInToOpen} ${activeLabel}`}
+          description={copy.signInDescription}
         />
       )}
     </AppShell>

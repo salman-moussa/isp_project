@@ -2,6 +2,8 @@ import type {
   FieldServiceWorkspace,
   NetworkWorkspace,
   DealerWorkspace,
+  CashierWorkspace,
+  CollectionsWorkspace,
   AssuranceWorkspace,
   AssuranceQuery,
   SupportWorkspace,
@@ -1109,6 +1111,62 @@ export async function readDealerWorkspace(session: ApiSession): Promise<DealerWo
   if (response.status === 401) session.logout();
   if (!response.ok) throw await staffError(response, 'Dealer workspace');
   return (await response.json()) as DealerWorkspace;
+}
+export async function readCashierWorkspace(
+  session: ApiSession,
+  query: { readonly search?: string } = {},
+): Promise<CashierWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const suffix = query.search ? `?search=${encodeURIComponent(query.search)}` : '';
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/cashier/workspace${suffix}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Cashier workspace');
+  return (await response.json()) as CashierWorkspace;
+}
+export async function readCollectionsWorkspace(
+  session: ApiSession,
+  query: { readonly day?: string } = {},
+): Promise<CollectionsWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const suffix = query.day ? `?day=${encodeURIComponent(query.day)}` : '';
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/collections/workspace${suffix}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Collections workspace');
+  return (await response.json()) as CollectionsWorkspace;
+}
+/** Approves a Collect device reconciliation difference (recent MFA required by the API). */
+export async function approveDeviceReconciliation(
+  session: ApiSession,
+  reconciliationId: string,
+  reason: string,
+  idempotencyKey: string,
+): Promise<Record<string, unknown>> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/collect/reconciliations/${encodeURIComponent(reconciliationId)}/approve`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorizationHeaders(session),
+        'content-type': 'application/json',
+        'idempotency-key': idempotencyKey,
+      },
+      body: JSON.stringify({ reason }),
+    },
+  );
+  if (response.status === 401) session.logout();
+  const result = (await response.json()) as Record<string, unknown> & {
+    readonly error?: { readonly message?: string };
+  };
+  if (!response.ok)
+    throw new Error(result.error?.message ?? `Approval failed (${response.status}).`);
+  return result;
 }
 export async function readNetworkWorkspace(
   session: ApiSession,

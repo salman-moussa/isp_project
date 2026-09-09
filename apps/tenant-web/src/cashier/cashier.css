@@ -1,0 +1,323 @@
+.cashier-shell {
+  --cs-ink: var(--color-ink, #14213a);
+  --cs-line: var(--color-border, #dfe5ed);
+  --cs-muted: var(--color-ink-muted, #5d6b82);
+  --cs-accent: #1f5e4a;
+  display: grid;
+  gap: 1.1rem;
+  color: var(--cs-ink);
+  max-width: 1600px;
+  margin: auto;
+}
+.cashier-shell :is(button, input, select, textarea) {
+  font: inherit;
+}
+.cashier-shell :is(input, select, textarea, button):focus-visible {
+  outline: 3px solid #ef9b19;
+  outline-offset: 2px;
+}
+.cashier-shell button {
+  cursor: pointer;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--cs-line);
+  border-radius: 0.6rem;
+  background: var(--color-surface, #fff);
+  color: inherit;
+}
+.cashier-shell button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.cashier-shell button.cashier-primary {
+  background: var(--cs-ink);
+  border-color: var(--cs-ink);
+  color: #fff;
+  font-weight: 650;
+}
+.cashier-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: clamp(1.2rem, 2.5vw, 1.8rem);
+  border: 1px solid var(--cs-line);
+  border-radius: var(--radius-lg, 0.875rem);
+  background: var(--color-surface, #fff);
+}
+.cashier-hero > div:first-child {
+  max-width: 68ch;
+}
+.cashier-hero > div:first-child > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cs-muted);
+}
+.cashier-hero h1 {
+  margin: 0.4rem 0 0.6rem;
+  font-size: clamp(1.5rem, 2.8vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+.cashier-hero p,
+.cashier-note {
+  margin: 0;
+  color: var(--cs-muted);
+}
+.cashier-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(10rem, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+.cashier-stats > div {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.8rem;
+  background: var(--color-surface-raised, #f8fafc);
+  border: 1px solid var(--cs-line);
+}
+.cashier-stats > div.is-open {
+  border-color: var(--cs-accent);
+}
+.cashier-stats dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cs-muted);
+}
+.cashier-stats dd {
+  margin: 0.2rem 0 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cashier-stats small {
+  display: block;
+  color: var(--cs-muted);
+}
+.cashier-banner {
+  padding: 0.7rem 1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--cs-accent);
+  background: #edf6f2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.cashier-banner.is-error {
+  border-color: #b3261e;
+  background: #fbeeed;
+}
+.cashier-drawers,
+.cashier-panel {
+  display: grid;
+  gap: 0.9rem;
+  padding: clamp(1rem, 2vw, 1.4rem);
+  border: 1px solid var(--cs-line);
+  border-radius: var(--radius-lg, 0.875rem);
+  background: var(--color-surface, #fff);
+}
+.cashier-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.cashier-shell h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.cashier-shell h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.cashier-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .cashier-columns {
+    grid-template-columns: 1fr;
+  }
+}
+.cashier-search {
+  display: flex;
+  gap: 0.6rem;
+  align-items: end;
+}
+.cashier-search label {
+  flex: 1;
+}
+.cashier-shell label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--cs-muted);
+}
+.cashier-shell :is(input, select) {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--cs-line);
+  border-radius: 0.55rem;
+  background: var(--color-surface, #fff);
+  color: var(--cs-ink);
+  min-width: 0;
+}
+.cashier-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.cashier-results button {
+  width: 100%;
+  display: grid;
+  gap: 0.15rem;
+  text-align: start;
+  padding: 0.6rem 0.8rem;
+}
+.cashier-results button.is-selected {
+  border-color: var(--cs-accent);
+  background: #edf6f2;
+}
+.cashier-results button span {
+  font-size: 0.85rem;
+  color: var(--cs-muted);
+}
+.cashier-form {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border: 1px solid var(--cs-line);
+  border-radius: 0.8rem;
+  background: var(--color-surface-raised, #f8fafc);
+}
+.cashier-inline {
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  align-items: end;
+}
+.cashier-inline strong,
+.cashier-inline p,
+.cashier-inline .mfa-step-up {
+  grid-column: 1 / -1;
+}
+.cashier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+.cashier-grid .cashier-span {
+  grid-column: 1 / -1;
+}
+.cashier-table-wrap {
+  overflow-x: auto;
+}
+.cashier-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.cashier-table th,
+.cashier-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--cs-line);
+  text-align: start;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+.cashier-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cs-muted);
+}
+.cashier-table small {
+  display: block;
+  color: var(--cs-muted);
+}
+.cashier-table tr.is-voided td {
+  color: var(--cs-muted);
+  text-decoration: line-through;
+}
+.cashier-table tr.is-voided td:first-child {
+  text-decoration: none;
+}
+.cashier-table td.is-variance {
+  color: #b3261e;
+  font-weight: 650;
+}
+.cashier-pill {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  background: #e8edf5;
+}
+.cashier-pill.is-open {
+  background: #dff1e8;
+  color: var(--cs-accent);
+}
+.cashier-receipt {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px dashed var(--cs-ink);
+  border-radius: 0.6rem;
+  background: #fff;
+  max-width: 28rem;
+}
+.cashier-receipt header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.cashier-receipt p {
+  margin: 0;
+}
+.cashier-receipt dl {
+  margin: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+.cashier-receipt dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.cashier-receipt dt {
+  color: var(--cs-muted);
+}
+.cashier-receipt dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.mfa-step-up {
+  display: flex;
+  gap: 0.6rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.mfa-step-up__ok {
+  color: var(--cs-accent, #1f5e4a);
+  font-weight: 600;
+}
+.mfa-step-up__error {
+  color: #b3261e;
+}
+@media print {
+  .cashier-shell > :not(.cashier-columns),
+  .cashier-columns > :last-child,
+  .cashier-panel > :not(.cashier-receipt) {
+    display: none;
+  }
+  .cashier-receipt {
+    border: none;
+    max-width: none;
+  }
+}

@@ -1213,10 +1213,12 @@ export async function recordCollectorEvidence(
       INSERT INTO operations_collector_collection_evidence (
         tenant_id, assignment_id, finance_payment_id, amount_minor, currency,
         recorded_by, idempotency_key
-      ) VALUES (
-        ${tenantId}, ${input.assignmentId}, ${input.financePaymentId}, 1, 'USD',
-        ${input.recordedBy}, ${input.idempotencyKey}
       )
+      SELECT ${tenantId}, ${input.assignmentId}, payment.id, payment.amount_minor, payment.currency,
+        ${input.recordedBy}, ${input.idempotencyKey}
+      FROM finance_payments payment
+      WHERE payment.tenant_id = ${tenantId} AND payment.id = ${input.financePaymentId}
+        AND payment.entry_kind = 'posted'
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
       RETURNING id
     `);

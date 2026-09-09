@@ -549,9 +549,12 @@
           </li>
           <li>
             <a href="#payments"
-              ><span lang="en">Payments &amp; collectors</span
-              ><span lang="ar">الدفعات والجباة</span></a
+              ><span lang="en">Payments &amp; cashier</span
+              ><span lang="ar">الدفعات والصندوق</span></a
             >
+          </li>
+          <li>
+            <a href="#collectors"><span lang="en">Collectors</span><span lang="ar">الجباة</span></a>
           </li>
           <li>
             <a href="#network"
@@ -1159,38 +1162,138 @@
         <section class="module" id="payments">
           <header>
             <h2>
-              <span lang="en">Payments &amp; collectors</span><span lang="ar">الدفعات والجباة</span>
+              <span lang="en">Payments &amp; cashier</span><span lang="ar">الدفعات والصندوق</span>
             </h2>
             <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
           </header>
           <p class="where">
             <span lang="en"
-              >Where: Payments &amp; cashier, Collectors. Permissions:
-              <code>tenant.payment.post</code>, <code>tenant.payment.reverse</code>,
-              <code>tenant.collection.view</code>, <code>tenant.collection.reconcile</code>.</span
+              >Where: Payments &amp; cashier. Permissions: <code>tenant.payment.post</code> to open
+              a drawer and post receipts, <code>tenant.payment.reverse</code> with a recent identity
+              check to void, <code>tenant.payment.view</code> to read.</span
             ><span lang="ar"
-              >أين: الدفعات وأمين الصندوق، الجباة. الصلاحيات: ترحيل/عكس الدفعة، عرض/مطابقة
-              التحصيل.</span
+              >أين: الدفعات والصندوق. الصلاحيات: ترحيل الدفعات لفتح الصندوق وترحيل الإيصالات، عكس
+              الدفعات مع تحقق حديث من الهوية للإلغاء، عرض الدفعات للقراءة.</span
             >
           </p>
-          <ul class="plain">
-            <li lang="en">
-              Office payments post against a customer account in one currency with a linear,
-              evidenced correction chain.
-            </li>
-            <li lang="ar">
-              دفعات المكتب تُرحَّل على حساب العميل بعملة واحدة مع سلسلة تصحيح خطية مدعومة بالأدلة.
-            </li>
-            <li lang="en">
-              Collector routes: assignments, collected evidence from the mobile app, and
-              reconciliation that derives expected versus collected per currency; any difference
-              needs an approver.
-            </li>
-            <li lang="ar">
-              مسارات الجباة: التعيينات وأدلة التحصيل من التطبيق والمطابقة التي تشتق المتوقع مقابل
-              المحصّل لكل عملة؛ أي فرق يحتاج معتمداً.
-            </li>
-          </ul>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Open a drawer per currency with its opening float. Cash receipts you post join it;
+                  at close you enter the counted cash and the variance is kept with your note.
+                </li>
+                <li lang="ar">
+                  افتح صندوقاً لكل عملة برصيده الافتتاحي. الإيصالات النقدية التي ترحّلها تنضم إليه؛
+                  وعند الإغلاق تدخل النقد المعدود ويُحفظ الفرق مع ملاحظتك.
+                </li>
+                <li lang="en">
+                  Find the subscriber by number, name or phone, see the open invoices per currency
+                  and any credit on account, enter the amount and method (cash, card, bank transfer,
+                  OMT, Whish, other) with its reference, and post. The receipt is allocated to the
+                  invoice you choose or to the oldest open invoices first; anything left stays as
+                  credit. Receipt numbers come from the system unless you type the number from a
+                  pre-printed book. The receipt can be printed at once.
+                </li>
+                <li lang="ar">
+                  ابحث عن المشترك بالرقم أو الاسم أو الهاتف، وشاهد الفواتير المفتوحة لكل عملة وأي
+                  رصيد في الحساب، وأدخل المبلغ وطريقة الدفع (نقد، بطاقة، تحويل مصرفي، OMT، Whish،
+                  أخرى) مع مرجعها ثم رحّل. يُخصَّص الإيصال للفاتورة التي تختارها أو لأقدم الفواتير
+                  المفتوحة أولاً؛ وما يتبقى يبقى رصيداً. أرقام الإيصالات يصدرها النظام ما لم تكتب
+                  الرقم من دفتر مطبوع مسبقاً. ويمكن طباعة الإيصال فوراً.
+                </li>
+                <li lang="en">
+                  Voiding a receipt posts a linked reversal of the payment and its allocations with
+                  your reason; nothing posted is ever edited, and receipts in a closed drawer cannot
+                  be voided.
+                </li>
+                <li lang="ar">
+                  إلغاء الإيصال يرحّل عكساً مرتبطاً للدفعة وتخصيصاتها مع سببك؛ لا يُعدَّل شيء مرحّل
+                  أبداً، ولا يمكن إلغاء إيصالات صندوق مغلق.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Card terminals, bank, OMT and Whish settlement feeds, and bank deposit
+                  reconciliation.
+                </li>
+                <li lang="ar">
+                  أجهزة البطاقات، وتغذيات تسوية المصرف وOMT وWhish، ومطابقة الإيداعات المصرفية.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="module" id="collectors">
+          <header>
+            <h2><span lang="en">Collectors</span><span lang="ar">الجباة</span></h2>
+            <span class="pill live"><span lang="en">Live</span><span lang="ar">مفعّل</span></span>
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Collectors. Permissions: <code>tenant.collection.reconcile</code> to assign,
+              settle and approve (approval needs a recent identity check),
+              <code>tenant.payment.post</code> to record cash,
+              <code>tenant.collection.view</code> to read.</span
+            ><span lang="ar"
+              >أين: الجباة. الصلاحيات: مطابقة التحصيل للإسناد والتسوية والموافقة (الموافقة تحتاج
+              تحققاً حديثاً من الهوية)، ترحيل الدفعات لتسجيل النقد، عرض التحصيل للقراءة.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Give each route a default collector, then assign one invoice or every open invoice
+                  on the route with a due date; each assignment carries the real open balance and
+                  reaches the collector's Collect app.
+                </li>
+                <li lang="ar">
+                  عيّن لكل مسار جابياً افتراضياً، ثم أسند فاتورة واحدة أو كل الفواتير المفتوحة على
+                  المسار بتاريخ استحقاق؛ يحمل كل إسناد الرصيد المفتوح الحقيقي ويصل إلى تطبيق
+                  التحصيل.
+                </li>
+                <li lang="en">
+                  Mark visits and returns, reassign or cancel with a reason, and post the cash a
+                  collector hands in at the office as a receipt capped at the open balance.
+                </li>
+                <li lang="ar">
+                  سجّل الزيارات والإعادات، وأعد الإسناد أو ألغِه مع سبب، ورحّل النقد الذي يسلّمه
+                  الجابي في المكتب كإيصال لا يتجاوز الرصيد المفتوح.
+                </li>
+                <li lang="en">
+                  Settle a route per day and currency: the expected cash is derived from that day's
+                  receipts, the declared cash is kept, and a difference needs a reason and a second
+                  manager's approval. Differences submitted from the Collect app are approved in the
+                  same list, and every authorised device shows its last sync.
+                </li>
+                <li lang="ar">
+                  سوِّ المسار لكل يوم وعملة: يُشتق النقد المتوقع من إيصالات اليوم، ويُحفظ النقد
+                  المصرّح، ويحتاج الفرق إلى سبب وموافقة مدير ثانٍ. الفروق المرسلة من تطبيق التحصيل
+                  تُعتمد في القائمة نفسها، ويظهر لكل جهاز مفوّض آخر مزامنة له.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Route planning by map, receipt printer pairing in production, and the collector
+                  onboarding OTP flow on real hardware.
+                </li>
+                <li lang="ar">
+                  تخطيط المسارات على الخريطة، واقتران طابعة الإيصالات في الإنتاج، وتفعيل الجابي برمز
+                  التحقق على أجهزة حقيقية.
+                </li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section class="module" id="network">

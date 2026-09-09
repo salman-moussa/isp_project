@@ -2,10 +2,8 @@ import axe from 'axe-core';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { App, tenantOperationsTasks } from './App';
+import { App } from './App';
 import { tenantCopy } from './copy';
-import { operationsTaskCopy } from './operations/OperationsWorkspace';
-import { tenantRoutes } from './routes';
 
 describe('Orvex ISP Operations shell', () => {
   beforeEach(() => {
@@ -26,10 +24,7 @@ describe('Orvex ISP Operations shell', () => {
       'page',
     );
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: operationsTaskCopy.ar['office-payment'].title,
-      }),
+      screen.getByRole('heading', { level: 3, name: 'سجّل الدخول لفتح الدفعات والصندوق' }),
     ).toBeInTheDocument();
   });
 
@@ -111,7 +106,6 @@ describe('Orvex ISP Operations shell', () => {
       await user.click(navigationButton!);
 
       expect(navigationButton).toHaveAttribute('aria-current', 'page');
-      const operationsTask = tenantOperationsTasks[item.id];
       if (item.id === 'sales') {
         expect(
           screen.getByRole('heading', { level: 3, name: 'Sign in to open Sales' }),
@@ -163,23 +157,10 @@ describe('Orvex ISP Operations shell', () => {
             { timeout: 5000 },
           ),
         ).toBeInTheDocument();
-      } else if (operationsTask) {
-        expect(
-          screen.getByRole('heading', {
-            level: 1,
-            name: operationsTaskCopy.en[operationsTask].title,
-          }),
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole('button', { name: operationsTaskCopy.en[operationsTask].primary }),
-        ).toBeDisabled();
       } else {
         expect(
-          screen.getByRole('heading', { level: 1, name: tenantRoutes.en[item.id].title }),
+          screen.getByRole('heading', { level: 3, name: `Sign in to open ${item.label}` }),
         ).toBeInTheDocument();
-        expect(
-          screen.getByText(tenantCopy.en.dataStatus, { selector: '.route-disclosure *' }),
-        ).toBeVisible();
       }
     }
 
@@ -209,10 +190,7 @@ describe('Orvex ISP Operations shell', () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: operationsTaskCopy.en['office-payment'].title,
-      }),
+      screen.getByRole('heading', { level: 3, name: 'Sign in to open Payments & cashier' }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Subscribers' }));
@@ -221,19 +199,13 @@ describe('Orvex ISP Operations shell', () => {
     window.history.replaceState(null, '', '#/payments');
     fireEvent.popState(window);
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: operationsTaskCopy.en['office-payment'].title,
-      }),
+      screen.getByRole('heading', { level: 3, name: 'Sign in to open Payments & cashier' }),
     ).toBeInTheDocument();
 
     window.history.replaceState(null, '', '#/subscribers');
     fireEvent.popState(window);
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: operationsTaskCopy.en.subscriber.title,
-      }),
+      screen.getByRole('heading', { level: 3, name: 'Sign in to open Subscribers' }),
     ).toBeInTheDocument();
   });
 
@@ -251,10 +223,7 @@ describe('Orvex ISP Operations shell', () => {
       'page',
     );
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: operationsTaskCopy.en['office-payment'].title,
-      }),
+      screen.getByRole('heading', { level: 3, name: 'Sign in to open Payments & cashier' }),
     ).toBeInTheDocument();
   });
 });

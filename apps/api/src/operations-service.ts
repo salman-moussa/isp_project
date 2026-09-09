@@ -22,6 +22,12 @@ import {
   readAccountingPeriods,
   closeAccountingPeriod,
   readDealerWorkspace,
+  readCashierWorkspace,
+  executeCashierCommand,
+  voidReceipt,
+  readCollectionsWorkspace,
+  executeCollectionCommand,
+  recordCollection,
   readAssuranceWorkspace,
   executeAssuranceCommand,
   readSupportWorkspace,
@@ -148,6 +154,12 @@ export interface OperationsRepositoryAdapter {
   readonly readAccountingPeriods: typeof readAccountingPeriods;
   readonly closeAccountingPeriod: typeof closeAccountingPeriod;
   readonly readDealerWorkspace: typeof readDealerWorkspace;
+  readonly readCashierWorkspace: typeof readCashierWorkspace;
+  readonly executeCashierCommand: typeof executeCashierCommand;
+  readonly voidReceipt: typeof voidReceipt;
+  readonly readCollectionsWorkspace: typeof readCollectionsWorkspace;
+  readonly executeCollectionCommand: typeof executeCollectionCommand;
+  readonly recordCollection: typeof recordCollection;
   readonly readAssuranceWorkspace: typeof readAssuranceWorkspace;
   readonly readSupportWorkspace: typeof readSupportWorkspace;
   readonly readDashboardSnapshot: typeof readDashboardSnapshot;
@@ -251,6 +263,12 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readAccountingPeriods,
   closeAccountingPeriod,
   readDealerWorkspace,
+  readCashierWorkspace,
+  executeCashierCommand,
+  voidReceipt,
+  readCollectionsWorkspace,
+  executeCollectionCommand,
+  recordCollection,
   readAssuranceWorkspace,
   executeAssuranceCommand,
   readSupportWorkspace,
@@ -1083,6 +1101,60 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'readDealerWorkspace'>,
   ) {
     return this.repository.readDealerWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readCashierWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCashierWorkspace'>,
+  ) {
+    return this.repository.readCashierWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeCashierCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeCashierCommand'>,
+  ) {
+    return this.repository.executeCashierCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public voidReceipt(tenantId: VerifiedTenantId, input: WriterInput<'voidReceipt'>) {
+    return this.repository.voidReceipt(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readCollectionsWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCollectionsWorkspace'>,
+  ) {
+    return this.repository.readCollectionsWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeCollectionCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeCollectionCommand'>,
+  ) {
+    return this.repository.executeCollectionCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public recordCollection(tenantId: VerifiedTenantId, input: WriterInput<'recordCollection'>) {
+    return this.repository.recordCollection(this.database, tenantId, {
+      command: input.command,
       authorization: this.sign(tenantId, input),
     });
   }

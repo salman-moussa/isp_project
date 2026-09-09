@@ -118,6 +118,15 @@ function writerMocks() {
       ledger: [],
       redemptions: [],
     })),
+    readCashierWorkspace: vi.fn(async () => ({ drawers: [], receipts: [], subscribers: [] })),
+    executeCashierCommand: vi.fn(async () => ({
+      receiptId: 'receipt-a',
+      receiptNumber: 'RC-000001',
+    })),
+    voidReceipt: vi.fn(async () => ({ receiptId: 'receipt-a', reversalPaymentId: 'pay-b' })),
+    readCollectionsWorkspace: vi.fn(async () => ({ routes: [], assignments: [], settlements: [] })),
+    executeCollectionCommand: vi.fn(async () => ({ assigned: 1 })),
+    recordCollection: vi.fn(async () => ({ evidenceId: 'evidence-b' })),
     readAssuranceWorkspace: vi.fn(async () => ({ findings: [], cases: [], runs: [] })),
     readSupportWorkspace: vi.fn(async () => ({ tickets: [] })),
     readDashboardSnapshot: vi.fn(async () => ({ asOf: 'now', activity: [] })),
@@ -2949,5 +2958,216 @@ describe('dashboard and report routes', () => {
       }),
     );
     await exporter.app.close();
+  });
+});
+
+describe('cashier and collection routes', () => {
+  it('posts receipts under payment authority, guards voids with recent MFA and serves the searched workspace', async () => {
+    const writer = writerMocks();
+    const cashier = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.payment.view', 'tenant.payment.post', 'tenant.payment.reverse'],
+      },
+      writer,
+    );
+    const receipt = await cashier.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/cashier/commands`,
+      headers: { 'idempotency-key': 'cashier-receipt-001' },
+      payload: {
+        command: {
+          action: 'record_receipt',
+          subscriberId: '80000000-0000-4000-8000-000000000001',
+          amountMinor: 2500,
+          currency: 'USD',
+          method: 'cash',
+        },
+      },
+    });
+    expect(receipt.statusCode).toBe(201);
+    expect(writer.executeCashierCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.cashier.manage',
+        command: expect.objectContaining({ action: 'record_receipt', method: 'cash' }) as unknown,
+      }),
+    );
+    // A card receipt without its reference is refused before the database.
+    expect(
+      (
+        await cashier.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/cashier/commands`,
+          headers: { 'idempotency-key': 'cashier-receipt-002' },
+          payload: {
+            command: {
+              action: 'record_receipt',
+              subscriberId: '80000000-0000-4000-8000-000000000001',
+              amountMinor: 2500,
+              currency: 'USD',
+              method: 'card',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    // Voids need a recent MFA step-up even with reversal authority.
+    const voidPayload = {
+      command: {
+        action: 'void_receipt',
+        receiptId: '80000000-0000-4000-8000-000000000002',
+        reason: 'Wrong subscriber selected at the counter',
+      },
+    };
+    expect(
+      (
+        await cashier.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/cashier/void`,
+          headers: { 'idempotency-key': 'cashier-void-001' },
+          payload: voidPayload,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(writer.voidReceipt).not.toHaveBeenCalled();
+    const board = await cashier.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/cashier/workspace?search=Layla`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readCashierWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.payment.view',
+        query: expect.objectContaining({ search: 'Layla' }) as unknown,
+      }),
+    );
+    await cashier.app.close();
+
+    const verified = await makeApp(
+      {
+        ...claims,
+        permissions: ['tenant.payment.view', 'tenant.payment.reverse'],
+        mfaVerifiedAt: '2026-08-11T11:59:00.000Z',
+      },
+      writer,
+    );
+    expect(
+      (
+        await verified.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/cashier/void`,
+          headers: { 'idempotency-key': 'cashier-void-002' },
+          payload: voidPayload,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.voidReceipt).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.payment.reverse',
+        auditAction: 'tenant.cashier.manage',
+      }),
+    );
+    await verified.app.close();
+  });
+
+  it('separates collection management from cash posting and reads the day workspace', async () => {
+    const writer = writerMocks();
+    const manager = await makeApp(
+      { ...claims, permissions: ['tenant.collection.view', 'tenant.collection.reconcile'] },
+      writer,
+    );
+    const assigned = await manager.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/collections/commands`,
+      headers: { 'idempotency-key': 'collections-assign-001' },
+      payload: {
+        command: { action: 'assign_route_due', routeId, dueOn: '2026-09-10' },
+      },
+    });
+    expect(assigned.statusCode).toBe(201);
+    expect(writer.executeCollectionCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.collection.reconcile',
+        auditAction: 'tenant.collection.manage',
+      }),
+    );
+    // Recording cash is a payment-posting act; a manager without it is refused.
+    expect(
+      (
+        await manager.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/collections/record`,
+          headers: { 'idempotency-key': 'collections-record-001' },
+          payload: {
+            command: {
+              action: 'record_collection',
+              assignmentId: '80000000-0000-4000-8000-000000000003',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    // Approving a settlement difference needs a recent MFA step-up.
+    expect(
+      (
+        await manager.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/collections/approve`,
+          headers: { 'idempotency-key': 'collections-approve-001' },
+          payload: {
+            command: {
+              action: 'approve_settlement',
+              settlementId: '80000000-0000-4000-8000-000000000004',
+              expectedVersion: 1,
+              reason: 'Counted twice with the collector',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    const board = await manager.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/collections/workspace?day=2026-09-09`,
+    });
+    expect(board.statusCode).toBe(200);
+    expect(writer.readCollectionsWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.collection.view',
+        query: expect.objectContaining({ day: '2026-09-09' }) as unknown,
+      }),
+    );
+    await manager.app.close();
+
+    const office = await makeApp({ ...claims, permissions: ['tenant.payment.post'] }, writer);
+    expect(
+      (
+        await office.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/collections/record`,
+          headers: { 'idempotency-key': 'collections-record-002' },
+          payload: {
+            command: {
+              action: 'record_collection',
+              assignmentId: '80000000-0000-4000-8000-000000000003',
+              amountMinor: 3000,
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(writer.recordCollection).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.payment.post',
+        auditAction: 'tenant.collection.manage',
+      }),
+    );
+    await office.app.close();
   });
 });

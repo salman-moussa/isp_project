@@ -20,3 +20,4 @@ export * from './network-resources.js';
 export * from './revenue-assurance.js';
 export * from './customer-service.js';
 export * from './analytics.js';
+export * from './cashier-collections.js';

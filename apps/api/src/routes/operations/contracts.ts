@@ -40,6 +40,13 @@ import type {
   NetworkResourceCommand,
   NocAlarmCommand,
   NetworkWorkspaceQuery,
+  CashierCommand,
+  CashierQuery,
+  VoidReceiptCommand,
+  CollectionManageCommand,
+  ApproveSettlementCommand,
+  RecordCollectionCommand,
+  CollectionsQuery,
 } from '@isp/contracts';
 
 export interface OperationsMutationContext {
@@ -559,6 +566,32 @@ export interface OperationsWriter {
     input: OperationsMutationContext & {
       readonly request: PeriodCloseRequest;
     },
+  ): Promise<unknown>;
+  readCashierWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<CashierQuery> },
+  ): Promise<unknown>;
+  executeCashierCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: CashierCommand },
+  ): Promise<unknown>;
+  voidReceipt(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: VoidReceiptCommand },
+  ): Promise<unknown>;
+  readCollectionsWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<CollectionsQuery> },
+  ): Promise<unknown>;
+  executeCollectionCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & {
+      readonly command: CollectionManageCommand | ApproveSettlementCommand;
+    },
+  ): Promise<unknown>;
+  recordCollection(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: RecordCollectionCommand },
   ): Promise<unknown>;
   readDealerWorkspace(
     tenantId: VerifiedTenantId,
