@@ -144,6 +144,15 @@ export interface ControlCenterApiService {
   allocatePayment(input: Record<string, unknown>): Promise<unknown>;
   reverseAllocation(input: Record<string, unknown>): Promise<unknown>;
   readIntegrations(context: Record<string, unknown>): Promise<unknown>;
+  readPortfolio(context: Record<string, unknown>): Promise<unknown>;
+  readClientDetail(
+    input: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<unknown>;
+  readPackages(context: Record<string, unknown>): Promise<unknown>;
+  readSubscriptions(context: Record<string, unknown>): Promise<unknown>;
+  readBilling(input: Record<string, unknown>, context: Record<string, unknown>): Promise<unknown>;
+  readAudit(input: Record<string, unknown>, context: Record<string, unknown>): Promise<unknown>;
   configureIntegration(input: Record<string, unknown>): Promise<unknown>;
   testIntegration(input: Record<string, unknown>): Promise<unknown>;
 }
@@ -158,6 +167,81 @@ export function registerControlCenterRoutes(
 ): void {
   const authenticate = (request: FastifyRequest, reply: FastifyReply) =>
     app.authenticate(request, reply);
+  app.get('/v1/control-center/portfolio', {
+    preHandler: [authenticate, platformPermission('platform.client.view')],
+    handler: async (request, reply) =>
+      reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readPortfolio(
+            requestContext(request, 'platform.client.view', 'portfolio.read'),
+          ),
+        ),
+  });
+  app.get('/v1/control-center/clients/:tenantId/detail', {
+    preHandler: [authenticate, platformPermission('platform.client.view')],
+    handler: async (request, reply) => {
+      const { tenantId } = tenantParams.parse(request.params);
+      return reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readClientDetail(
+            { tenantId },
+            requestContext(request, 'platform.client.view', 'client.detail'),
+          ),
+        );
+    },
+  });
+  app.get('/v1/control-center/packages', {
+    preHandler: [authenticate, platformPermission('platform.client.view')],
+    handler: async (request, reply) =>
+      reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readPackages(
+            requestContext(request, 'platform.client.view', 'package.list'),
+          ),
+        ),
+  });
+  app.get('/v1/control-center/subscriptions', {
+    preHandler: [authenticate, platformPermission('platform.client.view')],
+    handler: async (request, reply) =>
+      reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readSubscriptions(
+            requestContext(request, 'platform.client.view', 'subscription.list'),
+          ),
+        ),
+  });
+  app.get('/v1/control-center/billing', {
+    preHandler: [authenticate, platformPermission('platform.billing.view')],
+    handler: async (request, reply) => {
+      const query = readLimitQuery.parse(request.query);
+      return reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readBilling(
+            query,
+            requestContext(request, 'platform.billing.view', 'billing.list'),
+          ),
+        );
+    },
+  });
+  app.get('/v1/control-center/audit', {
+    preHandler: [authenticate, platformPermission('platform.audit.view')],
+    handler: async (request, reply) => {
+      const query = auditQuery.parse(request.query);
+      return reply
+        .header('cache-control', 'private, no-store')
+        .send(
+          await options.service.readAudit(
+            query,
+            requestContext(request, 'platform.audit.view', 'audit.list'),
+          ),
+        );
+    },
+  });
   app.get('/v1/control-center/clients', {
     preHandler: [authenticate, platformPermission('platform.client.view')],
     handler: async (request) => {
@@ -499,6 +583,15 @@ function freshMfa(now: () => Date) {
       );
   };
 }
+const readLimitQuery = z
+  .object({ limit: z.coerce.number().int().min(1).max(500).optional() })
+  .strict();
+const auditQuery = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+    before: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
 function requestContext(
   request: FastifyRequest,
   permission: Permission,

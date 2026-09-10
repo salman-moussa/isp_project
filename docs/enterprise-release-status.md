@@ -16,6 +16,73 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Control Center: live portfolio, client files and the end of demonstration pages — 2026-09-10
+
+The Control Center shell still opened on invented figures ("84 of 91 demonstration workspaces",
+"Northline ISP (demo)", "Maya Haddad") and rendered seeded task pages for sales, packages,
+subscriptions, billing, deployments, support and reports. Migration
+202609090700_control_center_portfolio.sql adds control-plane readers, each requiring the signed
+Control Center request context with the permission and action the route declares:
+`read_control_portfolio` (clients by state and new this month, MRR per currency from active and
+grace subscriptions at package price, renewals ending within 30 days, pending transition requests,
+outstanding platform invoices and receipts this month per currency, deployment health counts, open
+tickets, support grants, the last 25 audited operations); `read_control_client_detail` (client,
+contacts, subscription with package and entitlements, transition requests and transitions, invoices
+and receipts with allocations, outstanding per currency, service summary, support grants, audit
+trail); `read_control_packages`, `read_control_subscriptions` (with the pending request),
+`read_control_billing` (permission `platform.billing.view`; outstanding by client and the latest
+ledger) and `read_control_audit` (permission `platform.audit.view`). Balances are integer minor
+units per currency and never combined.
+
+API: `GET /v1/control-center/portfolio`, `/clients/:tenantId/detail`, `/packages`, `/subscriptions`,
+`/billing` and `/audit`, all `private, no-store`.
+
+The Control Center web app now renders every module from these reads: the portfolio overview (six
+cards that open the list behind them, lifecycle bars, renewals due, live activity), ISP clients with
+a client file that opens from any list, the sales pipeline (leads, trial and grace with the
+assignment form), packages (versions with subscriber counts and the new-version form), subscriptions
+(state, package, period, revision, pending request and the transition form), billing (outstanding by
+client, the ledger and the posting forms), deployments (health per workspace from service summaries,
+honestly marked "not reporting" until a deployment reports), support (open tickets, active and
+requested grants, clients with open work) and reports & audit (CSV export of subscriptions and the
+audit trail rendered from the same reads). The seeded route pages, demonstration clients and
+invented figures are removed; every module shows a sign-in panel before authentication.
+
+Live acceptance on PostgreSQL 18 (`test-live-control-portfolio.ts`): a client, package version,
+active subscription, invoice, receipt and allocation created through the governed repository;
+portfolio refused under the wrong permission or action; MRR, outstanding, receipts this month and
+activity computed; client file with package, allocations, outstanding and audit; unknown client
+refused; packages with active counts; subscriptions without a pending request; billing refused for a
+client viewer and served for a billing viewer; audit refused for a client viewer and served for an
+audit viewer with the actor's display name.
+
+Focused suites: api (portfolio, client file and audit binding, query validation, permission denial),
+platform-web (sign-in panels in EN and AR RTL with no demonstration text, live overview and client
+file, every module heading, deep links and history).
+
+## Production checkpoint deployed — 2026-09-09 (`a2a047f`, office cashier and field collections)
+
+Release id `20260909T141240Z-a2a047f`; the deploy script completed end to end with
+`Deployment complete.`
+
+| Item                | Result                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Artifact            | sha256 `9e4ea4f824ceb514b91c789deb63e9ba9da12a5a5ea62f9d0d5598cf1ece92cd`, identical local and on-host |
+| Backup              | `/opt/orvex-backups/20260909T141240Z-a2a047f`, verified with SHA256SUMS                                |
+| Migrations promoted | 1 (`202609090600_tenant_cashier_collections`); 12 applied files preserved at their applied bytes       |
+| Services            | all five `running (healthy)`                                                                           |
+| Endpoints           | `/ready` 200, `/` 200, `/control/` 200                                                                 |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                                               |
+| Logs                | no error/fatal/panic lines after deployment                                                            |
+
+What is now live: tenant "Payments & cashier" (drawers, atomic receipts with allocations, printable
+receipt, voids as linked reversals) and "Collectors" (route collectors, balance-derived assignments,
+office-recorded cash, settlements with approved differences, Collect device visibility). No seeded
+page or demonstration copy remains in the tenant shell.
+
+Rollback boundary: `/opt/orvex-backups/20260909T141240Z-a2a047f/source.tar` plus both database dumps
+and `env.backup`.
+
 ## Office cashier and field collections — 2026-09-09
 
 "Payments & cashier" and "Collectors" were the last two navigation items still rendering seeded
@@ -1020,7 +1087,7 @@ host was not modified.
 | Security and audit                   | `foundation`                      | Canonical sessions, MFA boundary, scoped grants, tenant auth, staff device administration and immutable evidence exist                                                                                                                                                                                                                            | Central permission catalogue, recent-MFA guards, FORCE RLS and guarded roles/functions                                                                                                                     | Security/control/tenant audit planes                                                                                                    | Deny/isolation/session tests and fresh staff lifecycle proof exist; full DAST review absent                                                           | Complete secure uploads/webhooks, DAST and incident acceptance                                                                       |
 | Integration and data management      | `partial`                         | Versioned API, idempotent operations and provider interfaces exist; lineage/import/webhooks incomplete                                                                                                                                                                                                                                            | Route permissions and guarded worker DB roles                                                                                                                                                              | Outbox/inbox patterns in implemented slices                                                                                             | Finance/network/collect replay tests                                                                                                                  | Mapping/validation, durable webhooks, retention/legal hold, import/export and recovery                                               |
 | Platform operations                  | `partial`                         | Control Center, deployment profiles, health/readiness, backup/rollback kit exist                                                                                                                                                                                                                                                                  | Platform permissions; control clients/subscriptions/deployments/grants                                                                                                                                     | Control audit and observability contracts                                                                                               | Prior release/static/live foundation evidence; production-volume restore/DAST not current                                                             | Tenant exit/export, entitlement UI completeness, independent restore, rollback, load and alert drills                                |
-| Orvex management console             | `partial`                         | Control Center client/subscription/finance/deployment/support vertical exists; authenticated API client and full entitlement UI incomplete                                                                                                                                                                                                        | Platform permissions; migration 2100                                                                                                                                                                       | Atomic control audit and approved support grants                                                                                        | Control API/repository/live DB foundation evidence                                                                                                    | Real authenticated list/detail/admin UI, feature entitlements, lifecycle and support-session E2E                                     |
+| Orvex management console             | `partial`                         | Control Center portfolio, client files, packages, subscriptions, billing ledger, deployments, support and audit rendered from signed control-plane reads; client, contact, package, subscription, transition, invoice, payment and allocation mutations with approvals; platform integrations; no demonstration content                           | Platform permissions per read (`platform.client.view`, `platform.billing.view`, `platform.audit.view`) and per mutation; control request context; approvals with fresh MFA                                 | Atomic control audit, approved support grants                                                                                           | Live PostgreSQL 18 control reads proof (test-live-control-portfolio.ts); control repository/live foundation; API and UI suites                        | Deployment summaries need a reporting job from each deployment; entitlement enforcement in tenant workspaces; support desk ticketing |
 | LearnISP                             | `missing`                         | No `/learnisp` application or generated reference                                                                                                                                                                                                                                                                                                 | Public docs only; no runtime authorization required                                                                                                                                                        | Build/link evidence absent                                                                                                              | None                                                                                                                                                  | Build only from implemented behavior after each wave; bilingual search/RTL/direct-route/E2E                                          |
 
 ## Wave 1 active acceptance ledger

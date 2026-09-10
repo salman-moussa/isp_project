@@ -163,3 +163,268 @@ export function testControlIntegration(
     idempotencyKey,
   );
 }
+
+async function readControlJson<T>(session: ApiSession, path: string): Promise<T> {
+  const response = await fetch(`${session.apiBaseUrl}/v1/control-center/${path}`, {
+    headers: { authorization: `Bearer ${session.accessToken}` },
+  });
+  if (response.status === 401) session.logout();
+  if (response.status === 403) throw new ControlApiError(await safeMessage(response), 403);
+  if (!response.ok) throw new ControlApiError(await safeMessage(response), response.status);
+  return (await response.json()) as T;
+}
+
+export interface ControlMoneyLine {
+  readonly currency: 'USD' | 'LBP';
+  readonly amountMinor: number;
+}
+export interface ControlPortfolio {
+  readonly asOf: string;
+  readonly clients: {
+    readonly total: number;
+    readonly byState: readonly { readonly state: string; readonly count: number }[];
+    readonly newThisMonth: number;
+  };
+  readonly subscriptions: {
+    readonly mrr: readonly (ControlMoneyLine & { readonly subscriptions: number })[];
+    readonly renewalsDue: readonly {
+      readonly tenantId: string;
+      readonly tradingName: string;
+      readonly state: string;
+      readonly endsAt: string;
+      readonly packageKey: string;
+      readonly priceMinor: number;
+      readonly currency: 'USD' | 'LBP';
+    }[];
+    readonly pendingTransitions: number;
+  };
+  readonly billing: {
+    readonly outstanding: readonly (ControlMoneyLine & { readonly invoices: number })[];
+    readonly receivedThisMonth: readonly (ControlMoneyLine & { readonly payments: number })[];
+  };
+  readonly service: {
+    readonly healthy: number;
+    readonly attention: number;
+    readonly blocked: number;
+    readonly unknown: number;
+    readonly openTickets: number;
+    readonly escalated: number;
+    readonly activeSupportGrants: number;
+    readonly requestedSupportGrants: number;
+  };
+  readonly activity: readonly {
+    readonly id: string;
+    readonly operation: string;
+    readonly entityType: string;
+    readonly entityId: string;
+    readonly tenantId: string | null;
+    readonly tradingName: string | null;
+    readonly actor: string;
+    readonly reason: string;
+    readonly occurredAt: string;
+  }[];
+}
+export interface ControlClientFile {
+  readonly client: {
+    readonly id: string;
+    readonly tenantId: string;
+    readonly legalName: string;
+    readonly tradingName: string;
+    readonly registrationNumber: string | null;
+    readonly accountOwner: string | null;
+    readonly notes: string | null;
+    readonly createdAt: string;
+    readonly tenantCode: string | null;
+    readonly tenantStatus: string | null;
+  };
+  readonly contacts: readonly {
+    readonly id: string;
+    readonly role: string;
+    readonly name: string;
+    readonly email: string | null;
+    readonly phone: string | null;
+    readonly preferredLocale: string;
+    readonly isPrimary: boolean;
+  }[];
+  readonly subscription: {
+    readonly id: string;
+    readonly state: string;
+    readonly packageVersionId: string;
+    readonly packageKey: string;
+    readonly packageName: string;
+    readonly packageNameAr: string;
+    readonly version: number;
+    readonly priceMinor: number;
+    readonly currency: 'USD' | 'LBP';
+    readonly entitlements: readonly string[];
+    readonly startsAt: string;
+    readonly endsAt: string | null;
+    readonly revision: number;
+  } | null;
+  readonly transitionRequests: readonly {
+    readonly id: string;
+    readonly fromState: string;
+    readonly toState: string;
+    readonly reason: string;
+    readonly requestedBy: string;
+    readonly requestedAt: string;
+    readonly status: string;
+    readonly decidedBy: string | null;
+    readonly decisionReason: string | null;
+    readonly decidedAt: string | null;
+    readonly expectedRevision: number;
+  }[];
+  readonly transitions: readonly {
+    readonly id: string;
+    readonly fromState: string;
+    readonly toState: string;
+    readonly reason: string;
+    readonly actor: string;
+    readonly approver: string | null;
+    readonly occurredAt: string;
+  }[];
+  readonly invoices: readonly ControlLedgerInvoice[];
+  readonly payments: readonly ControlLedgerPayment[];
+  readonly outstanding: readonly (ControlMoneyLine & { readonly invoices: number })[];
+  readonly summary: {
+    readonly deploymentHealth: string | null;
+    readonly deploymentStage: string | null;
+    readonly deploymentUpdatedAt: string | null;
+    readonly supportStatus: string | null;
+    readonly openTicketCount: number;
+    readonly oldestOpenTicketAt: string | null;
+    readonly updatedAt: string;
+  } | null;
+  readonly supportGrants: readonly {
+    readonly id: string;
+    readonly ticketId: string;
+    readonly requester: string;
+    readonly approver: string | null;
+    readonly reason: string;
+    readonly permissions: readonly string[];
+    readonly status: string;
+    readonly expiresAt: string;
+    readonly revokedAt: string | null;
+    readonly createdAt: string;
+  }[];
+  readonly audit: readonly {
+    readonly id: string;
+    readonly operation: string;
+    readonly entityType: string;
+    readonly entityId: string;
+    readonly actor: string;
+    readonly reason: string;
+    readonly occurredAt: string;
+  }[];
+}
+export interface ControlLedgerInvoice {
+  readonly id: string;
+  readonly tenantId?: string;
+  readonly tradingName?: string;
+  readonly invoiceNumber: string;
+  readonly entryKind: 'posted' | 'reversal';
+  readonly reversesInvoiceId: string | null;
+  readonly amountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly dueAt: string | null;
+  readonly postedAt: string;
+  readonly reason: string;
+  readonly actor?: string;
+  readonly reversed: boolean;
+  readonly allocatedMinor: number;
+}
+export interface ControlLedgerPayment {
+  readonly id: string;
+  readonly tenantId?: string;
+  readonly tradingName?: string;
+  readonly receiptNumber: string;
+  readonly entryKind: 'posted' | 'reversal';
+  readonly reversesPaymentId: string | null;
+  readonly amountMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly postedAt: string;
+  readonly reason: string;
+  readonly actor?: string;
+  readonly reversed: boolean;
+  readonly allocatedMinor: number;
+}
+export interface ControlPackageVersion {
+  readonly id: string;
+  readonly packageKey: string;
+  readonly version: number;
+  readonly nameEn: string;
+  readonly nameAr: string;
+  readonly entitlements: readonly string[];
+  readonly priceMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly effectiveFrom: string;
+  readonly effectiveUntil: string | null;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly current: boolean;
+  readonly subscriptions: number;
+  readonly activeSubscriptions: number;
+}
+export interface ControlSubscriptionRow {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly tradingName: string;
+  readonly legalName: string;
+  readonly state: string;
+  readonly packageVersionId: string;
+  readonly packageKey: string;
+  readonly packageName: string;
+  readonly packageNameAr: string;
+  readonly priceMinor: number;
+  readonly currency: 'USD' | 'LBP';
+  readonly startsAt: string;
+  readonly endsAt: string | null;
+  readonly revision: number;
+  readonly updatedAt: string;
+  readonly pendingRequest: {
+    readonly id: string;
+    readonly toState: string;
+    readonly reason: string;
+    readonly requestedBy: string;
+    readonly requestedAt: string;
+  } | null;
+}
+export interface ControlBillingLedger {
+  readonly asOf: string;
+  readonly outstandingByClient: readonly {
+    readonly tenantId: string;
+    readonly tradingName: string;
+    readonly outstanding: readonly (ControlMoneyLine & { readonly invoices: number })[];
+  }[];
+  readonly invoices: readonly ControlLedgerInvoice[];
+  readonly payments: readonly ControlLedgerPayment[];
+}
+export interface ControlAuditRow {
+  readonly id: string;
+  readonly operation: string;
+  readonly entityType: string;
+  readonly entityId: string;
+  readonly tenantId: string | null;
+  readonly tradingName: string | null;
+  readonly actor: string;
+  readonly permission: string;
+  readonly requestId: string;
+  readonly reason: string;
+  readonly occurredAt: string;
+}
+
+export const readControlPortfolio = (session: ApiSession) =>
+  readControlJson<ControlPortfolio>(session, 'portfolio');
+export const readControlClientFile = (session: ApiSession, tenantId: string) =>
+  readControlJson<ControlClientFile>(session, `clients/${encodeURIComponent(tenantId)}/detail`);
+export const readControlPackages = (session: ApiSession) =>
+  readControlJson<readonly ControlPackageVersion[]>(session, 'packages');
+export const readControlSubscriptions = (session: ApiSession) =>
+  readControlJson<readonly ControlSubscriptionRow[]>(session, 'subscriptions');
+export const readControlBilling = (session: ApiSession) =>
+  readControlJson<ControlBillingLedger>(session, 'billing?limit=200');
+export const readControlAudit = (session: ApiSession, before?: string) =>
+  readControlJson<readonly ControlAuditRow[]>(
+    session,
+    before ? `audit?limit=100&before=${encodeURIComponent(before)}` : 'audit?limit=100',
+  );

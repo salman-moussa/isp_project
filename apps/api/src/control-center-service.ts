@@ -15,6 +15,12 @@ import {
   createControlClientContact,
   createControlPackageVersion,
   listControlClients,
+  readControlAudit,
+  readControlBilling,
+  readControlClientDetail,
+  readControlPackages,
+  readControlPortfolio,
+  readControlSubscriptions,
   postPlatformInvoice,
   postPlatformPayment,
   reversePlatformAllocation,
@@ -103,6 +109,61 @@ export class PostgresControlCenterService implements ControlCenterApiService {
     );
   }
 
+  public readPortfolio(context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readControlPortfolio(
+      this.database,
+      this.readSignature(request, {}, 'Read the Control Center portfolio snapshot.'),
+    );
+  }
+  public readClientDetail(input: Record<string, unknown>, context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readControlClientDetail(
+      this.database,
+      this.readSignature(request, input, 'Read a Control Center client file.'),
+      text(input, 'tenantId'),
+    );
+  }
+  public readPackages(context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readControlPackages(
+      this.database,
+      this.readSignature(request, {}, 'Read Control Center package versions.'),
+    );
+  }
+  public readSubscriptions(context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readControlSubscriptions(
+      this.database,
+      this.readSignature(request, {}, 'Read Control Center subscriptions.'),
+    );
+  }
+  public readBilling(input: Record<string, unknown>, context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readControlBilling(
+      this.database,
+      this.readSignature(request, input, 'Read the platform billing ledger.'),
+      typeof input.limit === 'number' ? input.limit : 200,
+    );
+  }
+  public readAudit(input: Record<string, unknown>, context: Record<string, unknown>) {
+    const request = readRequestContext(context);
+    return readControlAudit(
+      this.database,
+      this.readSignature(request, input, 'Read the Control Center audit trail.'),
+      {
+        ...(typeof input.limit === 'number' ? { limit: input.limit } : {}),
+        ...(typeof input.before === 'string' ? { before: input.before } : {}),
+      },
+    );
+  }
+  private readSignature(request: RequestContext, input: unknown, reason: string) {
+    return this.sign(request, {
+      idempotencyKey: `read-${request.requestId}`,
+      requestHash: hashCanonical(input),
+      reason,
+    });
+  }
   public createClient(input: Record<string, unknown>) {
     const request = readMutationContext(input);
     return createControlClient(this.database, {

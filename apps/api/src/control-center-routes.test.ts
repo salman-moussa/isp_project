@@ -60,6 +60,12 @@ describe('Control Center API routes', () => {
       reversePayment: vi.fn(async () => ({ id: 'payment-reversal' })),
       allocatePayment: vi.fn(async () => ({ id: 'allocation-a' })),
       reverseAllocation: vi.fn(async () => ({ id: 'allocation-reversal' })),
+      readPortfolio: vi.fn(async () => ({ clients: { total: 0 }, activity: [] })),
+      readClientDetail: vi.fn(async () => ({ client: {} })),
+      readPackages: vi.fn(async () => []),
+      readSubscriptions: vi.fn(async () => []),
+      readBilling: vi.fn(async () => ({ invoices: [], payments: [] })),
+      readAudit: vi.fn(async () => []),
       readIntegrations: vi.fn(async () => ({
         settings: [],
         recentEvents: [],
@@ -244,6 +250,12 @@ describe('Control Center integration routes', () => {
       reversePayment: vi.fn(),
       allocatePayment: vi.fn(),
       reverseAllocation: vi.fn(),
+      readPortfolio: vi.fn(async () => ({ clients: { total: 0 }, activity: [] })),
+      readClientDetail: vi.fn(async () => ({ client: {} })),
+      readPackages: vi.fn(async () => []),
+      readSubscriptions: vi.fn(async () => []),
+      readBilling: vi.fn(async () => ({ invoices: [], payments: [] })),
+      readAudit: vi.fn(async () => []),
       readIntegrations: vi.fn(async () => ({
         settings: [],
         recentEvents: [],
@@ -372,6 +384,78 @@ describe('Control Center integration routes', () => {
         })
       ).statusCode,
     ).toBe(400);
+    await app.close();
+  });
+});
+
+describe('Control Center portfolio reads', () => {
+  it('binds the portfolio, client file and audit reads to their permissions and actions', async () => {
+    const readPortfolio = vi.fn(async () => ({ clients: { total: 1 }, activity: [] }));
+    const readClientDetail = vi.fn(async () => ({ client: { tenantId } }));
+    const readAudit = vi.fn(async () => []);
+    const app = Fastify();
+    app.decorateRequest('auth');
+    app.decorate('authenticate', async (request: Parameters<typeof app.authenticate>[0]) => {
+      request.auth = { ...claims, permissions: ['platform.client.view', 'platform.billing.view'] };
+    });
+    registerControlCenterRoutes(app, {
+      service: {
+        listClients: vi.fn(),
+        createClient: vi.fn(),
+        createContact: vi.fn(),
+        createPackageVersion: vi.fn(),
+        assignSubscription: vi.fn(),
+        transitionSubscription: vi.fn(),
+        approveTransition: vi.fn(),
+        postInvoice: vi.fn(),
+        postPayment: vi.fn(),
+        reverseInvoice: vi.fn(),
+        reversePayment: vi.fn(),
+        allocatePayment: vi.fn(),
+        reverseAllocation: vi.fn(),
+        readIntegrations: vi.fn(),
+        configureIntegration: vi.fn(),
+        testIntegration: vi.fn(),
+        readPortfolio,
+        readClientDetail,
+        readPackages: vi.fn(async () => []),
+        readSubscriptions: vi.fn(async () => []),
+        readBilling: vi.fn(async () => ({ invoices: [], payments: [] })),
+        readAudit,
+      },
+      now: () => now,
+    });
+    app.setErrorHandler((error, _request, reply) => {
+      if (error instanceof ZodError) return reply.code(400).send({ code: 'VALIDATION_FAILED' });
+      if (error instanceof AuthorizationDeniedError)
+        return reply.code(403).send({ code: error.code });
+      return reply.code(500).send({ code: 'INTERNAL_ERROR' });
+    });
+    await app.ready();
+    const portfolio = await app.inject({ method: 'GET', url: '/v1/control-center/portfolio' });
+    expect(portfolio.statusCode).toBe(200);
+    expect(portfolio.headers['cache-control']).toBe('private, no-store');
+    expect(readPortfolio).toHaveBeenCalledWith(
+      expect.objectContaining({ permission: 'platform.client.view', action: 'portfolio.read' }),
+    );
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/v1/control-center/clients/${tenantId}/detail`,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(readClientDetail).toHaveBeenCalledWith(
+      { tenantId },
+      expect.objectContaining({ permission: 'platform.client.view', action: 'client.detail' }),
+    );
+    expect(
+      (await app.inject({ method: 'GET', url: '/v1/control-center/billing?limit=5000' }))
+        .statusCode,
+    ).toBe(400);
+    // Audit needs its own permission; a billing viewer is refused before the service.
+    expect((await app.inject({ method: 'GET', url: '/v1/control-center/audit' })).statusCode).toBe(
+      403,
+    );
+    expect(readAudit).not.toHaveBeenCalled();
     await app.close();
   });
 });
