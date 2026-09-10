@@ -16,6 +16,96 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## LearnISP: generated bilingual reference at /learnisp — 2026-09-10
+
+`scripts/learnisp/build.mjs` reads the field manual (`apps/tenant-web/public/guide.html`), the only
+source that documents implemented behaviour, and generates a static reference under
+`apps/tenant-web/public/learnisp/`: a start page with a client-side search over the English and
+Arabic text of every module and a module list with its status pill, one direct route per module
+(`/learnisp/<module>/`) with the module's content, related modules of the same status and a link
+back to the full manual, and `search-index.json`. The language toggle switches text and direction
+(RTL for Arabic) and is remembered per browser. The output is committed and served by the web image
+as static files, so `/learnisp/` and every module route work without the API;
+`npm run learnisp:check` fails when the committed output no longer matches the manual and is part of
+`validate`.
+
+Suites: tenant-web (every module route present in both languages with a status, no demonstration
+text, Arabic RTL switch and Arabic search hitting the cashier module, English search hitting the
+collectors module, empty result state). The manual's "Collect mobile" navigation link now points at
+its own section.
+
+## Regulatory & QoS and People operations — 2026-09-10
+
+Both domains were `missing`. Migration 202609100100_tenant_regulatory_people.sql adds them under the
+signed operations context with permission `tenant.user.administer` for every mutation.
+
+Regulatory (`execute_regulatory_command`, action `tenant.regulatory.manage`): a licence and renewal
+register (kind, reference, authority, issue and expiry, renewal notice, status), an obligations
+calendar (code, authority, frequency, next due date, owner, evidence flag) that advances to the next
+period when a submission is sent, KPI definitions with targets and comparators (a standard set of
+nine can be added in one step), and periodic submissions whose evidence is a retained snapshot
+produced by `regulatory_compute_kpis`: network availability from outage minutes against the period,
+mean time to restore, faults per 100 active services, critical alarms, complaints per 100 active
+subscribers, average first response and resolution, and the share of tickets answered and resolved
+within SLA, each with its numerator and denominator so every number traces to retained rows; manual
+KPIs take a value at preparation. Submissions move draft → submitted (regulator reference required)
+→ accepted or rejected with a note, under a version guard. The NOC scope predicate now also admits
+the regulatory, dashboard and report read actions, so incident-based figures are visible to those
+readers without granting any write.
+
+People (`execute_people_command`, action `tenant.people.manage`): teams with a lead, employees with
+one record per person linked to their staff identity when they have one (role, team, branch, phone,
+email, hire date, status, skills), shifts and on-call that cannot overlap for the same kind or fall
+on approved leave, leave requests decided by someone other than the requester or the employee
+(approval cancels the shifts it covers), and training or certification records with expiry. Readers:
+`read_regulatory_workspace(from, to)` (permissions `tenant.report.view`, `tenant.report.export` or
+`tenant.user.administer`) and `read_people_workspace(from, to)` (`tenant.user.administer`,
+`tenant.installation.view` or `tenant.report.view`).
+
+The tenant shell gains "Regulatory & QoS" (KPI evidence for a chosen window, obligations with
+overdue marking and submission preparation, licence register with renewal due, submissions with the
+evidence table, regulator reference, decision and CSV export of the evidence) and "People & shifts"
+(employees with today's status, teams, schedule window with shift and on-call entry and
+cancellation, leave requests with approve, reject and withdraw, training with expiry status).
+
+Live acceptance on PostgreSQL 18 (`test-live-regulatory-people.ts`): standard KPI set created once
+and replayed exactly; licence with renewal due and a stale-version refusal; obligation owner must be
+a member; workspace refused for a subscriber viewer; KPI values computed from a retained 60-minute
+outage, a critical alarm and a complaint answered in 30 minutes (availability below 100, MTTR 60
+met, complaints per 100 missed, SLA response 100, fault rate 1 / 1); submission prepared with the
+snapshot, decision refused before submission, reference required, obligation advanced, stale version
+refused, decision recorded with the preparer's name; team and employee linked to a member, unknown
+member refused, one employee per identity; overlapping shift refused, on-call allowed, leave
+conflict refused, self-approval refused, approval by another person cancelling the covered shifts,
+scheduling on approved leave refused, training expiring within 90 days flagged, member link flags,
+team lead, append-only training records and audit rows for every guarded table.
+
+Focused suites: api (both commands under administration authority, invalid shift refused before the
+database, windowed regulatory read, viewer denials), tenant-web (KPI evidence with met and missed
+targets, Arabic submission with reference, submission preparation; employees and leave approval,
+Arabic employee creation linked to a sign-in, shift scheduling).
+
+## Production checkpoint deployed — 2026-09-10 (`6ec25c5`, Control Center live portfolio)
+
+Release id `20260910T064535Z-6ec25c5`; the deploy script completed end to end with
+`Deployment complete.`
+
+| Item                | Result                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Artifact            | sha256 `e99bfc4149e412edd026d5d6f910c2af77cb74f78e74363e2080cc72b18e0abf`, identical local and on-host |
+| Backup              | `/opt/orvex-backups/20260910T064535Z-6ec25c5`, verified with SHA256SUMS                                |
+| Migrations promoted | 1 (`202609090700_control_center_portfolio`); applied files preserved at their applied bytes            |
+| Services            | all five `running (healthy)`                                                                           |
+| Endpoints           | `/ready` 200, `/` 200, `/control/` 200                                                                 |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                                               |
+
+What is now live: the Control Center at /control/ renders every module from control-plane reads
+(portfolio overview, client files, packages, subscriptions, billing ledger, deployments, support,
+reports and audit). No seeded page, demonstration client or invented figure remains.
+
+Rollback boundary: `/opt/orvex-backups/20260910T064535Z-6ec25c5/source.tar` plus both database dumps
+and `env.backup`.
+
 ## Control Center: live portfolio, client files and the end of demonstration pages — 2026-09-10
 
 The Control Center shell still opened on invented figures ("84 of 91 demonstration workspaces",
@@ -1081,14 +1171,14 @@ host was not modified.
 | Customer service and complaints      | `partial`                         | Ticket workspace with intake channel, caller verification, category, priority SLA targets and breach badges, notes and first response, escalation, incident link, governed status changes, reopen and redress                                                                                                                                     | `tenant.subscriber.edit` for ticket work, `tenant.subscriber.view` to read; subscriber scope; FORCE-RLS notes/events; optimistic versions                                                                  | Append-only notes, support and issue event ledgers plus Operations audit                                                                | Live PostgreSQL 18 intake/SLA/escalation/transition/reopen/redress/scope proof (test-live-customer-service.ts); API and UI suites                     | Omnichannel intake adapters, knowledge base, customer-facing status, satisfaction survey                                             |
 | Communications                       | `partial`                         | Bilingual templates with separated approval, per-channel subscriber consent, notification outbox with rendering, destination resolution, suppression reasons, retry and delivery evidence; product-managed SMTP/SMS/WhatsApp providers                                                                                                            | Template governance `tenant.user.administer`; messaging `tenant.subscriber.edit`; delivery `tenant.secret.manage`; masked destinations for readers                                                         | Append-only consent and communication event ledgers plus Operations audit; delivery recorded per attempt with deterministic keys        | Live PostgreSQL 18 template/consent/queue/delivery proof; API and UI suites; providers remain `activation_required` until credentials are configured  | Scheduled delivery worker, provider receipts/webhooks, event-driven billing and outage notifications                                 |
 | Documents and verification           | `partial`                         | Deterministic bilingual posted-invoice PDFs, private archive/retry/download UI; secure verifier boundary specified                                                                                                                                                                                                                                | Invoice authority; signed scoped FORCE-RLS archive metadata; retained private S3 objects                                                                                                                   | Atomic archive mutation and download audit; retained create-only S3 objects                                                             | Live posted-invoice archive metadata and focused renderer/API/UI proof; no public verifier E2E                                                        | Activate Object Lock storage/restore; uploads/quarantine/scanning, legal hold/disposal and opaque verifier                           |
-| Regulatory and QoS                   | `missing`                         | No obligations/KPI/reporting workspace                                                                                                                                                                                                                                                                                                            | Absent                                                                                                                                                                                                     | None                                                                                                                                    | None                                                                                                                                                  | TRA/license/tariff/QoS evidence model and reproducible submissions                                                                   |
+| Regulatory and QoS                   | `partial`                         | Licence and renewal register, obligations calendar advanced by submissions, KPI definitions with targets, KPI evidence computed from retained outages, alarms, tickets and services with numerators and denominators, submissions with regulator reference and decision, CSV export of evidence                                                   | `tenant.user.administer` to manage; `tenant.report.view`, `tenant.report.export` or `tenant.user.administer` to read; signed context, FORCE RLS                                                            | Operations audit on licences, obligations, KPIs and submissions; append-only regulatory event ledger                                    | Live PostgreSQL 18 KPI/licence/obligation/submission proof (test-live-regulatory-people.ts); API and UI suites                                        | Regulator-specific submission formats and portals, coverage and tariff registers, sampling probes for latency and throughput         |
 | Management analytics                 | `partial`                         | Live operations dashboard computed from real records (collections by channel, receivables, sessions, failed work, audited activity) and nine governed report datasets with CSV export recorded as evidence; no demonstration figures anywhere in the tenant shell                                                                                 | `tenant.dashboard.view`, `tenant.report.view`, `tenant.report.export`; signed read contexts and row policies apply scope; currencies never combined                                                        | Export jobs audited through the operations outbox                                                                                       | Live PostgreSQL 18 dashboard/report/export proof (test-live-analytics.ts); API and UI suites                                                          | Scheduled report delivery, executive trend history, churn and capacity analytics, PDF/XLSX rendering                                 |
-| People operations                    | `missing`                         | IAM identity is not an HR/people operations workflow                                                                                                                                                                                                                                                                                              | Absent                                                                                                                                                                                                     | None                                                                                                                                    | None                                                                                                                                                  | Teams/skills/schedules/leave/training/access-lifecycle without surveillance                                                          |
+| People operations                    | `partial`                         | Teams, one employee record per person linked to the staff identity, shifts and on-call without overlap or leave conflicts, leave decided by another person, training and certification with expiry, technician link                                                                                                                               | `tenant.user.administer` to manage; `tenant.user.administer`, `tenant.installation.view` or `tenant.report.view` to read                                                                                   | Operations audit on teams, employees, shifts and leave; append-only training and people event ledgers                                   | Live PostgreSQL 18 team/employee/shift/leave/training proof (test-live-regulatory-people.ts); API and UI suites                                       | Goals and reviews, payroll through an approved accounting boundary, shift templates and self-service leave from the Collect app      |
 | Security and audit                   | `foundation`                      | Canonical sessions, MFA boundary, scoped grants, tenant auth, staff device administration and immutable evidence exist                                                                                                                                                                                                                            | Central permission catalogue, recent-MFA guards, FORCE RLS and guarded roles/functions                                                                                                                     | Security/control/tenant audit planes                                                                                                    | Deny/isolation/session tests and fresh staff lifecycle proof exist; full DAST review absent                                                           | Complete secure uploads/webhooks, DAST and incident acceptance                                                                       |
 | Integration and data management      | `partial`                         | Versioned API, idempotent operations and provider interfaces exist; lineage/import/webhooks incomplete                                                                                                                                                                                                                                            | Route permissions and guarded worker DB roles                                                                                                                                                              | Outbox/inbox patterns in implemented slices                                                                                             | Finance/network/collect replay tests                                                                                                                  | Mapping/validation, durable webhooks, retention/legal hold, import/export and recovery                                               |
 | Platform operations                  | `partial`                         | Control Center, deployment profiles, health/readiness, backup/rollback kit exist                                                                                                                                                                                                                                                                  | Platform permissions; control clients/subscriptions/deployments/grants                                                                                                                                     | Control audit and observability contracts                                                                                               | Prior release/static/live foundation evidence; production-volume restore/DAST not current                                                             | Tenant exit/export, entitlement UI completeness, independent restore, rollback, load and alert drills                                |
 | Orvex management console             | `partial`                         | Control Center portfolio, client files, packages, subscriptions, billing ledger, deployments, support and audit rendered from signed control-plane reads; client, contact, package, subscription, transition, invoice, payment and allocation mutations with approvals; platform integrations; no demonstration content                           | Platform permissions per read (`platform.client.view`, `platform.billing.view`, `platform.audit.view`) and per mutation; control request context; approvals with fresh MFA                                 | Atomic control audit, approved support grants                                                                                           | Live PostgreSQL 18 control reads proof (test-live-control-portfolio.ts); control repository/live foundation; API and UI suites                        | Deployment summaries need a reporting job from each deployment; entitlement enforcement in tenant workspaces; support desk ticketing |
-| LearnISP                             | `missing`                         | No `/learnisp` application or generated reference                                                                                                                                                                                                                                                                                                 | Public docs only; no runtime authorization required                                                                                                                                                        | Build/link evidence absent                                                                                                              | None                                                                                                                                                  | Build only from implemented behavior after each wave; bilingual search/RTL/direct-route/E2E                                          |
+| LearnISP                             | `partial`                         | Generated bilingual reference at `/learnisp/` with a start page, client-side EN/AR search, one direct route per module with status, related modules and a link to the full manual; built only from the field manual and checked against it in `validate`                                                                                          | Public static files; no runtime authorization                                                                                                                                                              | Generation is deterministic and verified by `learnisp:check`                                                                            | tenant-web suite (routes, languages, RTL, search, empty state)                                                                                        | Browser E2E in CI, deeper per-screen walkthroughs and screenshots, versioned changelog pages                                         |
 
 ## Wave 1 active acceptance ledger
 

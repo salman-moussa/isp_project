@@ -33,7 +33,9 @@
     "security:audit": "node scripts/security/audit-production.mjs",
     "brand:check": "node scripts/brand-check.mjs",
     "smoke:api": "node scripts/smoke-api-artifact.mjs",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run smoke:api && npm run db:check && npm run release:packaging && npm run phase-g:check && npm run security:audit && npm run test:integration"
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run brand:check && npm run learnisp:check && npm run smoke:api && npm run db:check && npm run release:packaging && npm run phase-g:check && npm run security:audit && npm run test:integration",
+    "learnisp:build": "node scripts/learnisp/build.mjs",
+    "learnisp:check": "node scripts/learnisp/build.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "9.35.0",

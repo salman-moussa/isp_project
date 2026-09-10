@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reports · LearnISP</title>
+    <meta name="description" content="Reports in Orvex ISP: Reports Partially delivered Where: Reports. Permissions: tenant.report.view to run, tenant.report.export to export CSV. Nine governed reports computed" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f6f7f5;
+        --surface: #ffffff;
+        --surface-2: #eef1ee;
+        --ink: #172033;
+        --ink-2: #4d5a70;
+        --ink-3: #6b7890;
+        --line: #d8dee6;
+        --line-2: #c4ccd8;
+        --accent: #1d4fc9;
+        --accent-ink: #ffffff;
+        --live: #0b7367;
+        --live-soft: #dff3ee;
+        --partial: #b5690e;
+        --partial-soft: #fdf0d8;
+        --planned: #6b7890;
+        --planned-soft: #e9ecf1;
+        --human: #a3374a;
+        --human-soft: #fbe6ea;
+        --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+        --arabic: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', Tahoma, sans-serif;
+        --serif: 'IBM Plex Serif', Georgia, 'Times New Roman', serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          color-scheme: dark;
+          --paper: #0f141c;
+          --surface: #161d27;
+          --surface-2: #1f2836;
+          --ink: #e8edf4;
+          --ink-2: #b4bfcf;
+          --ink-3: #8c98ab;
+          --line: #2b3646;
+          --line-2: #3a4658;
+          --accent: #7ea2ff;
+          --accent-ink: #0f141c;
+          --live: #5fd0bd;
+          --live-soft: #123b36;
+          --partial: #f0b458;
+          --partial-soft: #3d2c10;
+          --planned: #a9b4c4;
+          --planned-soft: #2a3342;
+          --human: #f08ea0;
+          --human-soft: #45202a;
+        }
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --paper: #0f141c;
+        --surface: #161d27;
+        --surface-2: #1f2836;
+        --ink: #e8edf4;
+        --ink-2: #b4bfcf;
+        --ink-3: #8c98ab;
+        --line: #2b3646;
+        --line-2: #3a4658;
+        --accent: #7ea2ff;
+        --accent-ink: #0f141c;
+        --live: #5fd0bd;
+        --live-soft: #123b36;
+        --partial: #f0b458;
+        --partial-soft: #3d2c10;
+        --planned: #a9b4c4;
+        --planned-soft: #2a3342;
+        --human: #f08ea0;
+        --human-soft: #45202a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--paper);
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      html[dir='rtl'] body {
+        font-family: var(--arabic);
+      }
+      h1,
+      h2,
+      h3,
+      h4 {
+        font-family: var(--serif);
+        font-weight: 600;
+        line-height: 1.2;
+        margin: 0;
+        text-wrap: balance;
+        letter-spacing: -0.01em;
+      }
+      html[dir='rtl'] h1,
+      html[dir='rtl'] h2,
+      html[dir='rtl'] h3,
+      html[dir='rtl'] h4 {
+        font-family: var(--arabic);
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0;
+        max-width: 68ch;
+      }
+      a {
+        color: var(--accent);
+      }
+      code,
+      .mono {
+        font-family: var(--mono);
+        font-size: 0.86em;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .bar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.7rem clamp(1rem, 3vw, 2rem);
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+      }
+      .bar strong {
+        font-family: var(--serif);
+        font-size: 1.05rem;
+      }
+      html[dir='rtl'] .bar strong {
+        font-family: var(--arabic);
+      }
+      .bar .meta {
+        color: var(--ink-3);
+        font-size: 0.85rem;
+      }
+      .bar button {
+        font: inherit;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        padding: 0.4rem 0.8rem;
+        border: 1px solid var(--line-2);
+        border-radius: 0.4rem;
+        background: var(--surface-2);
+        color: var(--ink);
+      }
+      .bar button[aria-pressed='true'] {
+        background: var(--ink);
+        color: var(--paper);
+        border-color: var(--ink);
+      }
+
+      .frame {
+        display: grid;
+        grid-template-columns: 15.5rem minmax(0, 1fr);
+        gap: 2.5rem;
+        max-width: 84rem;
+        margin: 0 auto;
+        padding: 2rem clamp(1rem, 3vw, 2rem) 5rem;
+      }
+      nav.index {
+        position: sticky;
+        top: 4.2rem;
+        align-self: start;
+        font-size: 0.9rem;
+      }
+      nav.index ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.15rem;
+      }
+      nav.index a {
+        display: block;
+        padding: 0.35rem 0.6rem;
+        border-radius: 0.35rem;
+        color: var(--ink-2);
+        text-decoration: none;
+        border-inline-start: 2px solid transparent;
+      }
+      nav.index a:hover {
+        background: var(--surface-2);
+        color: var(--ink);
+      }
+      nav.index .group {
+        margin: 0.9rem 0 0.35rem;
+        padding: 0 0.6rem;
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 600;
+      }
+
+      main {
+        display: grid;
+        gap: 3rem;
+        min-width: 0;
+      }
+      .lede h1 {
+        font-size: clamp(2rem, 4vw, 3rem);
+        max-width: 22ch;
+      }
+      .lede p.sub {
+        margin-top: 1rem;
+        font-size: 1.15rem;
+        color: var(--ink-2);
+        max-width: 60ch;
+      }
+      .facts {
+        margin-top: 1.5rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 0.75rem;
+      }
+      .facts div {
+        padding: 0.8rem 0.95rem;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: var(--surface);
+      }
+      .facts dt {
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 600;
+      }
+      .facts dd {
+        margin: 0.2rem 0 0;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .facts dd small {
+        display: block;
+        font-weight: 400;
+        color: var(--ink-2);
+        font-size: 0.85rem;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin-top: 1.25rem;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.15rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+      .pill::before {
+        content: '';
+        inline-size: 0.5rem;
+        block-size: 0.5rem;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .pill.live {
+        background: var(--live-soft);
+        color: var(--live);
+      }
+      .pill.partial {
+        background: var(--partial-soft);
+        color: var(--partial);
+      }
+      .pill.planned {
+        background: var(--planned-soft);
+        color: var(--planned);
+      }
+      .pill.human {
+        background: var(--human-soft);
+        color: var(--human);
+      }
+
+      section.module {
+        display: grid;
+        gap: 1.1rem;
+        padding-top: 2rem;
+        border-top: 1px solid var(--line);
+        scroll-margin-top: 4.5rem;
+      }
+      section.module header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem 1.5rem;
+      }
+      section.module h2 {
+        font-size: 1.55rem;
+      }
+      .where {
+        color: var(--ink-3);
+        font-size: 0.85rem;
+      }
+      .where code {
+        color: var(--ink-2);
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+        gap: 1.25rem 2rem;
+      }
+      .cols h3 {
+        font-size: 0.78rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-family: var(--sans);
+        font-weight: 600;
+        margin-bottom: 0.45rem;
+      }
+      html[dir='rtl'] .cols h3 {
+        font-family: var(--arabic);
+        letter-spacing: 0;
+      }
+      ul.plain {
+        margin: 0;
+        padding-inline-start: 1.1rem;
+        display: grid;
+        gap: 0.3rem;
+        color: var(--ink-2);
+      }
+      ul.plain li::marker {
+        color: var(--ink-3);
+      }
+      ul.plain strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .rule {
+        padding: 0.75rem 0.95rem;
+        border-inline-start: 3px solid var(--accent);
+        background: var(--surface);
+        border-radius: 0 0.4rem 0.4rem 0;
+        color: var(--ink-2);
+        font-size: 0.95rem;
+      }
+      html[dir='rtl'] .rule {
+        border-radius: 0.4rem 0 0 0.4rem;
+      }
+
+      .table {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: var(--surface);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+        min-width: 40rem;
+      }
+      th,
+      td {
+        text-align: start;
+        padding: 0.55rem 0.8rem;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        font-weight: 600;
+        background: var(--surface-2);
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      td code {
+        white-space: nowrap;
+      }
+
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--ink-2);
+      }
+      .flow span {
+        padding: 0.25rem 0.55rem;
+        border: 1px solid var(--line-2);
+        border-radius: 0.35rem;
+        background: var(--surface);
+      }
+      .flow i {
+        font-style: normal;
+        color: var(--ink-3);
+      }
+
+      .checklist {
+        display: grid;
+        gap: 0.6rem;
+      }
+      .checklist div {
+        display: grid;
+        grid-template-columns: 1.6rem 1fr;
+        gap: 0.6rem;
+        padding: 0.7rem 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: var(--surface);
+      }
+      .checklist b {
+        font-family: var(--mono);
+        font-weight: 500;
+        color: var(--human);
+      }
+      .checklist p {
+        color: var(--ink-2);
+        font-size: 0.95rem;
+      }
+      .checklist p strong {
+        color: var(--ink);
+      }
+
+      [lang='ar'] {
+        display: none;
+      }
+      html[dir='rtl'] [lang='ar'] {
+        display: revert;
+      }
+      html[dir='rtl'] [lang='en'] {
+        display: none;
+      }
+      html[dir='rtl'] .bar [lang='en'],
+      html[dir='rtl'] .bar [lang='ar'] {
+        display: inline;
+      }
+      @media (max-width: 860px) {
+        .frame {
+          grid-template-columns: 1fr;
+        }
+        nav.index {
+          position: static;
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        html {
+          scroll-behavior: smooth;
+        }
+      }
+    
+      .ls-bar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+      .ls-search { display: grid; gap: 0.4rem; margin: 0 0 1.2rem; }
+      .ls-search input { font: inherit; padding: 0.6rem 0.8rem; border: 1px solid var(--line-2); border-radius: 0.6rem; background: var(--surface); color: var(--ink); width: 100%; }
+      .ls-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+      .ls-results li { padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 0.6rem; background: var(--surface); }
+      .ls-results a { font-weight: 600; }
+      .ls-results small { display: block; color: var(--ink-3); }
+      .ls-modules { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0.6rem; }
+      .ls-modules li { padding: 0.8rem 0.9rem; border: 1px solid var(--line); border-radius: 0.7rem; background: var(--surface); display: grid; gap: 0.3rem; }
+      .ls-modules a { font-weight: 600; text-decoration: none; }
+      .ls-crumbs { font-size: 0.85rem; color: var(--ink-3); margin: 0 0 0.6rem; }
+      .ls-crumbs a { color: inherit; }
+      .ls-hidden { display: none !important; }
+      html[lang='en'] [lang='ar'], html[lang='ar'] [lang='en'] { display: none; }
+
+    </style>
+  </head>
+  <body>
+    <div class="bar ls-bar">
+      <div>
+        <strong><a href="/learnisp/" style="text-decoration:none;color:inherit">LearnISP</a></strong>
+        <span class="meta"><span lang="en">Orvex ISP reference · built from release 2026-09-08</span><span lang="ar">مرجع Orvex ISP · مبني من إصدار 2026-09-08</span></span>
+      </div>
+      <div role="group" aria-label="Language">
+        <button type="button" id="lang-en" aria-pressed="true" onclick="setLang('en')">English</button>
+        <button type="button" id="lang-ar" aria-pressed="false" onclick="setLang('ar')">العربية</button>
+      </div>
+    </div>
+    <div class="frame">
+      <nav class="index" aria-label="Modules">
+        <ol>
+          <li><a href="/learnisp/"><span lang="en">Start here</span><span lang="ar">ابدأ هنا</span></a></li>
+          <li><a href="/guide.html"><span lang="en">Full field manual</span><span lang="ar">الدليل الميداني الكامل</span></a></li>
+          <li><a href="/learnisp/access/"><span lang="en">Access & security</span><span lang="ar">الوصول والأمان</span></a></li>
+          <li><a href="/learnisp/activation/"><span lang="en">Activation checklist</span><span lang="ar">قائمة التفعيل</span></a></li>
+          <li><a href="/learnisp/dashboard/"><span lang="en">Operations dashboard</span><span lang="ar">لوحة العمليات</span></a></li>
+          <li><a href="/learnisp/sales/"><span lang="en">Sales & orders</span><span lang="ar">المبيعات والطلبات</span></a></li>
+          <li><a href="/learnisp/subscribers/"><span lang="en">Subscribers</span><span lang="ar">المشتركون</span></a></li>
+          <li><a href="/learnisp/billing/"><span lang="en">Billing & invoices</span><span lang="ar">الفوترة والفواتير</span></a></li>
+          <li><a href="/learnisp/accounting/"><span lang="en">Accounting & ledger</span><span lang="ar">المحاسبة والدفاتر</span></a></li>
+          <li><a href="/learnisp/payments/"><span lang="en">Payments & cashier</span><span lang="ar">الدفعات والصندوق</span></a></li>
+          <li><a href="/learnisp/collectors/"><span lang="en">Collectors</span><span lang="ar">الجباة</span></a></li>
+          <li><a href="/learnisp/network/"><span lang="en">Network & NOC</span><span lang="ar">الشبكة والمراقبة</span></a></li>
+          <li aria-current="page"><a href="/learnisp/reports/"><span lang="en">Reports</span><span lang="ar">التقارير</span></a></li>
+          <li><a href="/learnisp/assurance/"><span lang="en">Revenue assurance</span><span lang="ar">ضمان الإيرادات</span></a></li>
+          <li><a href="/learnisp/dealers/"><span lang="en">Dealers & vouchers</span><span lang="ar">الوكلاء والقسائم</span></a></li>
+          <li><a href="/learnisp/warehouse/"><span lang="en">Warehouse & procurement المستودع والمشتريات</span><span lang="ar">المستودع والمشتريات</span></a></li>
+          <li><a href="/learnisp/field/"><span lang="en">Field service</span><span lang="ar">الخدمة الميدانية</span></a></li>
+          <li><a href="/learnisp/support/"><span lang="en">Customer service</span><span lang="ar">خدمة العملاء</span></a></li>
+          <li><a href="/learnisp/communications/"><span lang="en">Communications</span><span lang="ar">التواصل</span></a></li>
+          <li><a href="/learnisp/regulatory/"><span lang="en">Regulatory & QoS</span><span lang="ar">التنظيم وجودة الخدمة</span></a></li>
+          <li><a href="/learnisp/people/"><span lang="en">People & shifts</span><span lang="ar">الفريق والمناوبات</span></a></li>
+          <li><a href="/learnisp/staff/"><span lang="en">Staff & access</span><span lang="ar">الموظفون والصلاحيات</span></a></li>
+          <li><a href="/learnisp/configuration/"><span lang="en">Configuration & integrations الإعدادات والتكاملات</span><span lang="ar">الإعدادات والتكاملات</span></a></li>
+          <li><a href="/learnisp/control/"><span lang="en">Control Center</span><span lang="ar">مركز التحكم</span></a></li>
+          <li><a href="/learnisp/collect/"><span lang="en">Collect mobile</span><span lang="ar">تطبيق التحصيل</span></a></li>
+          <li><a href="/learnisp/operations/"><span lang="en">Deployment & operations النشر والتشغيل</span><span lang="ar">النشر والتشغيل</span></a></li>
+          <li><a href="/learnisp/roadmap/"><span lang="en">What is still being built ما زال قيد البناء</span><span lang="ar">ما زال قيد البناء</span></a></li>
+        </ol>
+      </nav>
+      <main>
+        
+        <p class="ls-crumbs"><a href="/learnisp/"><span lang="en">LearnISP</span><span lang="ar">تعلّم</span></a> / <span lang="en">Reports</span><span lang="ar">التقارير</span></p>
+        <section class="module" id="reports">
+          <header>
+            <h2><span lang="en">Reports</span><span lang="ar">التقارير</span></h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Reports. Permissions: <code>tenant.report.view</code> to run,
+              <code>tenant.report.export</code> to export CSV.</span
+            ><span lang="ar"
+              >أين: التقارير. الصلاحيات: عرض التقارير للتشغيل، وتصديرها لتصدير CSV.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Nine governed reports computed on request for your scope: receivables aging per
+                  currency, collections by day and channel, subscribers by branch and status, plan
+                  mix and monthly recurring, ticket SLA by priority, incidents and time to resolve,
+                  dealer float and vouchers, revenue assurance exposure, and notification delivery.
+                  Windowed reports default to the last 30 days and accept at most one year.
+                </li>
+                <li lang="ar">
+                  تسعة تقارير محكومة تُحسب عند الطلب ضمن نطاقك: أعمار الذمم لكل عملة، التحصيل حسب
+                  اليوم والقناة، المشتركون حسب الفرع والحالة، مزيج الخطط والإيراد الشهري، مهل
+                  التذاكر حسب الأولوية، الحوادث ومدة الحل، رصيد الوكلاء والقسائم، تعرض ضمان
+                  الإيرادات، وتسليم الإشعارات. التقارير ذات النافذة تعود إلى آخر ٣٠ يوماً وتقبل سنة
+                  كحد أقصى.
+                </li>
+                <li lang="en">
+                  CSV export downloads the rows and records the export with who ran it and how many
+                  rows left the system; the export history is shown on the page.
+                </li>
+                <li lang="ar">
+                  تصدير CSV ينزّل الصفوف ويسجل التصدير مع من شغّله وعدد الصفوف التي غادرت النظام؛
+                  ويُعرض سجل التصدير في الصفحة.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Scheduled report delivery by email, PDF and XLSX rendering, and saved report
+                  views.
+                </li>
+                <li lang="ar">
+                  تسليم التقارير المجدول بالبريد، وإخراج PDF وXLSX، وعروض التقارير المحفوظة.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+        <section class="module"><header><h2><span lang="en">Related modules</span><span lang="ar">وحدات ذات صلة</span></h2></header><ul class="plain"><li><a href="/learnisp/dashboard/"><span lang="en">Operations dashboard</span><span lang="ar">لوحة العمليات</span></a></li><li><a href="/learnisp/network/"><span lang="en">Network & NOC</span><span lang="ar">الشبكة والمراقبة</span></a></li><li><a href="/learnisp/assurance/"><span lang="en">Revenue assurance</span><span lang="ar">ضمان الإيرادات</span></a></li><li><a href="/learnisp/dealers/"><span lang="en">Dealers & vouchers</span><span lang="ar">الوكلاء والقسائم</span></a></li><li><a href="/learnisp/support/"><span lang="en">Customer service</span><span lang="ar">خدمة العملاء</span></a></li><li><a href="/learnisp/communications/"><span lang="en">Communications</span><span lang="ar">التواصل</span></a></li></ul></section>
+
+      </main>
+    </div>
+    <script>
+      function setLang(lang) {
+        var root = document.documentElement;
+        root.lang = lang;
+        root.dir = lang === 'ar' ? 'rtl' : 'ltr';
+        document.getElementById('lang-en').setAttribute('aria-pressed', String(lang === 'en'));
+        document.getElementById('lang-ar').setAttribute('aria-pressed', String(lang === 'ar'));
+        try { localStorage.setItem('orvex-guide-lang', lang); } catch (e) {}
+        if (typeof runSearch === 'function') runSearch();
+      }
+      try {
+        var saved = localStorage.getItem('orvex-guide-lang');
+        if (saved === 'ar' || (!saved && /^ar\b/.test(navigator.language || ''))) setLang('ar');
+      } catch (e) {}
+      var searchIndex = null;
+      function runSearch() {
+        var input = document.getElementById('ls-search');
+        var list = document.getElementById('ls-results');
+        if (!input || !list) return;
+        var query = input.value.trim().toLowerCase();
+        var lang = document.documentElement.lang === 'ar' ? 'ar' : 'en';
+        list.innerHTML = '';
+        if (!query) { list.hidden = true; return; }
+        var load = searchIndex ? Promise.resolve(searchIndex) : fetch('/learnisp/search-index.json').then(function (r) { return r.json(); }).then(function (j) { searchIndex = j; return j; });
+        load.then(function (index) {
+          if (input.value.trim().toLowerCase() !== query) return;
+          var hits = index.filter(function (m) {
+            return (lang === 'ar' ? m.titleAr + ' ' + m.textAr : m.titleEn + ' ' + m.textEn).toLowerCase().indexOf(query) >= 0;
+          });
+          list.hidden = false;
+          if (!hits.length) {
+            var none = document.createElement('li');
+            none.textContent = lang === 'ar' ? 'لا نتائج' : 'No results';
+            list.appendChild(none);
+            return;
+          }
+          hits.forEach(function (m) {
+            var li = document.createElement('li');
+            var a = document.createElement('a');
+            a.href = '/learnisp/' + m.id + '/';
+            a.textContent = lang === 'ar' ? m.titleAr : m.titleEn;
+            var small = document.createElement('small');
+            var hay = lang === 'ar' ? m.textAr : m.textEn;
+            var at = hay.toLowerCase().indexOf(query);
+            small.textContent = hay.slice(Math.max(0, at - 60), at + 120);
+            li.appendChild(a);
+            li.appendChild(small);
+            list.appendChild(li);
+          });
+        });
+      }
+      var searchInput = document.getElementById('ls-search');
+      if (searchInput) searchInput.addEventListener('input', runSearch);
+
+    </script>
+  </body>
+</html>
