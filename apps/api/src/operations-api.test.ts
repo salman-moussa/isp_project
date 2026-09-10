@@ -118,6 +118,15 @@ function writerMocks() {
       ledger: [],
       redemptions: [],
     })),
+    readRegulatoryWorkspace: vi.fn(async () => ({
+      licences: [],
+      obligations: [],
+      kpis: [],
+      submissions: [],
+    })),
+    executeRegulatoryCommand: vi.fn(async () => ({ submissionId: 'sub-a', status: 'draft' })),
+    readPeopleWorkspace: vi.fn(async () => ({ teams: [], employees: [], shifts: [], leave: [] })),
+    executePeopleCommand: vi.fn(async () => ({ employeeId: 'emp-a', version: 1 })),
     readCashierWorkspace: vi.fn(async () => ({ drawers: [], receipts: [], subscribers: [] })),
     executeCashierCommand: vi.fn(async () => ({
       receiptId: 'receipt-a',
@@ -3169,5 +3178,116 @@ describe('cashier and collection routes', () => {
       }),
     );
     await office.app.close();
+  });
+});
+
+describe('regulatory and people routes', () => {
+  it('binds both commands to administration authority and serves windowed workspaces', async () => {
+    const writer = writerMocks();
+    const administrator = await makeApp(
+      { ...claims, permissions: ['tenant.user.administer', 'tenant.report.view'] },
+      writer,
+    );
+    const prepared = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/regulatory/commands`,
+      headers: { 'idempotency-key': 'regulatory-prepare-001' },
+      payload: {
+        command: {
+          action: 'prepare_submission',
+          periodStart: '2026-08-01',
+          periodEnd: '2026-08-31',
+        },
+      },
+    });
+    expect(prepared.statusCode).toBe(201);
+    expect(writer.executeRegulatoryCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.user.administer',
+        auditAction: 'tenant.regulatory.manage',
+      }),
+    );
+    // A submission period that ends before it starts is refused before the database.
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/people/commands`,
+          headers: { 'idempotency-key': 'people-shift-001' },
+          payload: {
+            command: {
+              action: 'schedule_shift',
+              employeeId: 'not-a-uuid',
+              startsAt: 'x',
+              endsAt: 'y',
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const shift = await administrator.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/people/commands`,
+      headers: { 'idempotency-key': 'people-shift-002' },
+      payload: {
+        command: {
+          action: 'schedule_shift',
+          employeeId: '80000000-0000-4000-8000-000000000001',
+          startsAt: '2026-09-11T06:00:00.000Z',
+          endsAt: '2026-09-11T14:00:00.000Z',
+        },
+      },
+    });
+    expect(shift.statusCode).toBe(201);
+    expect(writer.executePeopleCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.user.administer',
+        auditAction: 'tenant.people.manage',
+      }),
+    );
+    const regulatory = await administrator.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/regulatory/workspace?from=2026-08-01&to=2026-08-31`,
+    });
+    expect(regulatory.statusCode).toBe(200);
+    expect(writer.readRegulatoryWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.report.view',
+        query: expect.objectContaining({ from: '2026-08-01', to: '2026-08-31' }) as unknown,
+      }),
+    );
+    expect(
+      (
+        await administrator.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/operations/people/workspace`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    await administrator.app.close();
+
+    const viewer = await makeApp({ ...claims, permissions: ['tenant.report.view'] }, writer);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/regulatory/commands`,
+          headers: { 'idempotency-key': 'regulatory-seed-001' },
+          payload: { command: { action: 'seed_standard_kpis' } },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'GET',
+          url: `/v1/tenants/${tenantId}/operations/people/workspace`,
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
   });
 });

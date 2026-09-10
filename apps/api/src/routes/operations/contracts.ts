@@ -41,6 +41,10 @@ import type {
   NocAlarmCommand,
   NetworkWorkspaceQuery,
   CashierCommand,
+  RegulatoryCommand,
+  RegulatoryQuery,
+  PeopleCommand,
+  PeopleQuery,
   CashierQuery,
   VoidReceiptCommand,
   CollectionManageCommand,
@@ -566,6 +570,22 @@ export interface OperationsWriter {
     input: OperationsMutationContext & {
       readonly request: PeriodCloseRequest;
     },
+  ): Promise<unknown>;
+  readRegulatoryWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<RegulatoryQuery> },
+  ): Promise<unknown>;
+  executeRegulatoryCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: RegulatoryCommand },
+  ): Promise<unknown>;
+  readPeopleWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<PeopleQuery> },
+  ): Promise<unknown>;
+  executePeopleCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: PeopleCommand },
   ): Promise<unknown>;
   readCashierWorkspace(
     tenantId: VerifiedTenantId,

@@ -74,5 +74,6 @@
   "202609090400_tenant_customer_service.sql": "tenant",
   "202609090500_tenant_analytics.sql": "tenant",
   "202609090600_tenant_cashier_collections.sql": "tenant",
-  "202609090700_control_center_portfolio.sql": "control"
+  "202609090700_control_center_portfolio.sql": "control",
+  "202609100100_tenant_regulatory_people.sql": "tenant"
 }

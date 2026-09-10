@@ -23,6 +23,10 @@ import {
   closeAccountingPeriod,
   readDealerWorkspace,
   readCashierWorkspace,
+  executeRegulatoryCommand,
+  readRegulatoryWorkspace,
+  executePeopleCommand,
+  readPeopleWorkspace,
   executeCashierCommand,
   voidReceipt,
   readCollectionsWorkspace,
@@ -155,6 +159,10 @@ export interface OperationsRepositoryAdapter {
   readonly closeAccountingPeriod: typeof closeAccountingPeriod;
   readonly readDealerWorkspace: typeof readDealerWorkspace;
   readonly readCashierWorkspace: typeof readCashierWorkspace;
+  readonly executeRegulatoryCommand: typeof executeRegulatoryCommand;
+  readonly readRegulatoryWorkspace: typeof readRegulatoryWorkspace;
+  readonly executePeopleCommand: typeof executePeopleCommand;
+  readonly readPeopleWorkspace: typeof readPeopleWorkspace;
   readonly executeCashierCommand: typeof executeCashierCommand;
   readonly voidReceipt: typeof voidReceipt;
   readonly readCollectionsWorkspace: typeof readCollectionsWorkspace;
@@ -264,6 +272,10 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   closeAccountingPeriod,
   readDealerWorkspace,
   readCashierWorkspace,
+  executeRegulatoryCommand,
+  readRegulatoryWorkspace,
+  executePeopleCommand,
+  readPeopleWorkspace,
   executeCashierCommand,
   voidReceipt,
   readCollectionsWorkspace,
@@ -1101,6 +1113,46 @@ export class PostgresOperationsService implements OperationsWriter {
     input: WriterInput<'readDealerWorkspace'>,
   ) {
     return this.repository.readDealerWorkspace(this.database, tenantId, {
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readRegulatoryWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readRegulatoryWorkspace'>,
+  ) {
+    return this.repository.readRegulatoryWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeRegulatoryCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeRegulatoryCommand'>,
+  ) {
+    return this.repository.executeRegulatoryCommand(this.database, tenantId, {
+      command: input.command,
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readPeopleWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readPeopleWorkspace'>,
+  ) {
+    return this.repository.readPeopleWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executePeopleCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executePeopleCommand'>,
+  ) {
+    return this.repository.executePeopleCommand(this.database, tenantId, {
+      command: input.command,
       authorization: this.sign(tenantId, input),
     });
   }

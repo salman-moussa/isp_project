@@ -3,6 +3,8 @@ import type {
   NetworkWorkspace,
   DealerWorkspace,
   CashierWorkspace,
+  RegulatoryWorkspace,
+  PeopleWorkspace,
   CollectionsWorkspace,
   AssuranceWorkspace,
   AssuranceQuery,
@@ -1112,6 +1114,34 @@ export async function readDealerWorkspace(session: ApiSession): Promise<DealerWo
   if (!response.ok) throw await staffError(response, 'Dealer workspace');
   return (await response.json()) as DealerWorkspace;
 }
+async function readWindowed<T>(
+  session: ApiSession,
+  path: string,
+  query: { readonly from?: string; readonly to?: string },
+  label: string,
+): Promise<T> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const search = new URLSearchParams();
+  if (query.from) search.set('from', query.from);
+  if (query.to) search.set('to', query.to);
+  const suffix = search.size > 0 ? `?${search.toString()}` : '';
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/${path}${suffix}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, label);
+  return (await response.json()) as T;
+}
+export const readRegulatoryWorkspace = (
+  session: ApiSession,
+  query: { readonly from?: string; readonly to?: string } = {},
+) =>
+  readWindowed<RegulatoryWorkspace>(session, 'regulatory/workspace', query, 'Regulatory workspace');
+export const readPeopleWorkspace = (
+  session: ApiSession,
+  query: { readonly from?: string; readonly to?: string } = {},
+) => readWindowed<PeopleWorkspace>(session, 'people/workspace', query, 'People workspace');
 export async function readCashierWorkspace(
   session: ApiSession,
   query: { readonly search?: string } = {},

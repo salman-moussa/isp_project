@@ -86,6 +86,14 @@ const CollectionsWorkspace = lazy(() =>
     default: module.CollectionsWorkspace,
   })),
 );
+const RegulatoryWorkspace = lazy(() =>
+  import('./regulatory/RegulatoryWorkspace').then((module) => ({
+    default: module.RegulatoryWorkspace,
+  })),
+);
+const PeopleWorkspace = lazy(() =>
+  import('./people/PeopleWorkspace').then((module) => ({ default: module.PeopleWorkspace })),
+);
 const NetworkWorkspace = lazy(() =>
   import('./network/NetworkWorkspace').then((module) => ({
     default: module.NetworkWorkspace,
@@ -213,6 +221,14 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       ) : activeNavigationId === 'dealers' && session ? (
         <WorkspaceBoundary locale={locale}>
           <DealerWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'regulatory' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <RegulatoryWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'people' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <PeopleWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
       ) : activeNavigationId === 'payments' && session ? (
         <WorkspaceBoundary locale={locale}>

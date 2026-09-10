@@ -11,6 +11,7 @@ export * from './revenue-assurance.js';
 export * from './customer-service.js';
 export * from './analytics.js';
 export * from './cashier-collections.js';
+export * from './regulatory-people.js';
 export * from './network-resources.js';
 export * from './identity.js';
 export * from './integrations.js';
