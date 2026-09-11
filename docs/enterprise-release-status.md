@@ -16,22 +16,24 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
-## Production checkpoint deployed — 2026-09-11 (, capacity and upstream)
+## Production checkpoint deployed — 2026-09-11 (`b225c53`, capacity and upstream)
 
-Release id ; the deploy script completed end to end with
+Release id `20260911T131046Z-b225c53`; the deploy script completed end to end with
+`Deployment complete.`
 
-| Item                | Result                                                                    |
-| ------------------- | ------------------------------------------------------------------------- |
-| Artifact            | sha256 , identical local and on-host                                      |
-| Backup              | , verified with SHA256SUMS                                                |
-| Migrations promoted | 1 (); 12 applied files preserved at their applied bytes                   |
-| Endpoints           | 200, 200, 200, 200, 200, 200, 200; unauthenticated capacity workspace 401 |
-| Invariants          | unbalanced journals 0, invalid indexes 0                                  |
+| Item                | Result                                                                                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact            | sha256 `d9a2b59d2d9cb81e377a50d029d0873f4226154c3eeb344a5e4f1ee588f2b739`, identical local and on-host                                                                                                |
+| Backup              | `/opt/orvex-backups/20260911T131046Z-b225c53`, verified with SHA256SUMS                                                                                                                               |
+| Migrations promoted | 1 (`202609100200_tenant_capacity_upstream`); 12 applied files preserved at their applied bytes                                                                                                        |
+| Endpoints           | `/ready` 200, `/` 200, `/control/` 200, `/guide.html` 200, `/learnisp/` 200, `/learnisp/capacity/` 200, `/learnisp/search-index.json` 200; the capacity workspace route answers 401 without a session |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                                                                                                                                              |
 
 What is now live: the Capacity & upstream workspace and its API, the field manual section and the
-LearnISP capacity route, and the ledger's 2026-09-11 release acceptance.
+LearnISP capacity route, and the release acceptance dated 2026-09-11 in this ledger.
 
-Rollback boundary: plus both database dumps and .
+Rollback boundary: `/opt/orvex-backups/20260911T131046Z-b225c53/source.tar` plus both database dumps
+and `env.backup`.
 
 ## Release acceptance — 2026-09-11
 
