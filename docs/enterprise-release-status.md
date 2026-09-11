@@ -17,6 +17,23 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Production checkpoint deployed — 2026-09-11 (`948ae94`, canonical memberships)
+
+Release id `20260911T140432Z-948ae94`; the deploy script completed end to end with
+`Deployment complete.`
+
+| Item                | Result                                                                                                                                                                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact            | sha256 `ebd9e3e166bd4513871a82a7a220e395a0afd0bb12ae95d0be17b2c1a2e06a6e`, identical local and on-host                                                                                                                                          |
+| Backup              | `/opt/orvex-backups/20260911T140432Z-948ae94`, verified with SHA256SUMS                                                                                                                                                                         |
+| Migrations promoted | 2 (`202609110300_control_membership_canonicalize`, `202609110400_tenant_membership_mirror_apply`)                                                                                                                                               |
+| Endpoints           | `/ready` 200, `/` 200, `/control/` 200                                                                                                                                                                                                          |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                                                                                                                                                                                        |
+| Verified after      | the bootstrap membership reads `isp_administrator` with 30 permissions in both the control database and the tenant mirror; 6 stale tenant sessions ended with reason `canonical_permissions_upgraded`; the account keeps `mfa_required = false` |
+
+Rollback boundary: `/opt/orvex-backups/20260911T140432Z-948ae94/source.tar` plus both database dumps
+and `env.backup`.
+
 ## Role presets, legacy bootstrap membership and the membership mirror — 2026-09-11
 
 Found while preparing a workspace for end-to-end testing: the database role presets
