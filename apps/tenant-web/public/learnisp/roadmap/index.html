@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>What is still being built ما زال قيد البناء · LearnISP</title>
-    <meta name="description" content="What is still being built ما زال قيد البناء in Orvex ISP: What is still being built Planned Capability Status What it will add AAA, IPAM, CPE Next RADIUS accounting boundary, address pools and allocation scre" />
+    <meta name="description" content="What is still being built ما زال قيد البناء in Orvex ISP: What is still being built Planned Every module above is described as it runs today. What follows is the honest list of what is not finished, split int" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
     <style>
@@ -496,7 +496,7 @@
     <div class="bar ls-bar">
       <div>
         <strong><a href="/learnisp/" style="text-decoration:none;color:inherit">LearnISP</a></strong>
-        <span class="meta"><span lang="en">Orvex ISP reference · built from release 2026-09-08</span><span lang="ar">مرجع Orvex ISP · مبني من إصدار 2026-09-08</span></span>
+        <span class="meta"><span lang="en">Orvex ISP reference · built from release 2026-09-11</span><span lang="ar">مرجع Orvex ISP · مبني من إصدار 2026-09-11</span></span>
       </div>
       <div role="group" aria-label="Language">
         <button type="button" id="lang-en" aria-pressed="true" onclick="setLang('en')">English</button>
@@ -525,6 +525,7 @@
           <li><a href="/learnisp/field/"><span lang="en">Field service</span><span lang="ar">الخدمة الميدانية</span></a></li>
           <li><a href="/learnisp/support/"><span lang="en">Customer service</span><span lang="ar">خدمة العملاء</span></a></li>
           <li><a href="/learnisp/communications/"><span lang="en">Communications</span><span lang="ar">التواصل</span></a></li>
+          <li><a href="/learnisp/capacity/"><span lang="en">Capacity & upstream السعة والروابط العلوية</span><span lang="ar">السعة والروابط العلوية</span></a></li>
           <li><a href="/learnisp/regulatory/"><span lang="en">Regulatory & QoS</span><span lang="ar">التنظيم وجودة الخدمة</span></a></li>
           <li><a href="/learnisp/people/"><span lang="en">People & shifts</span><span lang="ar">الفريق والمناوبات</span></a></li>
           <li><a href="/learnisp/staff/"><span lang="en">Staff & access</span><span lang="ar">الموظفون والصلاحيات</span></a></li>
@@ -548,73 +549,30 @@
               ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
             >
           </header>
+          <p>
+            <span lang="en"
+              >Every module above is described as it runs today. What follows is the honest list of
+              what is not finished, split into work that still needs code and work that needs a
+              decision, a contract or hardware from the business.</span
+            ><span lang="ar"
+              >كل وحدة أعلاه موصوفة كما تعمل اليوم. ما يلي قائمة صادقة بما لم يكتمل، مقسومة إلى عمل
+              يحتاج برمجة وعمل يحتاج قراراً أو عقداً أو عتاداً من العمل.</span
+            >
+          </p>
           <div class="table">
             <table>
               <thead>
                 <tr>
                   <th><span lang="en">Capability</span><span lang="ar">القدرة</span></th>
                   <th><span lang="en">Status</span><span lang="ar">الحالة</span></th>
-                  <th><span lang="en">What it will add</span><span lang="ar">ما ستضيفه</span></th>
+                  <th><span lang="en">What is missing</span><span lang="ar">ما ينقص</span></th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>
-                    <span lang="en">AAA, IPAM, CPE</span
-                    ><span lang="ar">AAA، العناوين، أجهزة العميل</span>
-                  </td>
-                  <td>
-                    <span class="pill planned"
-                      ><span lang="en">Next</span><span lang="ar">التالي</span></span
-                    >
-                  </td>
-                  <td>
-                    <span lang="en"
-                      >RADIUS accounting boundary, address pools and allocation screens, CPE
-                      provisioning and diagnostics.</span
-                    ><span lang="ar"
-                      >حدود محاسبة RADIUS، مجمّعات العناوين وشاشات التخصيص، تهيئة وتشخيص أجهزة
-                      العميل.</span
-                    >
-                  </td>
-                </tr>
-                <tr>
-                  <td><span lang="en">NOC telemetry</span><span lang="ar">قياس الشبكة</span></td>
-                  <td>
-                    <span class="pill planned"
-                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
-                    >
-                  </td>
-                  <td>
-                    <span lang="en">Alarms, topology, outage impact and SLA evidence.</span
-                    ><span lang="ar"
-                      >التنبيهات والطوبولوجيا وأثر الانقطاع وأدلة اتفاقية الخدمة.</span
-                    >
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <span lang="en">Treasury, revenue assurance, dealers &amp; vouchers</span
-                    ><span lang="ar">الخزينة وضمان الإيراد والوكلاء والقسائم</span>
-                  </td>
-                  <td>
-                    <span class="pill planned"
-                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
-                    >
-                  </td>
-                  <td>
-                    <span lang="en"
-                      >Cashboxes and settlements, leakage cases, dealer commissions and voucher
-                      batches.</span
-                    ><span lang="ar"
-                      >الصناديق والتسويات، حالات التسرب، عمولات الوكلاء ودفعات القسائم.</span
-                    >
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <span lang="en">Customer communications</span
-                    ><span lang="ar">تواصل العملاء</span>
+                    <span lang="en">Capacity &amp; upstream management</span
+                    ><span lang="ar">السعة والروابط العلوية</span>
                   </td>
                   <td>
                     <span class="pill partial"
@@ -623,31 +581,157 @@
                   </td>
                   <td>
                     <span lang="en"
-                      >Providers are configurable and tested today; approved templates, consent and
-                      the delivery worker follow.</span
+                      >The circuit register, recorded utilisation, saturation rating, forecast and
+                      renewals are live; automatic counters from routers, POP, sector and OLT
+                      saturation and provider upgrade orders remain.</span
                     ><span lang="ar"
-                      >المزوّدون قابلون للإعداد والاختبار اليوم؛ القوالب المعتمدة والموافقة وعامل
-                      الإرسال تالية.</span
+                      >سجل الدوائر والاستخدام المسجل وتصنيف التشبع والتوقع والتجديدات مفعّلة؛ تبقى
+                      العدّادات التلقائية من الموجّهات وتشبع نقاط الحضور والقطاعات وأجهزة OLT وطلبات
+                      الترقية إلى المزوّد.</span
                     >
                   </td>
                 </tr>
                 <tr>
                   <td>
-                    <span lang="en">Regulatory, analytics, people operations, LearnISP</span
-                    ><span lang="ar">التنظيم والتحليلات وشؤون الموظفين وLearnISP</span>
+                    <span lang="en">Payment provider channels</span
+                    ><span lang="ar">قنوات مزوّدي الدفع</span>
                   </td>
                   <td>
-                    <span class="pill planned"
-                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+                    <span class="pill human"
+                      ><span lang="en">Needs a contract</span
+                      ><span lang="ar">يحتاج عقداً</span></span
                     >
                   </td>
                   <td>
                     <span lang="en"
-                      >Obligation reporting, executive analytics, scheduling and skills, and the
-                      generated reference site.</span
+                      >Card terminals, bank, OMT, Whish, LibanPost and Cash United adapters with
+                      settlement files and bank deposit reconciliation. The cashier, allocations and
+                      reversals are live; each channel needs its contract and credentials.</span
                     ><span lang="ar"
-                      >تقارير الالتزامات والتحليلات التنفيذية والجدولة والمهارات وموقع المرجع
-                      المولّد.</span
+                      >أجهزة البطاقات والمصرف وOMT وWhish وLibanPost وCash United مع ملفات التسوية
+                      ومطابقة الإيداعات. الصندوق والتخصيصات والعكوس مفعّلة؛ تحتاج كل قناة عقدها
+                      وبيانات اعتمادها.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Collect app release</span
+                    ><span lang="ar">إصدار تطبيق التحصيل</span>
+                  </td>
+                  <td>
+                    <span class="pill human"
+                      ><span lang="en">Needs credentials</span
+                      ><span lang="ar">يحتاج بيانات اعتماد</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >The app talks to the production API today. An Expo/EAS project, Android
+                      signing keys, a Play Console listing and an approved Bluetooth receipt printer
+                      are needed before it can be installed on collectors’ phones.</span
+                    ><span lang="ar"
+                      >يتخاطب التطبيق مع واجهة الإنتاج اليوم. يلزم مشروع Expo/EAS ومفاتيح توقيع
+                      أندرويد وإدراج في Play Console وطابعة إيصالات بلوتوث معتمدة قبل تثبيته على
+                      هواتف الجباة.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Regulator portals and sampling</span
+                    ><span lang="ar">بوابات الجهات المنظمة والقياس</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Licences, obligations, computed KPI evidence and submissions are live;
+                      regulator file formats and portals, tariff and coverage registers, and active
+                      latency and throughput probes remain.</span
+                    ><span lang="ar"
+                      >الرخص والالتزامات وأدلة المؤشرات المحسوبة والتقديمات مفعّلة؛ تبقى صيغ ملفات
+                      الجهات وبواباتها وسجلات التعرفة والتغطية ومجسّات قياس التأخير والسعة.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Deployment reporting</span><span lang="ar">تقارير النشر</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >The Control Center shows each workspace’s health as reported; a reporting job
+                      in every deployment must publish that summary so the deployments page stops
+                      reading “not reporting”.</span
+                    ><span lang="ar"
+                      >يعرض مركز التحكم صحة كل مساحة كما أُبلغت؛ يجب أن تنشر مهمة تبليغ في كل نشر
+                      ذلك الملخص حتى تتوقف صفحة النشر عن إظهار “لا تبلّغ”.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">People operations extras</span
+                    ><span lang="ar">إضافات شؤون الموظفين</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Goals and reviews, shift templates, self-service leave from the mobile app,
+                      and payroll only through an approved accounting boundary.</span
+                    ><span lang="ar"
+                      >الأهداف والتقييمات، وقوالب المناوبات، وطلب الإجازة الذاتي من التطبيق،
+                      والرواتب عبر حد محاسبي معتمد فقط.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Analytics depth</span><span lang="ar">عمق التحليلات</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Scheduled report delivery by email, trend history, churn and capacity
+                      analytics, PDF and XLSX rendering.</span
+                    ><span lang="ar"
+                      >تسليم التقارير المجدول بالبريد، وسجل الاتجاهات، وتحليلات فقدان العملاء
+                      والسعة، وإخراج PDF وXLSX.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td><span lang="en">LearnISP</span><span lang="ar">LearnISP</span></td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >The generated reference with search and direct module routes is live at
+                      /learnisp; browser end-to-end runs in CI and screenshot walkthroughs
+                      remain.</span
+                    ><span lang="ar"
+                      >المرجع المولّد مع البحث والمسارات المباشرة مفعّل على /learnisp؛ تبقى اختبارات
+                      المتصفح في التكامل المستمر وجولات لقطات الشاشة.</span
                     >
                   </td>
                 </tr>

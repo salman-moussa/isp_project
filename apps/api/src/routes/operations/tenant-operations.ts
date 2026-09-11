@@ -9,6 +9,8 @@ import {
   regulatoryQuerySchema,
   peopleCommandSchema,
   peopleQuerySchema,
+  capacityCommandSchema,
+  capacityQuerySchema,
   voidReceiptSchema,
   cashierQuerySchema,
   collectionManageCommandSchema,
@@ -896,6 +898,15 @@ export function registerTenantOperationsRoutes(
       (w, id, v) => w.executePeopleCommand(id, v as never),
     ),
     operation(
+      '/capacity/commands',
+      'executeCapacityCommand',
+      'tenant.network.job.create',
+      'tenant.capacity.manage',
+      'capacity',
+      z.object({ command: capacityCommandSchema }).strict(),
+      (w, id, v) => w.executeCapacityCommand(id, v as never),
+    ),
+    operation(
       '/cashier/commands',
       'executeCashierCommand',
       'tenant.payment.post',
@@ -1740,6 +1751,23 @@ export function registerTenantOperationsRoutes(
     'Tenant people',
     'people-read',
     'Read teams, employees, shifts, leave and training',
+  );
+  registerWorkspaceRead(
+    app,
+    options,
+    {
+      path: '/v1/tenants/:tenantId/operations/capacity/workspace',
+      operationId: 'readCapacityWorkspace',
+      permission: 'tenant.network.view',
+      action: 'tenant.capacity.workspace.read',
+      resourceType: 'capacity_workspace',
+      schema: z.object({}).strict(),
+      querySchema: capacityQuerySchema,
+      execute: (w, id, v) => w.readCapacityWorkspace(id, v as never),
+    },
+    'Tenant capacity',
+    'capacity-read',
+    'Read upstream circuits, utilisation, saturation risk and renewals',
   );
   registerWorkspaceRead(
     app,

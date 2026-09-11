@@ -487,8 +487,8 @@
       <div>
         <strong>Orvex ISP</strong>
         <span class="meta">
-          <span lang="en">Field Manual · release 2026-09-08</span
-          ><span lang="ar">الدليل الميداني · إصدار 2026-09-08</span></span
+          <span lang="en">Field Manual · release 2026-09-11</span
+          ><span lang="ar">الدليل الميداني · إصدار 2026-09-11</span></span
         >
       </div>
       <div role="group" aria-label="Language">
@@ -560,6 +560,10 @@
             <a href="#network"
               ><span lang="en">Network &amp; NOC</span><span lang="ar">الشبكة والمراقبة</span></a
             >
+            <a href="#capacity"
+              ><span lang="en">Capacity &amp; upstream</span
+              ><span lang="ar">السعة والروابط العلوية</span></a
+            >
           </li>
           <li>
             <a href="#assurance"
@@ -585,6 +589,15 @@
             >
             <a href="#support"
               ><span lang="en">Customer service</span><span lang="ar">خدمة العملاء</span></a
+            >
+          </li>
+          <li>
+            <a href="#regulatory"
+              ><span lang="en">Regulatory &amp; QoS</span
+              ><span lang="ar">التنظيم وجودة الخدمة</span></a
+            >
+            <a href="#people"
+              ><span lang="en">People &amp; shifts</span><span lang="ar">الفريق والمناوبات</span></a
             >
           </li>
           <li>
@@ -1933,6 +1946,76 @@
           </div>
         </section>
 
+        <section class="module" id="capacity">
+          <header>
+            <h2>
+              <span lang="en">Capacity &amp; upstream</span
+              ><span lang="ar">السعة والروابط العلوية</span>
+            </h2>
+            <span class="pill partial"
+              ><span lang="en">Partially delivered</span><span lang="ar">منجز جزئياً</span></span
+            >
+          </header>
+          <p class="where">
+            <span lang="en"
+              >Where: Capacity &amp; upstream. Permissions:
+              <code>tenant.network.job.create</code> to register circuits and record samples,
+              <code>tenant.network.view</code> or <code>tenant.report.view</code> to read.</span
+            ><span lang="ar"
+              >أين: السعة والروابط العلوية. الصلاحيات: إنشاء مهام الشبكة لتسجيل الدوائر والعينات،
+              وعرض الشبكة أو عرض التقارير للقراءة.</span
+            >
+          </p>
+          <div class="cols">
+            <div>
+              <h3><span lang="en">Live today</span><span lang="ar">مفعّل اليوم</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  A register of every upstream circuit: transit, peering, Ogero DSL or fibre,
+                  wireless backhaul and leased lines, each with provider, point of presence, branch,
+                  committed and burst capacity, monthly cost in its own currency, contract dates,
+                  renewal notice and SLA availability. Codes are unique, burst can never sit below
+                  committed, and edits carry a version so two people cannot overwrite each other.
+                </li>
+                <li lang="ar">
+                  سجل لكل دائرة علوية: عبور أو تناظر أو أوجيرو DSL أو ألياف أو ربط لاسلكي أو خط
+                  مستأجر، ولكلٍّ مزوّدها ونقطة حضورها وفرعها وسعتها الملتزمة والقصوى وكلفتها الشهرية
+                  بعملتها وتواريخ عقدها وإشعار تجديدها وتوافر اتفاقية خدمتها. الرموز فريدة، ولا يقل
+                  الحد الأقصى عن الملتزم، وتحمل التعديلات إصداراً حتى لا يمحو شخصان عمل بعضهما.
+                </li>
+                <li lang="en">
+                  Utilisation samples recorded per circuit (peak and average, inbound and outbound)
+                  are append-only and never counted twice. From them the workspace derives the
+                  window's peak, utilisation, headroom, a healthy / watch / saturating rating at 75%
+                  and 90% of committed capacity, monthly growth from a linear fit and the months
+                  left before saturation, a trend line per circuit and renewals due within the
+                  notice period. Monthly cost is totalled per currency and never mixed.
+                </li>
+                <li lang="ar">
+                  عينات الاستخدام المسجلة لكل دائرة (الذروة والمتوسط، وارداً وصادراً) لا تُعدّل ولا
+                  تُحتسب مرتين. تشتق منها المساحة ذروة النافذة والاستخدام والهامش وتصنيف سليم /
+                  مراقبة / يقترب من التشبع عند ٧٥٪ و٩٠٪ من الملتزم، والنمو الشهري من ملاءمة خطية
+                  والأشهر المتبقية قبل التشبع، وخط اتجاه لكل دائرة، والتجديدات المستحقة ضمن مهلة
+                  الإشعار. تُجمع الكلفة الشهرية لكل عملة على حدة ولا تُخلط.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3><span lang="en">Not yet</span><span lang="ar">ليس بعد</span></h3>
+              <ul class="plain">
+                <li lang="en">
+                  Automatic samples from router counters, per-POP, sector and OLT saturation,
+                  upgrade orders to the provider, and SLA credit claims.
+                </li>
+                <li lang="ar">
+                  عينات تلقائية من عدّادات الموجّهات، وتشبع نقاط الحضور والقطاعات وأجهزة OLT، وطلبات
+                  الترقية إلى المزوّد، ومطالبات تعويض اتفاقية الخدمة.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
         <section class="module" id="regulatory">
           <header>
             <h2>
@@ -2367,73 +2450,30 @@
               ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
             >
           </header>
+          <p>
+            <span lang="en"
+              >Every module above is described as it runs today. What follows is the honest list of
+              what is not finished, split into work that still needs code and work that needs a
+              decision, a contract or hardware from the business.</span
+            ><span lang="ar"
+              >كل وحدة أعلاه موصوفة كما تعمل اليوم. ما يلي قائمة صادقة بما لم يكتمل، مقسومة إلى عمل
+              يحتاج برمجة وعمل يحتاج قراراً أو عقداً أو عتاداً من العمل.</span
+            >
+          </p>
           <div class="table">
             <table>
               <thead>
                 <tr>
                   <th><span lang="en">Capability</span><span lang="ar">القدرة</span></th>
                   <th><span lang="en">Status</span><span lang="ar">الحالة</span></th>
-                  <th><span lang="en">What it will add</span><span lang="ar">ما ستضيفه</span></th>
+                  <th><span lang="en">What is missing</span><span lang="ar">ما ينقص</span></th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>
-                    <span lang="en">AAA, IPAM, CPE</span
-                    ><span lang="ar">AAA، العناوين، أجهزة العميل</span>
-                  </td>
-                  <td>
-                    <span class="pill planned"
-                      ><span lang="en">Next</span><span lang="ar">التالي</span></span
-                    >
-                  </td>
-                  <td>
-                    <span lang="en"
-                      >RADIUS accounting boundary, address pools and allocation screens, CPE
-                      provisioning and diagnostics.</span
-                    ><span lang="ar"
-                      >حدود محاسبة RADIUS، مجمّعات العناوين وشاشات التخصيص، تهيئة وتشخيص أجهزة
-                      العميل.</span
-                    >
-                  </td>
-                </tr>
-                <tr>
-                  <td><span lang="en">NOC telemetry</span><span lang="ar">قياس الشبكة</span></td>
-                  <td>
-                    <span class="pill planned"
-                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
-                    >
-                  </td>
-                  <td>
-                    <span lang="en">Alarms, topology, outage impact and SLA evidence.</span
-                    ><span lang="ar"
-                      >التنبيهات والطوبولوجيا وأثر الانقطاع وأدلة اتفاقية الخدمة.</span
-                    >
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <span lang="en">Treasury, revenue assurance, dealers &amp; vouchers</span
-                    ><span lang="ar">الخزينة وضمان الإيراد والوكلاء والقسائم</span>
-                  </td>
-                  <td>
-                    <span class="pill planned"
-                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
-                    >
-                  </td>
-                  <td>
-                    <span lang="en"
-                      >Cashboxes and settlements, leakage cases, dealer commissions and voucher
-                      batches.</span
-                    ><span lang="ar"
-                      >الصناديق والتسويات، حالات التسرب، عمولات الوكلاء ودفعات القسائم.</span
-                    >
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <span lang="en">Customer communications</span
-                    ><span lang="ar">تواصل العملاء</span>
+                    <span lang="en">Capacity &amp; upstream management</span
+                    ><span lang="ar">السعة والروابط العلوية</span>
                   </td>
                   <td>
                     <span class="pill partial"
@@ -2442,31 +2482,157 @@
                   </td>
                   <td>
                     <span lang="en"
-                      >Providers are configurable and tested today; approved templates, consent and
-                      the delivery worker follow.</span
+                      >The circuit register, recorded utilisation, saturation rating, forecast and
+                      renewals are live; automatic counters from routers, POP, sector and OLT
+                      saturation and provider upgrade orders remain.</span
                     ><span lang="ar"
-                      >المزوّدون قابلون للإعداد والاختبار اليوم؛ القوالب المعتمدة والموافقة وعامل
-                      الإرسال تالية.</span
+                      >سجل الدوائر والاستخدام المسجل وتصنيف التشبع والتوقع والتجديدات مفعّلة؛ تبقى
+                      العدّادات التلقائية من الموجّهات وتشبع نقاط الحضور والقطاعات وأجهزة OLT وطلبات
+                      الترقية إلى المزوّد.</span
                     >
                   </td>
                 </tr>
                 <tr>
                   <td>
-                    <span lang="en">Regulatory, analytics, people operations, LearnISP</span
-                    ><span lang="ar">التنظيم والتحليلات وشؤون الموظفين وLearnISP</span>
+                    <span lang="en">Payment provider channels</span
+                    ><span lang="ar">قنوات مزوّدي الدفع</span>
                   </td>
                   <td>
-                    <span class="pill planned"
-                      ><span lang="en">Planned</span><span lang="ar">مخطط</span></span
+                    <span class="pill human"
+                      ><span lang="en">Needs a contract</span
+                      ><span lang="ar">يحتاج عقداً</span></span
                     >
                   </td>
                   <td>
                     <span lang="en"
-                      >Obligation reporting, executive analytics, scheduling and skills, and the
-                      generated reference site.</span
+                      >Card terminals, bank, OMT, Whish, LibanPost and Cash United adapters with
+                      settlement files and bank deposit reconciliation. The cashier, allocations and
+                      reversals are live; each channel needs its contract and credentials.</span
                     ><span lang="ar"
-                      >تقارير الالتزامات والتحليلات التنفيذية والجدولة والمهارات وموقع المرجع
-                      المولّد.</span
+                      >أجهزة البطاقات والمصرف وOMT وWhish وLibanPost وCash United مع ملفات التسوية
+                      ومطابقة الإيداعات. الصندوق والتخصيصات والعكوس مفعّلة؛ تحتاج كل قناة عقدها
+                      وبيانات اعتمادها.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Collect app release</span
+                    ><span lang="ar">إصدار تطبيق التحصيل</span>
+                  </td>
+                  <td>
+                    <span class="pill human"
+                      ><span lang="en">Needs credentials</span
+                      ><span lang="ar">يحتاج بيانات اعتماد</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >The app talks to the production API today. An Expo/EAS project, Android
+                      signing keys, a Play Console listing and an approved Bluetooth receipt printer
+                      are needed before it can be installed on collectors’ phones.</span
+                    ><span lang="ar"
+                      >يتخاطب التطبيق مع واجهة الإنتاج اليوم. يلزم مشروع Expo/EAS ومفاتيح توقيع
+                      أندرويد وإدراج في Play Console وطابعة إيصالات بلوتوث معتمدة قبل تثبيته على
+                      هواتف الجباة.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Regulator portals and sampling</span
+                    ><span lang="ar">بوابات الجهات المنظمة والقياس</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Licences, obligations, computed KPI evidence and submissions are live;
+                      regulator file formats and portals, tariff and coverage registers, and active
+                      latency and throughput probes remain.</span
+                    ><span lang="ar"
+                      >الرخص والالتزامات وأدلة المؤشرات المحسوبة والتقديمات مفعّلة؛ تبقى صيغ ملفات
+                      الجهات وبواباتها وسجلات التعرفة والتغطية ومجسّات قياس التأخير والسعة.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Deployment reporting</span><span lang="ar">تقارير النشر</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >The Control Center shows each workspace’s health as reported; a reporting job
+                      in every deployment must publish that summary so the deployments page stops
+                      reading “not reporting”.</span
+                    ><span lang="ar"
+                      >يعرض مركز التحكم صحة كل مساحة كما أُبلغت؛ يجب أن تنشر مهمة تبليغ في كل نشر
+                      ذلك الملخص حتى تتوقف صفحة النشر عن إظهار “لا تبلّغ”.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">People operations extras</span
+                    ><span lang="ar">إضافات شؤون الموظفين</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Goals and reviews, shift templates, self-service leave from the mobile app,
+                      and payroll only through an approved accounting boundary.</span
+                    ><span lang="ar"
+                      >الأهداف والتقييمات، وقوالب المناوبات، وطلب الإجازة الذاتي من التطبيق،
+                      والرواتب عبر حد محاسبي معتمد فقط.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <span lang="en">Analytics depth</span><span lang="ar">عمق التحليلات</span>
+                  </td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >Scheduled report delivery by email, trend history, churn and capacity
+                      analytics, PDF and XLSX rendering.</span
+                    ><span lang="ar"
+                      >تسليم التقارير المجدول بالبريد، وسجل الاتجاهات، وتحليلات فقدان العملاء
+                      والسعة، وإخراج PDF وXLSX.</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td><span lang="en">LearnISP</span><span lang="ar">LearnISP</span></td>
+                  <td>
+                    <span class="pill partial"
+                      ><span lang="en">Partial</span><span lang="ar">جزئي</span></span
+                    >
+                  </td>
+                  <td>
+                    <span lang="en"
+                      >The generated reference with search and direct module routes is live at
+                      /learnisp; browser end-to-end runs in CI and screenshot walkthroughs
+                      remain.</span
+                    ><span lang="ar"
+                      >المرجع المولّد مع البحث والمسارات المباشرة مفعّل على /learnisp؛ تبقى اختبارات
+                      المتصفح في التكامل المستمر وجولات لقطات الشاشة.</span
                     >
                   </td>
                 </tr>

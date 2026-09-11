@@ -1,0 +1,90 @@
+.reg-stats dd small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--reg-muted);
+}
+.reg-pill.is-warn {
+  background: #fbf0dc;
+  color: #7a4b05;
+}
+.reg-pill.is-muted {
+  color: var(--reg-muted);
+}
+.cap-table td {
+  vertical-align: top;
+}
+.cap-meter {
+  position: relative;
+  display: block;
+  min-width: 7rem;
+  height: 1.25rem;
+  border-radius: 0.25rem;
+  background: var(--color-surface-raised, #eef1f4);
+  overflow: hidden;
+}
+.cap-meter > span {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  background: var(--reg-accent);
+}
+.cap-meter > span.is-warn {
+  background: #d99a2b;
+}
+.cap-meter > span.is-bad {
+  background: #b3261e;
+}
+.cap-meter > b {
+  position: relative;
+  display: block;
+  padding-inline: 0.4rem;
+  line-height: 1.25rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.cap-spark {
+  width: 7rem;
+  height: 2.5rem;
+  display: block;
+}
+.cap-spark-line {
+  fill: none;
+  stroke: var(--color-primary, #1d4ed8);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.cap-spark-limit {
+  stroke: #b3261e;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.cap-actions {
+  white-space: nowrap;
+}
+.cap-actions button + button {
+  margin-inline-start: 0.35rem;
+}
+.cap-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+}
+.cap-facts dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--reg-muted);
+}
+.cap-facts dd {
+  margin: 0.15rem 0 0;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .reg-stats {
+    grid-template-columns: repeat(2, minmax(6rem, 1fr));
+  }
+}

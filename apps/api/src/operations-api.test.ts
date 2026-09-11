@@ -127,6 +127,13 @@ function writerMocks() {
     executeRegulatoryCommand: vi.fn(async () => ({ submissionId: 'sub-a', status: 'draft' })),
     readPeopleWorkspace: vi.fn(async () => ({ teams: [], employees: [], shifts: [], leave: [] })),
     executePeopleCommand: vi.fn(async () => ({ employeeId: 'emp-a', version: 1 })),
+    readCapacityWorkspace: vi.fn(async () => ({
+      circuits: [],
+      cost: [],
+      totals: { committedMbps: 0, active: 0, planned: 0, decommissioned: 0 },
+      branches: [],
+    })),
+    executeCapacityCommand: vi.fn(async () => ({ circuitId: 'cir-a', version: 1 })),
     readCashierWorkspace: vi.fn(async () => ({ drawers: [], receipts: [], subscribers: [] })),
     executeCashierCommand: vi.fn(async () => ({
       receiptId: 'receipt-a',
@@ -3285,6 +3292,84 @@ describe('regulatory and people routes', () => {
         await viewer.app.inject({
           method: 'GET',
           url: `/v1/tenants/${tenantId}/operations/people/workspace`,
+        })
+      ).statusCode,
+    ).toBe(403);
+    await viewer.app.close();
+  });
+});
+
+describe('capacity routes', () => {
+  it('binds circuit commands to network job authority and reads the workspace with network view', async () => {
+    const writer = writerMocks();
+    const engineer = await makeApp(
+      { ...claims, permissions: ['tenant.network.job.create', 'tenant.network.view'] },
+      writer,
+    );
+    const created = await engineer.app.inject({
+      method: 'POST',
+      url: `/v1/tenants/${tenantId}/operations/capacity/commands`,
+      headers: { 'idempotency-key': 'capacity-circuit-001' },
+      payload: {
+        command: {
+          action: 'upsert_circuit',
+          code: 'TRANSIT-BEY-1',
+          provider: 'Upstream provider',
+          kind: 'transit',
+          pop: 'Beirut',
+          committedMbps: 1000,
+          monthlyCostMinor: 450000,
+          currency: 'USD',
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(writer.executeCapacityCommand).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.network.job.create',
+        auditAction: 'tenant.capacity.manage',
+      }),
+    );
+    // A sample without an offset-qualified timestamp is refused before the database.
+    expect(
+      (
+        await engineer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/capacity/commands`,
+          headers: { 'idempotency-key': 'capacity-sample-bad' },
+          payload: {
+            command: {
+              action: 'record_samples',
+              circuitId: '10000000-0000-4000-8000-000000000001',
+              samples: [{ sampledAt: '2026-09-10 21:00', peakInMbps: 1, peakOutMbps: 1 }],
+            },
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const workspace = await engineer.app.inject({
+      method: 'GET',
+      url: `/v1/tenants/${tenantId}/operations/capacity/workspace?days=90`,
+    });
+    expect(workspace.statusCode).toBe(200);
+    expect(writer.readCapacityWorkspace).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({
+        permission: 'tenant.network.view',
+        query: expect.objectContaining({ days: 90 }) as unknown,
+      }),
+    );
+    await engineer.app.close();
+
+    const viewer = await makeApp({ ...claims, permissions: ['tenant.network.view'] }, writer);
+    expect(
+      (
+        await viewer.app.inject({
+          method: 'POST',
+          url: `/v1/tenants/${tenantId}/operations/capacity/commands`,
+          headers: { 'idempotency-key': 'capacity-circuit-002' },
+          payload: { command: { action: 'upsert_circuit', code: 'X-1' } },
         })
       ).statusCode,
     ).toBe(403);

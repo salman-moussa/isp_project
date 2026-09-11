@@ -5,6 +5,7 @@ import type {
   CashierWorkspace,
   RegulatoryWorkspace,
   PeopleWorkspace,
+  CapacityWorkspace,
   CollectionsWorkspace,
   AssuranceWorkspace,
   AssuranceQuery,
@@ -1217,4 +1218,18 @@ export async function readNetworkWorkspace(
     throw new TenantApiError(failure.message, response.status);
   }
   return (await response.json()) as NetworkWorkspace;
+}
+export async function readCapacityWorkspace(
+  session: ApiSession,
+  query: { readonly days?: number } = {},
+): Promise<CapacityWorkspace> {
+  if (!session.tenantId) throw new Error('Tenant session required.');
+  const suffix = query.days ? `?days=${query.days}` : '';
+  const response = await fetch(
+    `${session.apiBaseUrl}/v1/tenants/${encodeURIComponent(session.tenantId)}/operations/capacity/workspace${suffix}`,
+    { headers: authorizationHeaders(session) },
+  );
+  if (response.status === 401) session.logout();
+  if (!response.ok) throw await staffError(response, 'Capacity workspace');
+  return (await response.json()) as CapacityWorkspace;
 }

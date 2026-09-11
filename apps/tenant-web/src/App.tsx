@@ -94,6 +94,11 @@ const RegulatoryWorkspace = lazy(() =>
 const PeopleWorkspace = lazy(() =>
   import('./people/PeopleWorkspace').then((module) => ({ default: module.PeopleWorkspace })),
 );
+const CapacityWorkspace = lazy(() =>
+  import('./capacity/CapacityWorkspace').then((module) => ({
+    default: module.CapacityWorkspace,
+  })),
+);
 const NetworkWorkspace = lazy(() =>
   import('./network/NetworkWorkspace').then((module) => ({
     default: module.NetworkWorkspace,
@@ -229,6 +234,10 @@ export function App({ session }: { readonly session?: ApiSession } = {}) {
       ) : activeNavigationId === 'people' && session ? (
         <WorkspaceBoundary locale={locale}>
           <PeopleWorkspace locale={locale} session={session} />
+        </WorkspaceBoundary>
+      ) : activeNavigationId === 'capacity' && session ? (
+        <WorkspaceBoundary locale={locale}>
+          <CapacityWorkspace locale={locale} session={session} />
         </WorkspaceBoundary>
       ) : activeNavigationId === 'payments' && session ? (
         <WorkspaceBoundary locale={locale}>

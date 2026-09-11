@@ -27,6 +27,8 @@ import {
   readRegulatoryWorkspace,
   executePeopleCommand,
   readPeopleWorkspace,
+  executeCapacityCommand,
+  readCapacityWorkspace,
   executeCashierCommand,
   voidReceipt,
   readCollectionsWorkspace,
@@ -163,6 +165,8 @@ export interface OperationsRepositoryAdapter {
   readonly readRegulatoryWorkspace: typeof readRegulatoryWorkspace;
   readonly executePeopleCommand: typeof executePeopleCommand;
   readonly readPeopleWorkspace: typeof readPeopleWorkspace;
+  readonly executeCapacityCommand: typeof executeCapacityCommand;
+  readonly readCapacityWorkspace: typeof readCapacityWorkspace;
   readonly executeCashierCommand: typeof executeCashierCommand;
   readonly voidReceipt: typeof voidReceipt;
   readonly readCollectionsWorkspace: typeof readCollectionsWorkspace;
@@ -276,6 +280,8 @@ const postgresOperationsRepository: OperationsRepositoryAdapter = {
   readRegulatoryWorkspace,
   executePeopleCommand,
   readPeopleWorkspace,
+  executeCapacityCommand,
+  readCapacityWorkspace,
   executeCashierCommand,
   voidReceipt,
   readCollectionsWorkspace,
@@ -1143,6 +1149,26 @@ export class PostgresOperationsService implements OperationsWriter {
   ) {
     return this.repository.readPeopleWorkspace(this.database, tenantId, {
       ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public readCapacityWorkspace(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'readCapacityWorkspace'>,
+  ) {
+    return this.repository.readCapacityWorkspace(this.database, tenantId, {
+      ...(input.query ? { query: input.query } : {}),
+      authorization: this.sign(tenantId, input),
+    });
+  }
+
+  public executeCapacityCommand(
+    tenantId: VerifiedTenantId,
+    input: WriterInput<'executeCapacityCommand'>,
+  ) {
+    return this.repository.executeCapacityCommand(this.database, tenantId, {
+      command: input.command,
       authorization: this.sign(tenantId, input),
     });
   }

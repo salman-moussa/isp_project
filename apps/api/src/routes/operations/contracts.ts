@@ -45,6 +45,8 @@ import type {
   RegulatoryQuery,
   PeopleCommand,
   PeopleQuery,
+  CapacityCommand,
+  CapacityQuery,
   CashierQuery,
   VoidReceiptCommand,
   CollectionManageCommand,
@@ -586,6 +588,14 @@ export interface OperationsWriter {
   executePeopleCommand(
     tenantId: VerifiedTenantId,
     input: OperationsMutationContext & { readonly command: PeopleCommand },
+  ): Promise<unknown>;
+  readCapacityWorkspace(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { query?: Partial<CapacityQuery> },
+  ): Promise<unknown>;
+  executeCapacityCommand(
+    tenantId: VerifiedTenantId,
+    input: OperationsMutationContext & { readonly command: CapacityCommand },
   ): Promise<unknown>;
   readCashierWorkspace(
     tenantId: VerifiedTenantId,
