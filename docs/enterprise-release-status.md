@@ -16,6 +16,23 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Production checkpoint deployed — 2026-09-11 (, capacity and upstream)
+
+Release id ; the deploy script completed end to end with
+
+| Item                | Result                                                                    |
+| ------------------- | ------------------------------------------------------------------------- |
+| Artifact            | sha256 , identical local and on-host                                      |
+| Backup              | , verified with SHA256SUMS                                                |
+| Migrations promoted | 1 (); 12 applied files preserved at their applied bytes                   |
+| Endpoints           | 200, 200, 200, 200, 200, 200, 200; unauthenticated capacity workspace 401 |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                  |
+
+What is now live: the Capacity & upstream workspace and its API, the field manual section and the
+LearnISP capacity route, and the ledger's 2026-09-11 release acceptance.
+
+Rollback boundary: plus both database dumps and .
+
 ## Release acceptance — 2026-09-11
 
 Program status against the controlling map: every capability row now has a production vertical.
