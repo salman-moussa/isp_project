@@ -37,6 +37,20 @@ aligns the mirrored owner and administrator rows in the tenant database so direc
 canonical role with the contracts preset and fails if a legacy key remains; it runs in the
 integration chain after the capacity script.
 
+Applied to production as checkpoint `7fdca86` (release `20260911T134837Z-7fdca86`, backup
+`/opt/orvex-backups/20260911T134837Z-7fdca86`, both migrations promoted, invariants clean): the
+preset function now returns 30 permissions for administrators, but both data statements matched no
+rows. Cause: `tenant_memberships` carries forced row-level security keyed on `app.tenant_id`, and
+the owner role the migrator assumes is subject to it, so without a tenant context the UPDATEs saw
+nothing and finished silently. The same applies to every earlier migration that updated memberships
+in place. Migrations 202609110300_control_membership_canonicalize.sql and
+202609110400_tenant_membership_mirror_apply.sql add idempotent SECURITY DEFINER functions
+(`canonicalize_tenant_memberships()`, `mirror_canonical_admin_memberships()`) that walk every tenant
+under its own context and perform the rename, re-synchronisation, version bump and session
+revocation, then run them once. The live preset check now inserts a legacy `administrator`
+membership with an August snapshot, runs both functions and proves the row becomes the canonical
+administrator preset, and that a second run changes nothing.
+
 Known gap recorded here, not fixed: on the two-database production layout nothing mirrors staff
 memberships from the control database to the tenant database after bootstrap. Staff invited or
 re-assigned through Staff & access sign in with the right permissions, but tenant-side directory

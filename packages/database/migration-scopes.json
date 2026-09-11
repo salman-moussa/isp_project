@@ -78,5 +78,7 @@
   "202609100100_tenant_regulatory_people.sql": "tenant",
   "202609100200_tenant_capacity_upstream.sql": "tenant",
   "202609110100_control_accounting_permissions.sql": "control",
-  "202609110200_tenant_membership_mirror.sql": "tenant"
+  "202609110200_tenant_membership_mirror.sql": "tenant",
+  "202609110300_control_membership_canonicalize.sql": "control",
+  "202609110400_tenant_membership_mirror_apply.sql": "tenant"
 }
