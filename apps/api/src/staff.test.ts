@@ -127,3 +127,33 @@ describe('TenantStaffService', () => {
     );
   });
 });
+
+describe('TenantStaffService directory mirror', () => {
+  it('mirrors the tenant directory after an accepted invitation and a membership change', async () => {
+    const { port: repo } = repository();
+    const sync = vi.fn(async () => ({}));
+    const service = new TenantStaffService(
+      repo,
+      { deliverInvitation: vi.fn(async () => undefined) },
+      Buffer.alloc(32, 7),
+      { now: () => now, mirror: { sync } },
+    );
+    const accepted = await service.accept('token', 'a-long-enough-password', {
+      requestId: 'req-1',
+    });
+    expect(accepted.tenantId).toBe(tenantId);
+    expect(sync).toHaveBeenCalledWith(tenantId);
+    const version = await service.updateMembership(
+      tenantId,
+      '00000000-0000-4000-8000-000000000011',
+      {
+        roleKey: 'cashier',
+        scope: { branchIds: ['00000000-0000-4000-8000-0000000000b1'] },
+        active: true,
+      },
+      { actorId: 'actor', sessionId: 'session', reason: 'role change', requestId: 'req-2' },
+    );
+    expect(version).toBe(2);
+    expect(sync).toHaveBeenCalledTimes(2);
+  });
+});

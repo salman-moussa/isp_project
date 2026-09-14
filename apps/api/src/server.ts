@@ -2,6 +2,9 @@ import {
   createDatabase,
   PostgresAuthRepository,
   PostgresPlatformIntegrationStore,
+  applyTenantDirectoryMirror,
+  listControlTenantIds,
+  readTenantDirectory,
 } from '@isp/database';
 import { S3Client } from '@aws-sdk/client-s3';
 import { S3InvoiceDocumentStore } from './documents/invoice-store.js';
@@ -34,6 +37,7 @@ import {
   PostgresTenantStaffRepository,
 } from './postgres-adapters.js';
 import { TenantStaffService } from './staff.js';
+import { TenantDirectoryMirror } from './directory-mirror.js';
 import { PostgresTenantStaffScopeService } from './staff-scope-service.js';
 
 const config = readConfig(process.env);
@@ -112,6 +116,20 @@ function unavailableAuthDelivery(): never {
     'Production requires INTEGRATION_SECRET_KEY_BASE64 (product-managed SMTP) or AUTH_DELIVERY_BASE_URL.',
   );
 }
+// Staff are authoritative in the control database; the tenant database mirrors the directory so
+// operational rows can reference memberships. Logged through the app once it exists.
+const directoryMirror = new TenantDirectoryMirror(
+  {
+    listTenantIds: () => listControlTenantIds(authControlDatabase.db),
+    read: (tenantId) => readTenantDirectory(authControlDatabase.db, tenantId),
+  },
+  { apply: (snapshot) => applyTenantDirectoryMirror(tenantDatabase.db, snapshot) },
+  {
+    info: (payload, message) => app.log.info(payload, message),
+    warn: (payload, message) => app.log.warn(payload, message),
+  },
+);
+
 const app = await buildApp(config, {
   audit: new PostgresAuditWriter(authControlDatabase.db),
   finance: new PostgresFinanceWriter(tenantDatabase.db, operationsAuthority),
@@ -124,6 +142,7 @@ const app = await buildApp(config, {
     new PostgresTenantStaffRepository(authControlDatabase.db),
     authDelivery,
     tokenDigestSecret,
+    { mirror: directoryMirror },
   ),
   staffScopes: new PostgresTenantStaffScopeService(tenantDatabase.db, operationsAuthority),
   controlCenter: new PostgresControlCenterService(
@@ -192,6 +211,12 @@ process.on('SIGINT', () => void close('SIGINT'));
 process.on('SIGTERM', () => void close('SIGTERM'));
 
 await app.listen({ host: config.HOST, port: config.PORT });
+void directoryMirror.syncAll().catch((error: unknown) => {
+  app.log.warn(
+    { error: error instanceof Error ? error.message : String(error) },
+    'directory mirror reconcile did not run',
+  );
+});
 
 function decodeSecret(value: string, name: string): Uint8Array {
   const decoded = Buffer.from(value, 'base64');

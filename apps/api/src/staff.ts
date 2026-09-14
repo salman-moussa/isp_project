@@ -54,6 +54,11 @@ export interface StaffActorContext extends RequestEvidence {
   readonly idempotencyKey: string;
 }
 
+/** Mirrors one tenant's directory into the tenant database after a membership change. */
+export interface TenantDirectoryMirrorHook {
+  sync(tenantId: VerifiedTenantId): Promise<unknown>;
+}
+
 export interface TenantStaffRepository {
   read(tenantId: VerifiedTenantId): Promise<readonly TenantStaffMember[]>;
   readInvitations(tenantId: VerifiedTenantId, now: Date): Promise<readonly TenantStaffInvitation[]>;
@@ -216,12 +221,20 @@ export class TenantStaffService implements TenantStaffApiService {
   private readonly now: () => Date;
   private readonly invitationTtlMs: number;
 
+  private readonly mirror: TenantDirectoryMirrorHook | undefined;
+
   public constructor(
     private readonly repository: TenantStaffRepository,
     private readonly delivery: StaffInvitationDeliveryAdapter,
     private readonly tokenDigestSecret: Uint8Array,
-    options: { readonly now?: () => Date; readonly invitationTtlMs?: number } = {},
+    options: {
+      readonly now?: () => Date;
+      readonly invitationTtlMs?: number;
+      /** Mirrors the tenant directory into the tenant database after a membership changes. */
+      readonly mirror?: TenantDirectoryMirrorHook;
+    } = {},
   ) {
+    this.mirror = options.mirror;
     if (tokenDigestSecret.byteLength < 32) {
       throw new Error('Staff invitation digest secret must be at least 32 bytes.');
     }
@@ -303,10 +316,11 @@ export class TenantStaffService implements TenantStaffApiService {
       now: this.now(),
     });
     if (result.outcome === 'invalid') throw new StaffInvitationInvalidError();
+    await this.mirror?.sync(result.tenantId as VerifiedTenantId);
     return result;
   }
 
-  public updateMembership(
+  public async updateMembership(
     tenantId: VerifiedTenantId,
     targetUserId: string,
     input: {
@@ -318,7 +332,7 @@ export class TenantStaffService implements TenantStaffApiService {
   ) {
     const preset = tenantRolePreset(input.roleKey);
     validateScope(preset.scopeMode, input.roleKey, input.scope);
-    return this.repository.updateMembership({
+    const version = await this.repository.updateMembership({
       tenantId,
       actorId: actor.actorId,
       sessionId: actor.sessionId,
@@ -332,6 +346,8 @@ export class TenantStaffService implements TenantStaffApiService {
       reason: actor.reason,
       now: this.now(),
     });
+    await this.mirror?.sync(tenantId);
+    return version;
   }
 
   public revokeInvitation(
