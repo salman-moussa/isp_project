@@ -17,6 +17,26 @@ supporting evidence, not end-to-end verification. External providers and hardwar
 - **Acceptance**: composed E2E, failure/security, UI, and production evidence. `None` means the
   capability must not be represented as delivered.
 
+## Production checkpoint deployed — 2026-09-14 (`ec15185`, staff directory mirror)
+
+Release id `20260914T144144Z-ec15185`; the deploy script completed end to end with
+`Deployment complete.`
+
+| Item                | Result                                                                                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact            | sha256 `39c16316931f70c6783bd3cb9015634cd339fa873e5089c3cd2a9d4ce335aa96`, identical local and on-host                                                                      |
+| Backup              | `/opt/orvex-backups/20260914T144144Z-ec15185`, verified with SHA256SUMS                                                                                                     |
+| Migrations promoted | 2 (`202609140100_tenant_directory_mirror`, `202609140200_control_tenant_directory_read`)                                                                                    |
+| Endpoints           | `/ready` 200, `/` 200, `/control/` 200                                                                                                                                      |
+| Invariants          | unbalanced journals 0, invalid indexes 0                                                                                                                                    |
+| Verified after      | the API start-up reconcile logged `directory mirror reconcile finished` with 1 tenant and 0 failures; the tenant mirror lists the administrator with 30 permissions, active |
+
+Evidence before deploy: all gates green; fresh PostgreSQL 18 chain of 23 scripts passed, the preset
+and directory-mirror scripts included.
+
+Rollback boundary: `/opt/orvex-backups/20260914T144144Z-ec15185/source.tar` plus both database dumps
+and `env.backup`.
+
 ## Staff directory mirror between the control and tenant databases — 2026-09-14
 
 Closes the gap recorded on 2026-09-11. Staff identities and memberships are authoritative in the
